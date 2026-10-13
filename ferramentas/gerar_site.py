@@ -5,6 +5,7 @@ Para alterar um texto, edite este arquivo e rode, na pasta do site:
 
     python3 ferramentas/gerar_site.py
 """
+import hashlib
 import json
 from pathlib import Path
 
@@ -82,8 +83,17 @@ FAVICON = (
 )
 
 
+def versao(caminho):
+    """Endereço do arquivo com a versão do conteúdo (?v=...). Quando a imagem, o CSS ou o JS mudam,
+    o endereço muda junto e todo visitante baixa o arquivo novo, sem ficar com a cópia antiga do navegador."""
+    arquivo = RAIZ / caminho
+    if not arquivo.exists():
+        return caminho
+    return f"{caminho}?v={hashlib.sha1(arquivo.read_bytes()).hexdigest()[:8]}"
+
+
 def head(titulo, descricao, com_formulario=False, extra="", indexar=True):
-    tos = '\n  <script src="tos-mecanica.js" defer></script>' if com_formulario else ""
+    tos = f'\n  <script src="{versao("tos-mecanica.js")}" defer></script>' if com_formulario else ""
     robots = "" if indexar else '\n  <meta name="robots" content="noindex">'
     return f"""<!doctype html>
 <html lang="pt-BR">
@@ -100,9 +110,9 @@ def head(titulo, descricao, com_formulario=False, extra="", indexar=True):
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@500;600;700;800&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
-  <script src="config.js"></script>{tos}
-  <script src="main.js" defer></script>{extra}
+  <link rel="stylesheet" href="{versao("styles.css")}">
+  <script src="{versao("config.js")}"></script>{tos}
+  <script src="{versao("main.js")}" defer></script>{extra}
 </head>
 <body>
 """
@@ -470,14 +480,14 @@ NR12_TEXTO = ("Avaliação técnica de conformidade com a NR-12 para equipamento
 def foto_perfil():
     """Foto do card "Sobre o profissional" (img/perfil.jpg); sem a foto, mostra o espaço reservado."""
     if (RAIZ / "img" / "perfil.jpg").exists():
-        return '<div class="profile-midia"><img src="img/perfil.jpg" alt="Marcos Zanette, engenheiro mecânico" loading="lazy"></div>'
+        return f'<div class="profile-midia"><img src="{versao("img/perfil.jpg")}" alt="Marcos Zanette, engenheiro mecânico" loading="lazy"></div>'
     return '<div class="profile-midia photo" role="img" aria-label="Foto do profissional"></div>'
 
 
 def destaque_nr12(itens, extra="", contato="#contato"):
     """Bloco escuro de destaque do Laudo NR-12 (página inicial e página de projetos)."""
     return f"""<article class="nr12-bloco" id="laudo-nr12">
-          <div class="nr12-bloco-img photo" style="--photo:url('img/servicos/laudo-nr12.jpg') 55% 62% / cover no-repeat" role="img" aria-label="Pás carregadeiras de linha amarela"></div>
+          <div class="nr12-bloco-img photo" style="--photo:url('{versao("img/servicos/laudo-nr12.jpg")}') 55% 62% / cover no-repeat" role="img" aria-label="Pás carregadeiras de linha amarela"></div>
           <div class="nr12-bloco-corpo">
             <span class="selo">Destaque</span>
             <h3>Laudo NR-12 para equipamentos móveis</h3>
@@ -506,7 +516,7 @@ def pagina_inicial():
 
     areas = "\n".join(
         f"""          <article class="svc">
-            <div class="svc-img" style="--photo:url('img/servicos/{foto_}.jpg') center / cover no-repeat">
+            <div class="svc-img" style="--photo:url('{versao(f"img/servicos/{foto_}.jpg")}') center / cover no-repeat">
               <span class="svc-icon">{icon(ic)}</span>
             </div>
             <div class="svc-body">
@@ -535,7 +545,7 @@ def pagina_inicial():
           </article>"""
         for tag, titulo, texto, meta in CASOS
     )
-    foto_equip = foto("img/equipamentos.jpg", "img/servicos/insumos.jpg")
+    foto_equip = versao(foto("img/equipamentos.jpg", "img/servicos/insumos.jpg"))
 
     return head(
         "Soluções em Engenharia Mecânica | Laudo NR-12 e Gestão de Frotas",
@@ -544,7 +554,7 @@ def pagina_inicial():
     ) + header("") + f"""
   <main>
     <!-- ============ TOPO ============ -->
-    <section class="band hero" id="inicio" style="--band-img:url('img/hero.jpg')">
+    <section class="band hero" id="inicio" style="--band-img:url('{versao("img/hero.jpg")}')">
       <div class="container">
         <h1>Soluções em Engenharia Mecânica</h1>
         <p class="band-lead">Soluções especializadas em engenharia mecânica para ativos, equipamentos móveis e instalações industriais, com foco em segurança, confiabilidade e desempenho operacional.</p>
@@ -701,7 +711,7 @@ def pagina_projetos():
         for ic, t, d in destaques
     )
     subnav = "\n".join(f'        <a href="#{a}">{t}</a>' for a, t in PROJETOS_MENU)
-    faixa = foto("img/projetos.jpg", "img/servicos/consultoria-frotas.jpg")
+    faixa = versao(foto("img/projetos.jpg", "img/servicos/consultoria-frotas.jpg"))
 
     return head(
         "Projetos de Engenharia Mecânica | Laudo NR-12, Gestão de Frotas e Eletrificação",
@@ -769,7 +779,7 @@ def pagina_projetos():
 
         <h3 class="subhead" id="manutencao-industrial">Manutenção industrial</h3>
         <p class="section-intro">Laudos, consultoria e assessoria técnica para aumentar a disponibilidade e a segurança de máquinas, equipamentos e instalações industriais.</p>
-        <div class="banner-foto photo" style="--photo:url('img/servicos/manutencao-industrial.jpg') center / cover no-repeat" role="img" aria-label="Ilustração de manutenção industrial: conjunto motor-bomba, ponte rolante, painel de comando e vaso de pressão"></div>
+        <div class="banner-foto photo" style="--photo:url('{versao("img/servicos/manutencao-industrial.jpg")}') center / cover no-repeat" role="img" aria-label="Ilustração de manutenção industrial: conjunto motor-bomba, ponte rolante, painel de comando e vaso de pressão"></div>
         <div class="ind-grid">
 {painel("", "clipboard", "Laudos", [
     "Laudos técnicos de máquinas e equipamentos industriais",
@@ -800,7 +810,7 @@ def pagina_projetos():
       <div class="container">
         <h2 class="section-title">Projeto de eletrificação de frota</h2>
         <p class="section-intro">Análise de viabilidade técnica e econômica para a transição de veículos e equipamentos a combustão para modelos elétricos ou híbridos. Metas de descarbonização, exigências de grandes contratantes e a variação do preço do diesel tornam a eletrificação uma decisão estratégica: a análise indica onde ela é viável e em quanto tempo o investimento retorna.</p>
-        <div class="banner-foto photo" style="--photo:url('img/servicos/eletrificacao.jpg') center / cover no-repeat" role="img" aria-label="Ilustração de caminhão elétrico conectado a uma estação de recarga"></div>
+        <div class="banner-foto photo" style="--photo:url('{versao("img/servicos/eletrificacao.jpg")}') center / cover no-repeat" role="img" aria-label="Ilustração de caminhão elétrico conectado a uma estação de recarga"></div>
         {checks([
                 ("Diagnóstico da frota", "Perfil de uso, ciclos de trabalho, quilometragem ou horas trabalhadas, consumo de combustível e custo de manutenção por equipamento."),
                 ("Seleção dos candidatos", "Identificação dos veículos e equipamentos com maior potencial de eletrificação, conforme a operação e a disponibilidade de modelos no mercado."),
@@ -980,7 +990,7 @@ def pagina_servico(p):
     nota = f'\n        <p class="note">{p["nota"]}</p>' if p.get("nota") else ""
     metodo = ""
     foto = RAIZ / "img" / "servicos" / f"{p['foto']}.jpg"
-    faixa = f" style=\"--band-img:url('img/servicos/{foto.name}')\"" if foto.exists() else ""
+    faixa = f" style=\"--band-img:url('{versao(f'img/servicos/{foto.name}')}')\"" if foto.exists() else ""
     fundo_split = "bg-gray"
     if p.get("metodo"):
         etapas = "\n".join(
