@@ -769,7 +769,7 @@ def pagina_projetos():
 
         <h3 class="subhead" id="manutencao-industrial">Manutenção industrial</h3>
         <p class="section-intro">Laudos, consultoria e assessoria técnica para aumentar a disponibilidade e a segurança de máquinas, equipamentos e instalações industriais.</p>
-        <div class="banner-foto photo" style="--photo:url('img/servicos/manutencao-industrial.jpg') center 12% / cover no-repeat" role="img" aria-label="Galpão industrial com plataformas de acesso e painel de comando"></div>
+        <div class="banner-foto photo" style="--photo:url('img/servicos/manutencao-industrial.jpg') center / cover no-repeat" role="img" aria-label="Ilustração de manutenção industrial: conjunto motor-bomba, ponte rolante, painel de comando e vaso de pressão"></div>
         <div class="ind-grid">
 {painel("", "clipboard", "Laudos", [
     "Laudos técnicos de máquinas e equipamentos industriais",
@@ -800,7 +800,7 @@ def pagina_projetos():
       <div class="container">
         <h2 class="section-title">Projeto de eletrificação de frota</h2>
         <p class="section-intro">Análise de viabilidade técnica e econômica para a transição de veículos e equipamentos a combustão para modelos elétricos ou híbridos. Metas de descarbonização, exigências de grandes contratantes e a variação do preço do diesel tornam a eletrificação uma decisão estratégica: a análise indica onde ela é viável e em quanto tempo o investimento retorna.</p>
-        <div class="banner-foto photo" style="--photo:url('img/servicos/eletrificacao.jpg') center 40% / cover no-repeat" role="img" aria-label="Ônibus elétricos em estação de recarga"></div>
+        <div class="banner-foto photo" style="--photo:url('img/servicos/eletrificacao.jpg') center / cover no-repeat" role="img" aria-label="Ilustração de caminhão elétrico conectado a uma estação de recarga"></div>
         {checks([
                 ("Diagnóstico da frota", "Perfil de uso, ciclos de trabalho, quilometragem ou horas trabalhadas, consumo de combustível e custo de manutenção por equipamento."),
                 ("Seleção dos candidatos", "Identificação dos veículos e equipamentos com maior potencial de eletrificação, conforme a operação e a disponibilidade de modelos no mercado."),

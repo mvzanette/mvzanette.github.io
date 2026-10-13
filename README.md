@@ -33,9 +33,11 @@ Enquanto uma foto não existir, o site mostra um espaço reservado com um ícone
 | `img/servicos/consultoria-frotas.jpg`, `eletrificacao.jpg`, `manutencao-industrial.jpg` | Cards de "Projetos" na página inicial: Consultoria para gestão de frotas, Eletrificação de frotas e Manutenção industrial. `eletrificacao` e `manutencao-industrial` também aparecem, em faixa larga, na página Projetos | Horizontal |
 | `img/servicos/laudo-nr12.jpg`, `laudo-nr13.jpg`, `pmoc.jpg` | Faixa do topo das páginas Laudo NR-12, Laudo NR-13 e PMOC (gere as páginas de novo depois de incluir a foto) | Horizontal, 1600 px ou mais |
 
+**Ilustrações:** `eletrificacao.jpg` e `manutencao-industrial.jpg` são ilustrações originais, desenhadas para o site (sem direitos de terceiros). Os desenhos editáveis ficam em `ferramentas/ilustracoes/` (SVG). Para trocar por fotos próprias, basta salvar a foto com o mesmo nome; para gerar o JPG de novo a partir do SVG: `node ferramentas/ilustracoes/renderizar.cjs ferramentas/ilustracoes/eletrificacao.svg img/servicos/eletrificacao.jpg` (precisa do Playwright e do ImageMagick).
+
 Use apenas fotos com direito de uso (próprias, com autorização, ou de bancos de imagem com licença comercial), de preferência sem logos de fabricantes ou placas em destaque.
 
-**Nunca publique** laudos, fotos de laudos, números de série, placas ou códigos internos de clientes. Nas fotos atuais, a placa com o logo do cliente, as placas internas e as etiquetas de equipamento foram desfocadas antes da publicação. A seção "Experiência" traz apenas descrições do tipo de trabalho, sem nomes de clientes.
+**Nunca publique** laudos, fotos de laudos, números de série, placas ou códigos internos de clientes. Na foto do pátio, o número de frota do equipamento foi desfocado antes da publicação. A seção "Experiência" traz apenas descrições do tipo de trabalho, sem nomes de clientes.
 
 ## Alterar textos
 
