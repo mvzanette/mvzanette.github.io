@@ -26,17 +26,16 @@ Enquanto uma foto não existir, o site mostra um espaço reservado com um ícone
 | Arquivo | Onde aparece | Formato ideal |
 | --- | --- | --- |
 | `img/hero.jpg` | Faixa do topo da página inicial, à direita (o texto fica sobre o fundo preto, à esquerda) | Horizontal, 1600 px ou mais |
-| `img/eletrificacao.jpg` | Seção "Projeto de eletrificação de frota" da página Projetos | Vertical ou quadrada |
-| `img/perfil.jpg` | Card "Sobre o profissional" | Vertical ou quadrada |
+| `img/perfil.jpg` | Card "Sobre o profissional" (enquadrada no rosto; no celular aparece acima do texto) | Vertical (retrato) |
 | `img/equipamentos.jpg` | Foto ao lado da lista "Equipamentos atendidos" (enquanto não existir, usa `img/servicos/insumos.jpg`) | Vertical ou quadrada |
 | `img/projetos.jpg` | Faixa do topo da página Projetos (enquanto não existir, usa `img/servicos/consultoria-frotas.jpg`) | Horizontal, 1600 px ou mais |
 | `img/servicos/laudo-nr12.jpg` | Destaque do Laudo NR-12 (página inicial e página Projetos) | Horizontal ou quadrada |
-| `img/servicos/consultoria-frotas.jpg`, `eletrificacao.jpg`, `manutencao-industrial.jpg` | Cards de "Projetos" na página inicial: Consultoria para gestão de frotas, Eletrificação de frotas e Manutenção industrial | Horizontal (16:10) |
+| `img/servicos/consultoria-frotas.jpg`, `eletrificacao.jpg`, `manutencao-industrial.jpg` | Cards de "Projetos" na página inicial: Consultoria para gestão de frotas, Eletrificação de frotas e Manutenção industrial. `eletrificacao` e `manutencao-industrial` também aparecem, em faixa larga, na página Projetos | Horizontal |
 | `img/servicos/laudo-nr12.jpg`, `laudo-nr13.jpg`, `pmoc.jpg` | Faixa do topo das páginas Laudo NR-12, Laudo NR-13 e PMOC (gere as páginas de novo depois de incluir a foto) | Horizontal, 1600 px ou mais |
 
 Use apenas fotos com direito de uso (próprias, com autorização, ou de bancos de imagem com licença comercial), de preferência sem logos de fabricantes ou placas em destaque.
 
-**Nunca publique** laudos, fotos de laudos, números de série, placas ou códigos internos de clientes. A seção "Experiência" traz apenas descrições do tipo de trabalho, sem nomes de clientes.
+**Nunca publique** laudos, fotos de laudos, números de série, placas ou códigos internos de clientes. Nas fotos atuais, a placa com o logo do cliente, as placas internas e as etiquetas de equipamento foram desfocadas antes da publicação. A seção "Experiência" traz apenas descrições do tipo de trabalho, sem nomes de clientes.
 
 ## Alterar textos
 

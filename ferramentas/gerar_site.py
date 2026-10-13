@@ -467,10 +467,17 @@ NR12_TEXTO = ("Avaliação técnica de conformidade com a NR-12 para equipamento
               "com apreciação de riscos, matriz de conformidade e ART registrada no CREA.")
 
 
+def foto_perfil():
+    """Foto do card "Sobre o profissional" (img/perfil.jpg); sem a foto, mostra o espaço reservado."""
+    if (RAIZ / "img" / "perfil.jpg").exists():
+        return '<div class="profile-midia"><img src="img/perfil.jpg" alt="Marcos Zanette, engenheiro mecânico" loading="lazy"></div>'
+    return '<div class="profile-midia photo" role="img" aria-label="Foto do profissional"></div>'
+
+
 def destaque_nr12(itens, extra="", contato="#contato"):
     """Bloco escuro de destaque do Laudo NR-12 (página inicial e página de projetos)."""
     return f"""<article class="nr12-bloco" id="laudo-nr12">
-          <div class="nr12-bloco-img photo" style="--photo:url('img/servicos/laudo-nr12.jpg') center / cover no-repeat" role="img" aria-label="Equipamentos de linha amarela em operação"></div>
+          <div class="nr12-bloco-img photo" style="--photo:url('img/servicos/laudo-nr12.jpg') 55% 62% / cover no-repeat" role="img" aria-label="Pás carregadeiras de linha amarela"></div>
           <div class="nr12-bloco-corpo">
             <span class="selo">Destaque</span>
             <h3>Laudo NR-12 para equipamentos móveis</h3>
@@ -612,7 +619,7 @@ def pagina_inicial():
             ])}
             <div class="years"><strong>10</strong><span>Anos de atuação<br>na área</span></div>
           </div>
-          <div class="profile-img photo" role="img" aria-label="Equipamento de linha amarela"></div>
+          {foto_perfil()}
         </div>
       </div>
     </section>
@@ -762,6 +769,7 @@ def pagina_projetos():
 
         <h3 class="subhead" id="manutencao-industrial">Manutenção industrial</h3>
         <p class="section-intro">Laudos, consultoria e assessoria técnica para aumentar a disponibilidade e a segurança de máquinas, equipamentos e instalações industriais.</p>
+        <div class="banner-foto photo" style="--photo:url('img/servicos/manutencao-industrial.jpg') center 12% / cover no-repeat" role="img" aria-label="Galpão industrial com plataformas de acesso e painel de comando"></div>
         <div class="ind-grid">
 {painel("", "clipboard", "Laudos", [
     "Laudos técnicos de máquinas e equipamentos industriais",
@@ -790,24 +798,20 @@ def pagina_projetos():
     <!-- ============ ELETRIFICAÇÃO ============ -->
     <section id="eletrificacao">
       <div class="container">
-        <div class="feature">
-          <div>
-            <h2 class="section-title">Projeto de eletrificação de frota</h2>
-            <p class="section-intro">Análise de viabilidade técnica e econômica para a transição de veículos e equipamentos a combustão para modelos elétricos ou híbridos. Metas de descarbonização, exigências de grandes contratantes e a variação do preço do diesel tornam a eletrificação uma decisão estratégica: a análise indica onde ela é viável e em quanto tempo o investimento retorna.</p>
-            {checks([
+        <h2 class="section-title">Projeto de eletrificação de frota</h2>
+        <p class="section-intro">Análise de viabilidade técnica e econômica para a transição de veículos e equipamentos a combustão para modelos elétricos ou híbridos. Metas de descarbonização, exigências de grandes contratantes e a variação do preço do diesel tornam a eletrificação uma decisão estratégica: a análise indica onde ela é viável e em quanto tempo o investimento retorna.</p>
+        <div class="banner-foto photo" style="--photo:url('img/servicos/eletrificacao.jpg') center 40% / cover no-repeat" role="img" aria-label="Ônibus elétricos em estação de recarga"></div>
+        {checks([
                 ("Diagnóstico da frota", "Perfil de uso, ciclos de trabalho, quilometragem ou horas trabalhadas, consumo de combustível e custo de manutenção por equipamento."),
                 ("Seleção dos candidatos", "Identificação dos veículos e equipamentos com maior potencial de eletrificação, conforme a operação e a disponibilidade de modelos no mercado."),
                 ("Autonomia e ciclo de operação", "Compatibilidade entre a autonomia das baterias, os turnos de trabalho e as rotas."),
                 ("Infraestrutura de recarga", "Levantamento da demanda de energia e do tipo, da quantidade e da localização dos carregadores, como base para o projeto elétrico."),
                 ("Custo total de propriedade (TCO)", "Comparativo entre aquisição, energia e combustível, manutenção, vida útil das baterias e valor residual, com cálculo do retorno do investimento."),
                 ("Emissões e ESG", "Estimativa da redução de emissões de CO₂ e indicadores para relatórios de sustentabilidade."),
-            ])}
-            <p class="note"><b>Entregável:</b> relatório de viabilidade técnico-econômica, com recomendação por grupo de equipamentos e plano de transição em etapas.</p>
-            <div class="feature-actions">
-              <a class="btn btn-primary" href="#contato">Solicitar proposta</a>
-            </div>
-          </div>
-          <div class="feature-img elec-img photo" role="img" aria-label="Veículo elétrico em recarga"></div>
+            ], cls="checks checks-2")}
+        <p class="note note-largo"><b>Entregável:</b> relatório de viabilidade técnico-econômica, com recomendação por grupo de equipamentos e plano de transição em etapas.</p>
+        <div class="feature-actions">
+          <a class="btn btn-primary" href="#contato">Solicitar proposta</a>
         </div>
       </div>
     </section>
