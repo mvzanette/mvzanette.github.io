@@ -346,9 +346,7 @@ def footer(inicio):
         <div>
           <h3>Equipamentos atendidos</h3>
           <ul>
-            <li><a href="{inicio}#equipamentos">Linha amarela</a></li>
-            <li><a href="{inicio}#equipamentos">Caminhões linha diesel</a></li>
-            <li><a href="{inicio}#equipamentos">Veículos leves e de apoio</a></li>
+{chr(10).join(f'            <li><a href="{inicio}#equipamentos">{titulo}</a></li>' for _, titulo, _ in EQUIPAMENTOS)}
           </ul>
         </div>
         <div>
@@ -392,9 +390,18 @@ def foto(*opcoes):
 # Grupos da seção "Equipamentos atendidos" (uma foto só, ao lado da lista)
 EQUIPAMENTOS = [
     ("track", "Linha amarela", ["Escavadeira hidráulica", "Pá carregadeira", "Trator de esteiras", "Motoniveladora",
-                                "Rolo compactador", "Retroescavadeira", "Minicarregadeira"]),
-    ("truck", "Caminhões linha diesel", ["Caminhão munck", "Caminhão basculante", "Caminhão pipa", "Caminhão comboio"]),
-    ("car", "Veículos leves e de apoio", ["Picapes e utilitários", "Veículos de apoio operacional"]),
+                                "Rolo compactador", "Retroescavadeira", "Minicarregadeira", "Miniescavadeira",
+                                "Trator agrícola"]),
+    ("truck", "Caminhões linha diesel", ["Caminhão munck", "Caminhão basculante", "Caminhão pipa", "Cavalo mecânico",
+                                         "Caminhão cesto aéreo", "Caminhão hidrossemeadura", "Caminhão espargidor",
+                                         "Caminhão lubrificante", "Caminhão poliguindaste"]),
+    ("car", "Veículos leves e de apoio", ["Picapes e utilitários",
+                                          "Veículos de apoio operacional (elétricos, gasolina e diesel)",
+                                          "Ônibus e vans"]),
+    ("forklift", "Máquinas de movimentação de carga", ["Empilhadeiras", "Plataformas elevatórias", "Talhas",
+                                                       "Guinchos", "Paleteiras", "Manipuladores"]),
+    ("plug", "Equipamentos de apoio", ["Geradores", "Motobombas", "Compressores de ar", "Torres de iluminação",
+                                       "Roçadeiras", "Motosserras"]),
 ]
 
 # Cards de "Projetos" na página inicial (o Laudo NR-12 aparece antes, em destaque):
@@ -420,9 +427,9 @@ OUTROS = [
 ]
 
 CASOS = [
-    ("Laudo NR-12", "Caminhão com guindaste hidráulico (munck)", "Apreciação de riscos com HRN e categoria de segurança, análise do sistema hidráulico e da movimentação de cargas, procedimentos operacionais e recomendações dos fabricantes do caminhão e do guindaste.", "Máquina móvel · 2026"),
-    ("Laudo NR-12", "Minicarregadeira em área portuária", "Matriz de conformidade NR-12, análise preliminar de riscos com cálculo HRN, histórico de manutenção preventiva e requisitos de mineração e portos (NR-22 e NR-29).", "Rio de Janeiro · 2026"),
-    ("Vistoria e memorial de cálculo", "Trenó de arraste para 2.000 kg", "Inspeção visual e dimensional, memorial de cálculo estrutural de longarinas, cambão e pontos de içamento, e ART.", "Rio de Janeiro · 2026"),
+    ("Laudo NR-12 e partes móveis", "Caminhão com guindaste hidráulico (munck)", "Apreciação de riscos com HRN e categoria de segurança, análise do sistema hidráulico e da movimentação de cargas, procedimentos operacionais e recomendações dos fabricantes do caminhão e do guindaste.", "Máquina móvel · 2026"),
+    ("Laudo NR-12 e partes móveis", "Minicarregadeira em área portuária", "Matriz de conformidade NR-12, análise preliminar de riscos com cálculo HRN, histórico de manutenção preventiva e requisitos de mineração e portos (NR-22 e NR-29).", "Rio de Janeiro · 2026"),
+    ("Vistoria técnica e memorial de cálculo", "Trenó de arraste para 2.000 kg", "Inspeção visual e dimensional, memorial de cálculo estrutural de longarinas, cambão e pontos de içamento, e ART.", "Rio de Janeiro · 2026"),
     ("PMOC", "Base administrativa com 6 ambientes climatizados", "Levantamento de ocupantes, áreas e carga térmica, com rotinas e periodicidade de manutenção conforme a Lei 13.589/2018 e a Resolução ANVISA RE nº 9/2003.", "Rio de Janeiro · 2026"),
     ("Parecer técnico", "Falha em motor de veículo após a compra", "Testes de ignição e injeção, desmontagem parcial e análise das evidências para apurar a natureza e a extensão do dano.", "Juiz de Fora/MG · 2026"),
 ]
@@ -575,7 +582,7 @@ def pagina_inicial():
           <div class="stat"><strong>4</strong><span>Setores atendidos</span></div>
         </div>
         <div class="scope">
-          <p><b>Equipamentos</b>Linha amarela · Caminhões linha diesel · Veículos leves e de apoio</p>
+          <p><b>Equipamentos</b>Linha amarela · Caminhões linha diesel · Veículos leves e de apoio · Movimentação de carga · Equipamentos de apoio</p>
           <p><b>Setores</b>Mineração · Portos · Óleo e gás · Construção</p>
         </div>
       </div>
@@ -604,7 +611,7 @@ def pagina_inicial():
           <div class="equip-foto photo" style="--photo:url('{foto_equip}') center / cover no-repeat" role="img" aria-label="Equipamentos de linha amarela"></div>
           <div>
             <h2 class="section-title">Equipamentos atendidos</h2>
-            <p class="section-intro">Laudos, inspeções, planos de manutenção e consultoria para equipamentos móveis, caminhões e veículos de apoio.</p>
+            <p class="section-intro">Laudos, inspeções, planos de manutenção e consultoria para equipamentos móveis, caminhões, veículos, máquinas de movimentação de carga e equipamentos de apoio.</p>
             <div class="equip-grupos">
 {grupos}
             </div>
@@ -758,6 +765,7 @@ def pagina_projetos():
       <div class="container">
         <h2 class="section-title">Consultoria em gestão de frotas e ativos</h2>
         <p class="section-intro">Apoio técnico a gestores de frotas e de manutenção industrial, com foco na disponibilidade dos equipamentos, na redução do custo de manutenção e na conformidade com a legislação.</p>
+        <div class="banner-foto photo" style="--photo:url('{versao("img/servicos/consultoria-frotas.jpg")}') center / cover no-repeat" role="img" aria-label="Ilustração de escavadeira, pá carregadeira e caminhão basculante com painéis de plano de manutenção, disponibilidade e custo por hora"></div>
         <div class="fleet-grid">
 {painel("", "presentation", "Consultoria para gestão de frotas", [
     "Diagnóstico da gestão de manutenção: processos, indicadores e histórico de falhas",

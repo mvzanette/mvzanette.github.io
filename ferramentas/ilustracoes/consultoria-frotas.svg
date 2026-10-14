@@ -1,0 +1,218 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2400 1000" width="2400" height="1000">
+  <!-- Ilustração original: consultoria para gestão de frotas (escavadeira, pá carregadeira e caminhão
+       basculante no pátio, com painéis de plano de manutenção, disponibilidade e custo por hora).
+       Área importante concentrada no centro, para funcionar recortada em 16:10 e em faixa larga. -->
+  <defs>
+    <linearGradient id="ceu" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#101215"/>
+      <stop offset="1" stop-color="#22262b"/>
+    </linearGradient>
+    <linearGradient id="chao" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1c1f24"/>
+      <stop offset="1" stop-color="#0e0f11"/>
+    </linearGradient>
+    <linearGradient id="amarelo" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffc928"/>
+      <stop offset="1" stop-color="#d9a300"/>
+    </linearGradient>
+    <linearGradient id="branco" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f4f5f6"/>
+      <stop offset="1" stop-color="#bfc5cc"/>
+    </linearGradient>
+    <radialGradient id="brilho" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#f5b800" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#f5b800" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="vinheta" cx="0.5" cy="0.48" r="0.75">
+      <stop offset="0.55" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.55"/>
+    </radialGradient>
+    <pattern id="grade" width="80" height="80" patternUnits="userSpaceOnUse">
+      <path d="M80 0H0V80" fill="none" stroke="#ffffff" stroke-opacity="0.035" stroke-width="2"/>
+    </pattern>
+  </defs>
+
+  <!-- Fundo com grade técnica -->
+  <rect width="2400" height="1000" fill="url(#ceu)"/>
+  <rect width="2400" height="780" fill="url(#grade)"/>
+
+  <!-- Pilhas de material e oficina ao fundo -->
+  <g fill="#262a30">
+    <path d="M-40 780 Q170 590 430 780 Z"/>
+    <path d="M260 780 Q520 630 820 780 Z"/>
+    <path d="M1680 780 Q1950 580 2230 780 Z"/>
+    <path d="M2060 780 Q2260 640 2460 780 Z"/>
+    <path d="M930 476 L1250 392 L1570 476 Z"/>
+    <rect x="950" y="472" width="600" height="308"/>
+  </g>
+  <rect x="1100" y="560" width="300" height="220" fill="#1c1f23"/>
+  <g stroke="#2b3036" stroke-width="4">
+    <path d="M1100 590 H1400 M1100 622 H1400 M1100 654 H1400 M1100 686 H1400 M1100 718 H1400 M1100 750 H1400"/>
+  </g>
+  <g fill="#f5b800" opacity="0.28">
+    <rect x="985" y="520" width="18" height="12"/><rect x="1025" y="520" width="18" height="12"/><rect x="985" y="556" width="18" height="12"/>
+    <rect x="1460" y="520" width="18" height="12"/><rect x="1500" y="520" width="18" height="12"/><rect x="1500" y="556" width="18" height="12"/>
+  </g>
+
+  <!-- Chão com vagas do pátio -->
+  <rect y="780" width="2400" height="220" fill="url(#chao)"/>
+  <path d="M0 780H2400" stroke="#30353c" stroke-width="3"/>
+  <g stroke="#f5b800" stroke-opacity="0.35" stroke-width="7" stroke-linecap="round">
+    <path d="M425 792 L365 1000"/>
+    <path d="M975 792 L935 1000"/>
+    <path d="M1495 792 L1535 1000"/>
+    <path d="M2015 792 L2075 1000"/>
+  </g>
+
+  <!-- Painel: plano de manutenção -->
+  <g>
+    <rect x="450" y="170" width="250" height="160" rx="14" fill="#1d2025" stroke="#3b4148" stroke-width="2"/>
+    <rect x="472" y="192" width="206" height="16" rx="8" fill="#3b4148"/>
+    <rect x="472" y="192" width="64" height="16" rx="8" fill="#f5b800"/>
+    <g fill="#2b3036">
+      <rect x="476" y="226" width="24" height="24" rx="4"/><rect x="510" y="226" width="24" height="24" rx="4"/><rect x="578" y="226" width="24" height="24" rx="4"/><rect x="612" y="226" width="24" height="24" rx="4"/><rect x="646" y="226" width="24" height="24" rx="4"/>
+      <rect x="476" y="260" width="24" height="24" rx="4"/><rect x="510" y="260" width="24" height="24" rx="4"/><rect x="544" y="260" width="24" height="24" rx="4"/><rect x="578" y="260" width="24" height="24" rx="4"/><rect x="646" y="260" width="24" height="24" rx="4"/>
+      <rect x="476" y="294" width="24" height="24" rx="4"/><rect x="544" y="294" width="24" height="24" rx="4"/><rect x="578" y="294" width="24" height="24" rx="4"/><rect x="612" y="294" width="24" height="24" rx="4"/><rect x="646" y="294" width="24" height="24" rx="4"/>
+    </g>
+    <g fill="#f5b800">
+      <rect x="544" y="226" width="24" height="24" rx="4"/><rect x="612" y="260" width="24" height="24" rx="4"/><rect x="510" y="294" width="24" height="24" rx="4"/>
+    </g>
+  </g>
+  <path d="M520 330 V540" stroke="#f5b800" stroke-width="3" stroke-dasharray="4 12" stroke-linecap="round" opacity="0.7"/>
+
+  <!-- Painel: disponibilidade por equipamento (meta tracejada) -->
+  <g>
+    <rect x="1050" y="146" width="300" height="156" rx="14" fill="#1d2025" stroke="#3b4148" stroke-width="2"/>
+    <circle cx="1080" cy="186" r="8" fill="#f5b800"/>
+    <circle cx="1080" cy="224" r="8" fill="#f5b800"/>
+    <circle cx="1080" cy="262" r="8" fill="#8a929a"/>
+    <g fill="#2b3036">
+      <rect x="1102" y="180" width="222" height="12" rx="6"/>
+      <rect x="1102" y="218" width="222" height="12" rx="6"/>
+      <rect x="1102" y="256" width="222" height="12" rx="6"/>
+    </g>
+    <rect x="1102" y="180" width="204" height="12" rx="6" fill="#f5b800"/>
+    <rect x="1102" y="218" width="190" height="12" rx="6" fill="#f5b800"/>
+    <rect x="1102" y="256" width="142" height="12" rx="6" fill="#8a929a"/>
+    <path d="M1291 168 V280" stroke="#c9ced3" stroke-width="2" stroke-dasharray="6 6"/>
+  </g>
+  <path d="M1198 302 V430" stroke="#f5b800" stroke-width="3" stroke-dasharray="4 12" stroke-linecap="round" opacity="0.7"/>
+
+  <!-- Painel: custo por hora trabalhada em queda -->
+  <g>
+    <rect x="1620" y="170" width="250" height="160" rx="14" fill="#1d2025" stroke="#3b4148" stroke-width="2"/>
+    <path d="M1648 306 H1846 M1648 306 V194" stroke="#3b4148" stroke-width="3" fill="none"/>
+    <path d="M1660 212 L1706 232 L1752 226 L1798 262 L1838 288" fill="none" stroke="#f5b800" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <g fill="#f5b800">
+      <circle cx="1660" cy="212" r="7"/><circle cx="1706" cy="232" r="7"/><circle cx="1752" cy="226" r="7"/><circle cx="1798" cy="262" r="7"/><circle cx="1838" cy="288" r="7"/>
+    </g>
+  </g>
+  <path d="M1760 330 L1882 474" stroke="#f5b800" stroke-width="3" stroke-dasharray="4 12" stroke-linecap="round" opacity="0.7"/>
+
+  <!-- Escavadeira -->
+  <ellipse cx="640" cy="786" rx="230" ry="12" fill="#000000" opacity="0.45"/>
+  <g>
+    <path d="M690 640 L838 470 L900 462" fill="none" stroke="#e8ad00" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M640 652 L790 520" stroke="#2b3036" stroke-width="18" stroke-linecap="round"/>
+    <path d="M758 548 L812 500" stroke="#c9ced3" stroke-width="9" stroke-linecap="round"/>
+    <path d="M900 462 L930 636" stroke="#d9a300" stroke-width="34" stroke-linecap="round"/>
+    <path d="M904 632 L960 624 Q976 686 942 728 L898 712 Q914 674 904 632 Z" fill="#3b4148"/>
+    <path d="M898 712 L942 728" stroke="#6b737b" stroke-width="6" stroke-linecap="round"/>
+    <rect x="450" y="712" width="320" height="68" rx="34" fill="#16181b"/>
+    <rect x="462" y="724" width="296" height="44" rx="22" fill="#2b3036"/>
+    <g fill="#16181b">
+      <circle cx="530" cy="746" r="13"/><circle cx="575" cy="746" r="13"/><circle cx="620" cy="746" r="13"/><circle cx="665" cy="746" r="13"/><circle cx="710" cy="746" r="13"/>
+    </g>
+    <circle cx="488" cy="746" r="22" fill="#3b4148"/>
+    <circle cx="488" cy="746" r="7" fill="#f5b800"/>
+    <circle cx="732" cy="746" r="22" fill="#3b4148"/>
+    <circle cx="732" cy="746" r="7" fill="#f5b800"/>
+    <rect x="540" y="696" width="180" height="18" fill="#23272c"/>
+    <rect x="452" y="616" width="70" height="80" rx="18" fill="#d9a300"/>
+    <rect x="480" y="606" width="250" height="92" rx="12" fill="url(#amarelo)"/>
+    <path d="M500 632 H560 M500 648 H560 M500 664 H560" stroke="#b88a00" stroke-width="5" stroke-linecap="round"/>
+    <path d="M640 608 V514 Q640 504 650 504 H700 L732 548 V608 Z" fill="url(#amarelo)"/>
+    <path d="M652 518 H696 L718 552 H652 Z" fill="#15181c"/>
+    <path d="M676 518 H690 L668 552 H654 Z" fill="#ffffff" opacity="0.09"/>
+  </g>
+
+  <!-- Pá carregadeira -->
+  <ellipse cx="1238" cy="786" rx="250" ry="12" fill="#000000" opacity="0.45"/>
+  <g>
+    <path d="M1010 704 V634 Q1010 612 1032 612 H1196 V704 Z" fill="url(#amarelo)"/>
+    <path d="M1026 628 V690 M1040 628 V690" stroke="#b88a00" stroke-width="4"/>
+    <rect x="1070" y="584" width="12" height="30" rx="3" fill="#2b3036"/>
+    <rect x="1240" y="636" width="112" height="56" rx="6" fill="#d9a300"/>
+    <path d="M1146 614 V512 Q1146 500 1158 500 H1236 Q1248 500 1248 512 V614 Z" fill="url(#amarelo)"/>
+    <rect x="1140" y="492" width="114" height="12" rx="5" fill="#2b3036"/>
+    <rect x="1158" y="514" width="78" height="58" rx="4" fill="#15181c"/>
+    <path d="M1196 514 H1212 L1186 572 H1170 Z" fill="#ffffff" opacity="0.09"/>
+    <circle cx="1098" cy="710" r="82" fill="#15181c"/>
+    <circle cx="1322" cy="710" r="82" fill="#15181c"/>
+    <g>
+      <circle cx="1098" cy="710" r="70" fill="#0b0c0e"/>
+      <circle cx="1098" cy="710" r="61" fill="none" stroke="#24282d" stroke-width="7" stroke-dasharray="10 8"/>
+      <circle cx="1098" cy="710" r="38" fill="#3b4148"/>
+      <circle cx="1098" cy="710" r="38" fill="none" stroke="#6b737b" stroke-width="3"/>
+      <circle cx="1098" cy="710" r="15" fill="#f5b800"/>
+    </g>
+    <g>
+      <circle cx="1322" cy="710" r="70" fill="#0b0c0e"/>
+      <circle cx="1322" cy="710" r="61" fill="none" stroke="#24282d" stroke-width="7" stroke-dasharray="10 8"/>
+      <circle cx="1322" cy="710" r="38" fill="#3b4148"/>
+      <circle cx="1322" cy="710" r="38" fill="none" stroke="#6b737b" stroke-width="3"/>
+      <circle cx="1322" cy="710" r="15" fill="#f5b800"/>
+    </g>
+    <!-- Braço de elevação e caçamba (na frente das rodas, para a máquina ficar reconhecível) -->
+    <path d="M1252 620 L1404 694" stroke="#e8ad00" stroke-width="30" stroke-linecap="round"/>
+    <path d="M1264 596 L1380 646" stroke="#2b3036" stroke-width="12" stroke-linecap="round"/>
+    <path d="M1300 616 L1356 640" stroke="#c9ced3" stroke-width="6" stroke-linecap="round"/>
+    <path d="M1398 650 L1452 636 Q1484 700 1468 766 L1398 766 Q1388 706 1398 650 Z" fill="#3b4148"/>
+    <rect x="1398" y="760" width="72" height="8" rx="2" fill="#6b737b"/>
+    <circle cx="1404" cy="694" r="10" fill="#2b3036"/>
+  </g>
+
+  <!-- Caminhão basculante -->
+  <ellipse cx="1760" cy="786" rx="250" ry="12" fill="#000000" opacity="0.45"/>
+  <g>
+    <rect x="1536" y="690" width="432" height="22" fill="#23272c"/>
+    <path d="M1528 694 L1516 560 H1826 L1814 694 Z" fill="url(#amarelo)"/>
+    <rect x="1510" y="552" width="322" height="12" rx="3" fill="#d9a300"/>
+    <path d="M1590 568 V686 M1660 568 V686 M1730 568 V686" stroke="#c99700" stroke-width="5"/>
+    <path d="M1836 694 V556 Q1836 544 1848 544 H1934 Q1946 544 1954 556 L1982 614 V694 Z" fill="url(#branco)"/>
+    <path d="M1856 560 H1930 L1958 614 H1856 Z" fill="#15181c"/>
+    <path d="M1896 560 H1912 L1888 614 H1872 Z" fill="#ffffff" opacity="0.09"/>
+    <rect x="1836" y="650" width="146" height="14" fill="#f5b800"/>
+    <rect x="1966" y="652" width="28" height="42" rx="5" fill="#2b3036"/>
+    <circle cx="1980" cy="630" r="34" fill="url(#brilho)"/>
+    <rect x="1972" y="620" width="12" height="18" rx="3" fill="#fff4cc"/>
+    <path d="M1840 576 H1824 V616 H1834" fill="none" stroke="#2b3036" stroke-width="6" stroke-linejoin="round"/>
+    <circle cx="1600" cy="722" r="70" fill="#15181c"/>
+    <circle cx="1690" cy="722" r="70" fill="#15181c"/>
+    <circle cx="1910" cy="722" r="70" fill="#15181c"/>
+    <g>
+      <circle cx="1600" cy="722" r="58" fill="#0b0c0e"/>
+      <circle cx="1600" cy="722" r="32" fill="#3b4148"/>
+      <circle cx="1600" cy="722" r="12" fill="#f5b800"/>
+      <circle cx="1690" cy="722" r="58" fill="#0b0c0e"/>
+      <circle cx="1690" cy="722" r="32" fill="#3b4148"/>
+      <circle cx="1690" cy="722" r="12" fill="#f5b800"/>
+      <circle cx="1910" cy="722" r="58" fill="#0b0c0e"/>
+      <circle cx="1910" cy="722" r="32" fill="#3b4148"/>
+      <circle cx="1910" cy="722" r="12" fill="#f5b800"/>
+    </g>
+  </g>
+
+  <!-- Situação de cada equipamento -->
+  <g>
+    <circle cx="520" cy="566" r="24" fill="#f5b800"/>
+    <path d="M509 566 L517 574 L532 558" fill="none" stroke="#16181b" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="1198" cy="456" r="36" fill="none" stroke="#f5b800" stroke-width="3" opacity="0.45"/>
+    <circle cx="1198" cy="456" r="24" fill="#f5b800"/>
+    <path d="M1206 444 A8 8 0 1 0 1210 458 L1190 474 L1184 468 L1200 450 Z" fill="#16181b"/>
+    <circle cx="1894" cy="498" r="24" fill="#f5b800"/>
+    <path d="M1883 498 L1891 506 L1906 490" fill="none" stroke="#16181b" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <rect width="2400" height="1000" fill="url(#vinheta)"/>
+</svg>

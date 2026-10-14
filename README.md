@@ -28,16 +28,16 @@ Enquanto uma foto não existir, o site mostra um espaço reservado com um ícone
 | `img/hero.jpg` | Faixa do topo da página inicial, à direita (o texto fica sobre o fundo preto, à esquerda) | Horizontal, 1600 px ou mais |
 | `img/perfil.jpg` | Card "Sobre o profissional" (enquadrada no rosto; no celular aparece acima do texto) | Vertical (retrato) |
 | `img/equipamentos.jpg` | Foto ao lado da lista "Equipamentos atendidos" (enquanto não existir, usa `img/servicos/insumos.jpg`) | Vertical ou quadrada |
-| `img/projetos.jpg` | Faixa do topo da página Projetos (enquanto não existir, usa `img/servicos/consultoria-frotas.jpg`) | Horizontal, 1600 px ou mais |
+| `img/projetos.jpg` | Faixa do topo da página Projetos (foto do pátio) | Horizontal, 1600 px ou mais |
 | `img/servicos/laudo-nr12.jpg` | Destaque do Laudo NR-12 (página inicial e página Projetos) | Horizontal ou quadrada |
 | `img/servicos/consultoria-frotas.jpg`, `eletrificacao.jpg`, `manutencao-industrial.jpg` | Cards de "Projetos" na página inicial: Consultoria para gestão de frotas, Eletrificação de frotas e Manutenção industrial. `eletrificacao` e `manutencao-industrial` também aparecem, em faixa larga, na página Projetos | Horizontal |
 | `img/servicos/laudo-nr12.jpg`, `laudo-nr13.jpg`, `pmoc.jpg` | Faixa do topo das páginas Laudo NR-12, Laudo NR-13 e PMOC (gere as páginas de novo depois de incluir a foto) | Horizontal, 1600 px ou mais |
 
-**Ilustrações:** `eletrificacao.jpg` e `manutencao-industrial.jpg` são ilustrações originais, desenhadas para o site (sem direitos de terceiros). Os desenhos editáveis ficam em `ferramentas/ilustracoes/` (SVG). Para trocar por fotos próprias, basta salvar a foto com o mesmo nome; para gerar o JPG de novo a partir do SVG: `node ferramentas/ilustracoes/renderizar.cjs ferramentas/ilustracoes/eletrificacao.svg img/servicos/eletrificacao.jpg` (precisa do Playwright e do ImageMagick).
+**Ilustrações:** os três cards de Projetos da página inicial (`consultoria-frotas.jpg`, `eletrificacao.jpg` e `manutencao-industrial.jpg`) usam ilustrações originais, no mesmo estilo, que também aparecem em faixa larga na página Projetos. Foram desenhadas para o site (sem direitos de terceiros). Os desenhos editáveis ficam em `ferramentas/ilustracoes/` (SVG). Para trocar por fotos próprias, basta salvar a foto com o mesmo nome; para gerar o JPG de novo a partir do SVG: `node ferramentas/ilustracoes/renderizar.cjs ferramentas/ilustracoes/eletrificacao.svg img/servicos/eletrificacao.jpg` (precisa do Playwright e do ImageMagick).
 
 Use apenas fotos com direito de uso (próprias, com autorização, ou de bancos de imagem com licença comercial), de preferência sem logos de fabricantes ou placas em destaque.
 
-**Nunca publique** laudos, fotos de laudos, números de série, placas ou códigos internos de clientes. Na foto do pátio, o número de frota do equipamento foi desfocado antes da publicação. A seção "Experiência" traz apenas descrições do tipo de trabalho, sem nomes de clientes.
+**Nunca publique** laudos, fotos de laudos, números de série, placas ou códigos internos de clientes. Na foto do pátio (`img/projetos.jpg`), o número de frota do equipamento foi desfocado antes da publicação. A seção "Experiência" traz apenas descrições do tipo de trabalho, sem nomes de clientes.
 
 ## Alterar textos
 
