@@ -1165,6 +1165,23 @@ svg.i {
   font-size: 0.94rem;
 }
 
+.case-escopo {
+  flex: 0 0 auto !important;
+  margin: -4px 0 10px;
+  font: 600 0.88rem var(--font-head);
+  letter-spacing: 0.02em;
+  color: var(--graphite-700) !important;
+}
+
+.chips-ambientes li {
+  padding: 10px 18px;
+  background: var(--white);
+  border-color: var(--gray-200);
+  border-left: 4px solid var(--yellow);
+  font-size: 0.95rem;
+  color: var(--graphite-900);
+}
+
 .case-meta {
   font: 600 0.8rem var(--font-head);
   letter-spacing: 0.06em;

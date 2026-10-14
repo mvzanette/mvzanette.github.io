@@ -426,13 +426,23 @@ OUTROS = [
     "Veículos, reboques e food trucks",
 ]
 
-CASOS = [
-    ("Laudo NR-12 e partes móveis", "Caminhão com guindaste hidráulico (munck)", "Apreciação de riscos com HRN e categoria de segurança, análise do sistema hidráulico e da movimentação de cargas, procedimentos operacionais e recomendações dos fabricantes do caminhão e do guindaste.", "Máquina móvel · 2026"),
-    ("Laudo NR-12 e partes móveis", "Minicarregadeira em área portuária", "Matriz de conformidade NR-12, análise preliminar de riscos com cálculo HRN, histórico de manutenção preventiva e requisitos de mineração e portos (NR-22 e NR-29).", "Rio de Janeiro · 2026"),
-    ("Vistoria técnica e memorial de cálculo", "Trenó de arraste para 2.000 kg", "Inspeção visual e dimensional, memorial de cálculo estrutural de longarinas, cambão e pontos de içamento, e ART.", "Rio de Janeiro · 2026"),
-    ("PMOC", "Base administrativa com 6 ambientes climatizados", "Levantamento de ocupantes, áreas e carga térmica, com rotinas e periodicidade de manutenção conforme a Lei 13.589/2018 e a Resolução ANVISA RE nº 9/2003.", "Rio de Janeiro · 2026"),
-    ("Parecer técnico", "Falha em motor de veículo após a compra", "Testes de ignição e injeção, desmontagem parcial e análise das evidências para apurar a natureza e a extensão do dano.", "Juiz de Fora/MG · 2026"),
+# Seção "Experiência": área, tipo de trabalho, escopo e descrição (sem clientes nem dados dos laudos)
+EXPERIENCIA = [
+    ("Segurança de máquinas", "Laudo de conformidade NR-12", "Máquinas, veículos e equipamentos",
+     "Apreciação de riscos com cálculo HRN, matriz de conformidade item a item e recomendações técnicas, com ART."),
+    ("Segurança de máquinas", "Laudo de proteção de partes móveis NR-12", "Máquinas, veículos e equipamentos",
+     "Avaliação das proteções fixas e móveis, dos intertravamentos e das distâncias de segurança, com as adequações necessárias."),
+    ("Vasos de pressão", "Laudo NR-13", "Compressores de ar",
+     "Inspeção de segurança do vaso de pressão, dos dispositivos de segurança e da documentação, com ART."),
+    ("Estruturas e içamento", "Vistoria e memorial de cálculo", "Trenó de arraste",
+     "Inspeção visual e dimensional e memorial de cálculo estrutural de longarinas, cambão e pontos de içamento, com ART."),
+    ("Climatização", "PMOC", "Ambientes climatizados",
+     "Levantamento de ocupantes, áreas e carga térmica, com rotinas e periodicidade de manutenção conforme a Lei 13.589/2018."),
+    ("Perícia", "Parecer técnico", "Falhas e vistorias técnicas",
+     "Análise de falhas em equipamentos e veículos, com testes, desmontagem e avaliação das evidências."),
 ]
+
+AMBIENTES = ["Construção civil", "Mineração", "Logística", "Terraplanagem"]
 
 NORMAS_NR12 = [
     "NR-12", "NR-11", "NR-22", "NR-29", "ABNT NBR ISO 12100", "ISO/TR 14121-2", "ABNT NBR 14153",
@@ -545,13 +555,14 @@ def pagina_inicial():
     )
     casos = "\n".join(
         f"""          <article class="case">
-            <span class="case-tag">{tag}</span>
+            <span class="case-tag">{area}</span>
             <h3>{titulo}</h3>
+            <p class="case-escopo">{escopo}</p>
             <p>{texto}</p>
-            <span class="case-meta">{meta}</span>
           </article>"""
-        for tag, titulo, texto, meta in CASOS
+        for area, titulo, escopo, texto in EXPERIENCIA
     )
+    ambientes = "\n".join(f"          <li>{a}</li>" for a in AMBIENTES)
     foto_equip = versao(foto("img/equipamentos.jpg", "img/servicos/insumos.jpg"))
 
     return head(
@@ -646,10 +657,14 @@ def pagina_inicial():
     <section class="bg-gray" id="experiencia">
       <div class="container">
         <h2 class="section-title">Experiência</h2>
-        <p class="section-intro">Laudos e projetos desenvolvidos para grandes empresas de mineração e óleo e gás.</p>
+        <p class="section-intro">Principais laudos, vistorias e pareceres técnicos já realizados.</p>
         <div class="cases">
 {casos}
         </div>
+        <h3 class="subhead">Ambientes de atuação</h3>
+        <ul class="chips chips-ambientes">
+{ambientes}
+        </ul>
       </div>
     </section>
 
