@@ -19,7 +19,8 @@ async function rest(caminho, opcoes = {}) {
     ...opcoes,
     headers: {
       apikey: CHAVE,
-      Authorization: `Bearer ${CHAVE}`,
+      // A chave nova (sb_secret_…) vai só no apikey; a antiga (service_role, JWT) também no Authorization
+      ...(CHAVE.startsWith("sb_") ? {} : { Authorization: `Bearer ${CHAVE}` }),
       "Content-Type": "application/json",
       ...(opcoes.headers || {}),
     },

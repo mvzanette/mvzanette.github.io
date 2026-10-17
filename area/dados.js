@@ -185,7 +185,7 @@ function armazemDemo() {
 
 // ---------------------------------------------------------------- Supabase
 async function armazemSupabase(url, chave) {
-  const { createClient } = await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm");
+  const { createClient } = await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm");
   const sb = createClient(url, chave);
   const falhou = (error) => {
     if (error) throw new Error(error.message);

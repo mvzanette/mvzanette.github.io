@@ -175,9 +175,9 @@ Enquanto `area/config-area.js` estiver vazio, a área restrita funciona em **mod
 5. Em **Authentication → URL Configuration**:
    - *Site URL*: `https://mvzanette.github.io/mzengenharia/`;
    - *Redirect URLs* → **Add URL**: `https://mvzanette.github.io/mzengenharia/area-restrita.html` (para onde volta o link de "Esqueci a senha").
-6. Em **Project Settings → API**, copie:
-   - **Project URL** e a chave **anon public** → cole em `area/config-area.js`;
-   - a chave **service_role** → **não** coloque no site; ela vai só para o GitHub (passo 3).
+6. Em **Project Settings → API Keys**, copie:
+   - **Project URL** e a chave **Publishable** (`sb_publishable_…`, ou a **anon public** nos projetos antigos) → cole em `area/config-area.js`;
+   - a chave **Secret** (`sb_secret_…`, ou a **service_role** nos projetos antigos) → **não** coloque no site; ela vai só para o GitHub (passo 3).
 
 ### 2. Resend (envio dos e-mails – gratuito até 3.000/mês)
 
@@ -204,7 +204,7 @@ Observações:
 
 - O código do site é público, mas os dados não: ficam no Supabase, protegidos pelo login e por regras de acesso no banco (cada usuário só enxerga os próprios registros). Os PDFs ficam em armazenamento privado.
 - **Nunca** coloque PDFs de ART, relatórios ou planilhas exportadas dentro do repositório (o `.gitignore` já bloqueia `.pdf`, `.csv` e `.xlsx`).
-- A chave `service_role` dá acesso total ao banco: guarde-a só nos *Secrets* do GitHub.
+- A chave Secret (`sb_secret_…` ou `service_role`) dá acesso total ao banco: guarde-a só nos *Secrets* do GitHub, no `SUPABASE_SERVICE_ROLE_KEY`.
 
 ## Testes locais
 
