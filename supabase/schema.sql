@@ -162,6 +162,20 @@ create table if not exists public.acessos (
 create index if not exists acessos_perfil_em_idx on public.acessos (perfil_id, em desc);
 create index if not exists acessos_em_idx on public.acessos (em desc);
 
+-- Finanças pessoais: o painel do projeto Financeiro de cada pessoa (gastos, cartão e faturas,
+-- investimentos), importado do arquivo do painel. Separado do controle financeiro da engenharia.
+--   modo: completo (todas as abas) · faturas (só o cartão e as faturas da pessoa)
+create table if not exists public.financas (
+  id             uuid primary key default gen_random_uuid(),
+  perfil_id      uuid not null unique references public.perfis (id) on delete cascade,
+  modo           text not null default 'completo' check (modo in ('completo', 'faturas')),
+  dados          jsonb not null,
+  investimentos  jsonb,
+  arquivo        text,
+  atualizado_em  timestamptz not null default now(),
+  atualizado_por uuid default auth.uid() references auth.users (id) on delete set null
+);
+
 -- ------------------------------------------------------------
 -- Funções e gatilhos
 -- ------------------------------------------------------------
@@ -187,6 +201,10 @@ create trigger lancamentos_atualizado_em before update on public.lancamentos
 
 drop trigger if exists perfis_atualizado_em on public.perfis;
 create trigger perfis_atualizado_em before update on public.perfis
+  for each row execute function public.tocar_atualizado_em();
+
+drop trigger if exists financas_atualizado_em on public.financas;
+create trigger financas_atualizado_em before update on public.financas
   for each row execute function public.tocar_atualizado_em();
 
 -- E-mail sempre em minúsculas; cliente nunca fica com módulo de engenharia
@@ -335,12 +353,13 @@ alter table public.demandas enable row level security;
 alter table public.lancamentos enable row level security;
 alter table public.perfis enable row level security;
 alter table public.acessos enable row level security;
+alter table public.financas enable row level security;
 
 -- Acesso pela API, mesmo em projetos criados sem expor tabelas novas
 -- automaticamente. As políticas abaixo continuam decidindo quais linhas cada um vê.
 grant usage on schema public to authenticated, service_role;
 grant select, insert, update, delete
-  on public.arts, public.alertas, public.demandas, public.lancamentos, public.perfis
+  on public.arts, public.alertas, public.demandas, public.lancamentos, public.perfis, public.financas
   to authenticated, service_role;
 grant select on public.acessos to authenticated;
 grant select, insert, update, delete on public.acessos to service_role;
@@ -396,6 +415,20 @@ drop policy if exists "perfis - excluir" on public.perfis;
 create policy "perfis - excluir" on public.perfis
   for delete to authenticated
   using ((select public.eh_adm()));
+
+-- Finanças pessoais: cada pessoa vê e atualiza o próprio painel (com a permissão do módulo);
+-- o administrador atualiza o painel de quem ele cuida (ex.: as faturas de alguém da família)
+drop policy if exists "financas do proprio perfil" on public.financas;
+create policy "financas do proprio perfil" on public.financas
+  for all to authenticated
+  using (
+    (select public.eh_adm())
+    or ((select public.pode('financas')) and perfil_id in (select id from public.perfis where user_id = auth.uid()))
+  )
+  with check (
+    (select public.eh_adm())
+    or ((select public.pode('financas')) and perfil_id in (select id from public.perfis where user_id = auth.uid()))
+  );
 
 -- Histórico: cada um vê o próprio; o administrador vê todos. Só a função registrar_acesso grava.
 drop policy if exists "acessos - ler" on public.acessos;

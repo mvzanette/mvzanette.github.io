@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Finanças pessoais | Área restrita</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23f5b800'/%3E%3Ctext x='16' y='21.5' text-anchor='middle' font-family='Arial, sans-serif' font-weight='800' font-size='14' fill='%23111214'%3EMZ%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@500;600;700;800&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css?v=12bc86b1">
+  <link rel="stylesheet" href="area.css?v=132826ae">
+  <link rel="stylesheet" href="financas.css?v=c4286246">
+  <script type="importmap" data-versoes>{"imports": {"./art.js": "./art.js?v=92083715", "./config-area.js": "./config-area.js?v=c77553f2", "./conta.js": "./conta.js?v=fdce23ea", "./dados.js": "./dados.js?v=810ad93e", "./demandas.js": "./demandas.js?v=19d8f618", "./financas-importar.js": "./financas-importar.js?v=71dfaaa4", "./financas-painel.js": "./financas-painel.js?v=0895aab9", "./financas.js": "./financas.js?v=bcf0f4fa", "./financeiro.js": "./financeiro.js?v=df2b8fd1", "./inicio.js": "./inicio.js?v=50102e66", "./leitores.js": "./leitores.js?v=2d72bdc2", "./login.js": "./login.js?v=f434d5fc", "./modulos.js": "./modulos.js?v=6a688d4a", "./painel.js": "./painel.js?v=acf70075", "./pdf-texto.js": "./pdf-texto.js?v=b5de895d", "./regras-gestao.js": "./regras-gestao.js?v=107e906a", "./regras.js": "./regras.js?v=3eaec5e4", "./sessao.js": "./sessao.js?v=42a59e9b", "./ui.js": "./ui.js?v=5914aaa4", "./usuarios.js": "./usuarios.js?v=c16ad201", "./vendor/pdf.min.mjs": "./vendor/pdf.min.mjs?v=f548e26b", "./vendor/pdf.worker.min.mjs": "./vendor/pdf.worker.min.mjs?v=8860b503"}}</script>
+  <script type="module" src="financas.js?v=bcf0f4fa"></script>
+</head>
+<body class="area">
+
+  <header class="site-header">
+    <div class="area-esq">
+    <a class="logo" href="../index.html" aria-label="Voltar ao site">
+      <span class="logo-name">Marcos Zanette</span>
+      <span class="logo-sub">Área restrita</span>
+    </a>
+      <div id="menu-area"></div>
+    </div>
+    <div class="area-top" id="area-top" hidden>
+      <span class="usuario" id="usuario"></span>
+      <button class="btn-link" id="btn-sair" type="button">Sair</button>
+    </div>
+  </header>
+
+  <div class="aviso-demo" id="aviso-demo" hidden>
+    <strong>Modo demonstração.</strong> Os dados ficam só neste navegador e os e-mails de alerta não são enviados.
+    Para usar de verdade, configure o Supabase conforme o README.
+    <button class="btn-link" id="btn-limpar-demo" type="button">Apagar dados de teste</button>
+  </div>
+
+  <main class="area-main" id="conteudo" hidden>
+    <nav class="trilha" aria-label="Você está em"><a href="index.html">Início</a> / Pessoal / Finanças pessoais</nav>
+    <div class="area-cabecalho">
+      <h1>Finanças pessoais</h1>
+      <div class="area-acoes">
+        <button class="btn btn-primary" id="btn-importar-fin" type="button">Atualizar dados</button>
+        <a class="btn btn-claro" id="link-claude" href="#" target="_blank" rel="noopener" hidden>Abrir no Claude</a>
+      </div>
+    </div>
+    <p class="fin-status" id="fin-status"></p>
+
+    <!-- Sem dados ainda -->
+    <section class="cartao fin-vazio" id="fin-vazio" hidden>
+      <h2>Traga o painel do projeto Financeiro</h2>
+      <p id="fin-vazio-texto">Os gastos, o cartão e as faturas e os investimentos aparecem aqui depois de importar o arquivo do painel.</p>
+      <ol>
+        <li>Pegue o arquivo do painel gerado pelo projeto Financeiro (o HTML do painel; se precisar, peça no chat do projeto).</li>
+        <li>Clique em <strong>Atualizar dados</strong> e escolha o arquivo.</li>
+        <li>Confira o resumo e clique em <strong>Importar</strong>. Os dados ficam no banco, visíveis só para você.</li>
+      </ol>
+      <button class="btn btn-primary" id="btn-importar-vazio" type="button">Importar arquivo do painel</button>
+    </section>
+
+    <!-- Painel do projeto Financeiro -->
+    <div class="fin-app" id="fin-app" hidden>
+      <div class="abas fin-abas" role="tablist" aria-label="Áreas das finanças" id="fin-abas">
+        <button type="button" role="tab" id="tab-geral" data-aba="geral" aria-controls="view-geral" aria-selected="true">Visão geral<small></small></button>
+        <button type="button" role="tab" id="tab-gastos" data-aba="gastos" aria-controls="view-gastos" aria-selected="false" tabindex="-1">Gastos do dia a dia<small></small></button>
+        <button type="button" role="tab" id="tab-cartao" data-aba="cartao" aria-controls="view-cartao" aria-selected="false" tabindex="-1">Cartão e faturas<small></small></button>
+        <button type="button" role="tab" id="tab-inv" data-aba="investimentos" aria-controls="view-inv" aria-selected="false" tabindex="-1">Investimentos<small></small></button>
+      </div>
+
+      <div class="fin" id="fin-root">
+      <div class="wrap">
+        <section class="view" id="view-geral" role="tabpanel" aria-labelledby="tab-geral">
+          <header class="top">
+            <div>
+              <div class="label">Visão geral</div>
+              <h1 data-dono></h1>
+            </div>
+            <nav class="months" aria-label="Mês"></nav>
+          </header>
+          <div id="alertas" aria-live="polite"></div>
+          <div class="grid">
+            <div class="col">
+              <section class="panel hero" id="hero"></section>
+              <section class="panel" id="comparativo"></section>
+              <section class="panel" id="recorrentes"></section>
+            </div>
+            <div class="col">
+              <section class="panel" id="atalhos"></section>
+              <section class="panel" id="previsao"></section>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-gastos" role="tabpanel" aria-labelledby="tab-gastos" hidden>
+          <header class="top">
+            <div>
+              <div class="label">Gastos do dia a dia</div>
+              <h1 data-dono></h1>
+            </div>
+            <nav class="months" aria-label="Mês"></nav>
+          </header>
+          <div class="grid">
+            <div class="col">
+              <section class="panel" id="g-resumo"></section>
+              <section class="panel" id="g-cats"></section>
+            </div>
+            <div class="col">
+              <section class="panel" id="g-dias"></section>
+              <section class="panel" id="g-lista">
+                <h2>Lançamentos</h2>
+                <div class="filters">
+                  <label for="g-fcat">Categoria<select id="g-fcat"></select></label>
+                  <label for="g-fforma">Forma<select id="g-fforma"></select></label>
+                  <label for="g-busca" class="grow">Buscar<input id="g-busca" type="search" placeholder="ex.: almoço" autocomplete="off"></label>
+                </div>
+                <div id="g-itens"></div>
+              </section>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-cartao" role="tabpanel" aria-labelledby="tab-cartao" hidden>
+          <header class="top">
+            <div>
+              <div class="label">Cartão e faturas</div>
+              <h1 id="cartao-quem"></h1>
+            </div>
+          </header>
+          <div class="quem" id="quem" role="group" aria-label="De quem é a fatura"></div>
+          <div class="grid">
+            <div class="col">
+              <section class="panel" id="fatura-aberta"></section>
+              <section class="panel" id="fatura-analise"></section>
+            </div>
+            <div class="col">
+              <section class="panel" id="cartao"></section>
+              <section class="panel" id="parcelas"></section>
+              <section class="panel" id="relatorios"></section>
+            </div>
+          </div>
+          <section class="panel" id="fatura-lanc" style="margin-top:18px">
+            <h2>Lançamentos da fatura</h2>
+            <div class="filters">
+              <label for="f-fmes">Fatura<select id="f-fmes"></select></label>
+              <label for="f-fcat">Categoria<select id="f-fcat"></select></label>
+              <label for="f-busca" class="grow">Buscar<input id="f-busca" type="search" placeholder="ex.: uber" autocomplete="off"></label>
+            </div>
+            <div id="f-itens"></div>
+          </section>
+        </section>
+
+        <footer id="rodape"></footer>
+      </div>
+      </div>
+
+      <div id="view-inv" role="tabpanel" aria-labelledby="tab-inv" hidden>
+        <div class="cj"><div class="wrap" id="cj-app"></div></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ============ IMPORTAR O ARQUIVO DO PAINEL ============ -->
+  <dialog class="dialogo" id="dlg-importar-fin" aria-labelledby="titulo-importar-fin">
+    <div class="dlg-cab">
+      <h2 id="titulo-importar-fin">Atualizar dados das finanças</h2>
+      <button class="btn-link" type="button" data-fechar>Fechar</button>
+    </div>
+    <div class="dlg-corpo">
+      <label class="soltar" id="soltar-fin">
+        <input type="file" id="arquivo-fin" accept=".html,.htm,.json,text/html,application/json">
+        <strong>Escolha ou arraste o arquivo do painel</strong>
+        <span>O HTML do painel gerado pelo projeto Financeiro (ou um .json com os mesmos dados).</span>
+      </label>
+      <p class="erro" id="erro-fin" role="alert" hidden></p>
+
+      <div class="fin-previa" id="previa-fin" hidden>
+        <dl id="previa-dados"></dl>
+        <div class="fin-destinos" id="destinos-fin">
+          <label id="campo-destino">Painel de
+            <select id="destino-fin"></select>
+          </label>
+          <label id="campo-outra" hidden><span id="rotulo-outra"></span>
+            <select id="outra-fin"></select>
+          </label>
+        </div>
+      </div>
+      <p class="dica">Os dados ficam no banco, protegidos pelo login: cada pessoa vê só o próprio painel. A lista de arquivos do computador e as anotações internas do arquivo não são importadas.</p>
+    </div>
+    <div class="dlg-rodape">
+      <button class="btn btn-claro" type="button" data-fechar>Cancelar</button>
+      <button class="btn btn-primary" type="button" id="btn-confirmar-fin" disabled>Importar</button>
+    </div>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+</body>
+</html>

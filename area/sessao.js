@@ -2,7 +2,7 @@
 // menu suspenso e aviso do modo demonstração.
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config-area.js";
 import { criarArmazem } from "./dados.js";
-import { GRUPOS, MODULOS, linkFinancas, moduloDaPagina, pode } from "./modulos.js";
+import { GRUPOS, MODULOS, moduloDaPagina, pode } from "./modulos.js";
 import { esc } from "./ui.js";
 
 export const PAGINA_LOGIN = new URL("../area-restrita.html", import.meta.url).href;
@@ -82,23 +82,10 @@ async function sair(armazem) {
   location.replace(PAGINA_LOGIN);
 }
 
-// Item do menu e card do início: página da área ou, nas finanças pessoais, o painel do projeto Financeiro
-export function destinoModulo(m, perfil) {
-  if (!m.externo) return { href: m.pagina };
-  const link = linkFinancas(perfil);
-  return link ? { href: link, externo: true } : null;
-}
-
 function montarMenu(atual, perfil) {
   const lugar = $("#menu-area");
   if (!lugar) return;
-  const item = (m) => {
-    const destino = destinoModulo(m, perfil);
-    if (!destino) return `<span class="menu-item desativado">${m.titulo}<small>Sem link</small></span>`;
-    const marcado = m.pagina === atual ? ' aria-current="page"' : "";
-    const nova = destino.externo ? ' target="_blank" rel="noopener"' : "";
-    return `<a class="menu-item" href="${esc(destino.href)}"${marcado}${nova}>${m.titulo}${destino.externo ? "<small>Nova aba</small>" : ""}</a>`;
-  };
+  const item = (m) => `<a class="menu-item" href="${m.pagina}"${m.pagina === atual ? ' aria-current="page"' : ""}>${m.titulo}</a>`;
   const grupos = GRUPOS.map((g) => {
     const itens = MODULOS.filter((m) => m.grupo === g.id && pode(perfil, m.id)).map(item).join("");
     return itens ? `<p class="menu-grupo">${g.titulo}</p>${itens}` : "";

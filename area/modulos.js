@@ -53,8 +53,8 @@ export const MODULOS = [
     id: "financas",
     grupo: "pessoal",
     titulo: "Finanças pessoais",
-    descricao: "Gastos do dia a dia, cartão e faturas e investimentos. Abre o painel do projeto Financeiro de cada pessoa.",
-    externo: true, // abre o painel do projeto Financeiro (link próprio de cada pessoa, guardado no cadastro)
+    descricao: "Gastos do dia a dia, cartão e faturas e investimentos: o painel do projeto Financeiro, de cada pessoa.",
+    pagina: "financas.html",
     icone: svg('<path d="M12 2v20"/><path d="M17 6H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>'),
   },
   {
@@ -82,7 +82,7 @@ export const PERMISSOES = [
   { id: "art", titulo: "Controle de ART", detalhe: "Todas as ARTs, alertas e PDFs." },
   { id: "financeiro", titulo: "Controle financeiro", detalhe: "Todos os lançamentos de receitas e despesas da engenharia." },
   { id: "demandas", titulo: "Controle de demandas", detalhe: "Todas as solicitações de clientes, propostas e prazos." },
-  { id: "financas", titulo: "Finanças pessoais", detalhe: "Gastos e investimentos: abre o painel do projeto Financeiro (link próprio de cada pessoa)." },
+  { id: "financas", titulo: "Finanças pessoais", detalhe: "Gastos, cartão e investimentos: o painel do projeto Financeiro da própria pessoa." },
 ];
 
 export const PAPEIS = {
@@ -128,6 +128,6 @@ export function pode(perfil, modulo) {
   return liberavel(perfil.papel, modulo) && (perfil.modulos || []).includes(modulo);
 }
 
-// Link do painel de finanças pessoais (só endereços https, para não abrir nada estranho)
+// Link do painel original no Claude, onde ficam o envio de faturas e os PDFs (só endereços https)
 export const linkFinancas = (perfil) =>
   perfil && /^https:\/\/\S+$/.test(perfil.link_financas || "") ? perfil.link_financas : null;

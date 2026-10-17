@@ -147,6 +147,7 @@ function armazemDemo() {
   // Usuários e histórico de acessos da demonstração (o primeiro e-mail que entra vira o administrador)
   const PERFIS = "mz-area-demo-perfis";
   const ACESSOS = "mz-area-demo-acessos";
+  const FINANCAS = "mz-area-demo-financas";
   const lerPerfis = () => lerJson(PERFIS, []);
   const eu = () => {
     const email = (sessao.ler() || "").toLowerCase();
@@ -249,6 +250,20 @@ function armazemDemo() {
       if (p) p.nome = String(nome || "").trim().slice(0, 80) || null;
       gravarJson(PERFIS, perfis);
     },
+    // Finanças pessoais: um painel por pessoa (o administrador atualiza o de quem ele cuida)
+    financas: {
+      async ler(perfilId) {
+        return lerJson(FINANCAS, {})[perfilId] || null;
+      },
+      async salvar(registro) {
+        const p = eu();
+        if (!p || (p.papel !== "adm" && registro.perfil_id !== p.id)) throw new Error("Sem permissão para atualizar este painel.");
+        const todos = lerJson(FINANCAS, {});
+        todos[registro.perfil_id] = { id: novoId(), ...registro, atualizado_em: new Date().toISOString() };
+        gravarJson(FINANCAS, todos);
+        return structuredClone(todos[registro.perfil_id]);
+      },
+    },
     async listar() {
       return structuredClone(estado.arts);
     },
@@ -290,6 +305,7 @@ function armazemDemo() {
       Object.values(colecoes).forEach((c) => c.limpar());
       gravarJson(PERFIS, []);
       gravarJson(ACESSOS, []);
+      gravarJson(FINANCAS, {});
     },
   };
 }
@@ -360,6 +376,22 @@ async function armazemSupabase(url, chave) {
     async atualizarMeuNome(nome) {
       const { error } = await sb.rpc("atualizar_meu_nome", { p_nome: nome });
       falhou(error);
+    },
+    financas: {
+      async ler(perfilId) {
+        const { data, error } = await sb.from("financas").select("*").eq("perfil_id", perfilId).maybeSingle();
+        if (error) throw new Error(/financas/.test(error.message) && /exist|schema cache/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+        return data;
+      },
+      async salvar({ perfil_id, modo, dados, investimentos, arquivo }) {
+        const { data, error } = await sb
+          .from("financas")
+          .upsert({ perfil_id, modo, dados, investimentos, arquivo }, { onConflict: "perfil_id" })
+          .select()
+          .single();
+        if (error) throw new Error(error.code === "42501" || error.code === "PGRST116" ? "Sem permissão para atualizar este painel." : error.message);
+        return data;
+      },
     },
     async listar() {
       const { data, error } = await sb.from("arts").select("*").order("fim", { ascending: true, nullsFirst: false });

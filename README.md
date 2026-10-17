@@ -18,6 +18,7 @@ Custo: **R$ 0** (hospedagem no GitHub Pages + formulário pelo FormSubmit).
 | `area-restrita.html`, `area/` | **Área restrita**: login, início com os módulos (Profissional e Pessoal), usuários e permissões (ver seção própria abaixo). |
 | `supabase/schema.sql` | Estrutura do banco de dados da área restrita. |
 | `ferramentas/alertas-art.mjs`, `.github/workflows/alertas-art.yml` | Rotina diária que envia por e-mail os alertas de ART, os prazos das demandas e os recebimentos em atraso. |
+| `ferramentas/versionar_area.py` | Põe a versão nos endereços dos arquivos da área restrita (rode depois de alterar a área; ver "Testes locais"). |
 
 ## Fotos
 
@@ -125,7 +126,7 @@ Módulos:
 | Profissional | Controle de ART | `area/art.html` |
 | Profissional | Controle financeiro (da engenharia) | `area/financeiro.html` |
 | Profissional | Controle de demandas | `area/demandas.html` |
-| Pessoal | Finanças pessoais | link do painel do projeto Financeiro de cada pessoa |
+| Pessoal | Finanças pessoais | `area/financas.html` |
 | Administração | Usuários e permissões | `area/usuarios.html` |
 | Sua conta | Minha conta | `area/conta.html` |
 
@@ -156,11 +157,12 @@ Perfis de acesso:
 
 ## Finanças pessoais
 
-É separado do Controle financeiro da engenharia: são os gastos do dia a dia, o cartão e as faturas e os investimentos de cada pessoa, no painel do **projeto Financeiro**.
+Separado do Controle financeiro da engenharia: é o **painel do projeto Financeiro** dentro da área, com as quatro abas do painel original (**visão geral** do mês, **gastos do dia a dia**, **cartão e faturas** e **investimentos**) e os mesmos cálculos.
 
-- O card abre o painel em uma nova aba, no **link cadastrado para cada pessoa** em Usuários e permissões: cada um abre o próprio painel.
-- Os dados financeiros continuam no próprio painel, **fora deste site e do repositório público**. O link fica guardado no banco, não no código.
-- Para outra pessoa abrir um painel do Claude, ele precisa estar compartilhado com ela (no painel, menu **Compartilhar**).
+- **Cada pessoa vê só o próprio painel.** Os dados ficam no banco, protegidos pelo login e pelas regras de acesso, e nunca no código do site (que é público).
+- **Para atualizar:** em Finanças pessoais, **Atualizar dados** e escolha o arquivo HTML do painel gerado pelo projeto Financeiro (o mesmo arquivo do painel; se precisar, peça no chat do projeto). O site lê os dados do arquivo, mostra um resumo e grava. A lista de arquivos do computador e as anotações internas do arquivo não são importadas.
+- **Faturas de outra pessoa:** quando o arquivo traz as faturas de alguém da família, o administrador escolhe na importação o painel dessa pessoa; ela passa a ver só o próprio cartão e as próprias faturas, sem nenhum dado do dono do painel.
+- **Abrir no Claude** (opcional): o envio de faturas novas e os PDFs dos relatórios continuam no painel original. Cadastre o link do painel no Claude no cadastro da pessoa, em Usuários e permissões.
 
 ## Painel gerencial
 
@@ -244,7 +246,7 @@ Observações:
 ## Segurança e privacidade
 
 - O código do site é público, mas os dados não: ficam no Supabase, protegidos pelo login e por regras de acesso no banco. Só entra quem tem cadastro ativo, cada módulo só abre para quem tem permissão e clientes nunca acessam os módulos profissionais. Os PDFs ficam em armazenamento privado.
-- As finanças pessoais não passam pelo site: o card só abre o painel do projeto Financeiro.
+- As finanças pessoais ficam no banco, um painel por pessoa: só a própria pessoa e o administrador (que faz a importação) acessam. Nenhum valor, nome ou cartão fica no código do site.
 - **Nunca** coloque PDFs de ART, relatórios ou planilhas exportadas dentro do repositório (o `.gitignore` já bloqueia `.pdf`, `.csv` e `.xlsx`).
 - A chave Secret (`sb_secret_…` ou `service_role`) dá acesso total ao banco: guarde-a só nos *Secrets* do GitHub, no `SUPABASE_SERVICE_ROLE_KEY`.
 
@@ -252,4 +254,7 @@ Observações:
 
 ```
 node ferramentas/alertas-art.mjs --teste   # simula o e-mail do dia com dados fictícios
+python3 ferramentas/versionar_area.py      # depois de alterar arquivos da área restrita, antes de publicar
 ```
+
+O `versionar_area.py` atualiza, em cada página da área, a versão dos estilos e dos módulos (import map). Assim, depois de publicar, o navegador busca os arquivos novos de uma vez, sem misturar com cópias antigas em cache. O GitHub Pages ainda guarda as páginas por até 10 minutos: se a área parecer antiga logo depois de publicar, aperte **Ctrl+F5**.

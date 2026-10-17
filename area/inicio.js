@@ -1,6 +1,6 @@
 // Início da área restrita (area/index.html): índice dos módulos liberados para o perfil, agrupados como no
 // menu, com um resumo do que pede atenção em cada um.
-import { abrirPagina, destinoModulo } from "./sessao.js";
+import { abrirPagina } from "./sessao.js";
 import { GRUPOS, MODULOS, PAPEIS, pode, situacaoDe } from "./modulos.js";
 import * as R from "./regras.js";
 import * as G from "./regras-gestao.js";
@@ -39,6 +39,7 @@ async function resumos(armazem, perfil) {
     tem("demandas") ? armazem.colecao("demandas").listar() : null,
     tem("usuarios") ? armazem.usuarios.listar() : null,
   ].map((p) => Promise.resolve(p).catch(() => null)));
+  const financas = tem("financas") ? await Promise.resolve(armazem.financas.ler(perfil.id)).catch(() => undefined) : undefined;
 
   if (arts && tratados) {
     const alertas = R.alertasPendentes(arts, tratados, hoje).length;
@@ -62,6 +63,8 @@ async function resumos(armazem, perfil) {
     const ano = G.resumoFinanceiro(lancamentos, G.periodo("ano", hoje), hoje);
     r.painel = { texto: `Lucro do ano: ${moedaCurta(ano.lucro)}` };
   }
+  if (financas === null) r.financas = { texto: "Importe o arquivo do painel do projeto Financeiro", alerta: true };
+  else if (financas) r.financas = { texto: financas.dados && financas.dados.gerado_em ? `Dados de ${financas.dados.gerado_em}` : "Dados importados" };
   if (usuarios) {
     const pendentes = usuarios.filter((u) => u.situacao === "pendente").length;
     const ativos = usuarios.filter((u) => situacaoDe(u) === "ativo").length;
@@ -72,22 +75,14 @@ async function resumos(armazem, perfil) {
   return r;
 }
 
-function card(m, perfil, resumo) {
-  const destino = destinoModulo(m, perfil);
-  // Finanças pessoais sem link: o administrador cadastra o link no próprio perfil
-  const semLink = m.externo && !destino;
-  const status = semLink
-    ? { texto: perfil.papel === "adm" ? "Cadastre o link do seu painel" : "Link do painel ainda não cadastrado", alerta: perfil.papel === "adm" }
-    : m.externo ? { texto: "Abre o painel em nova aba" } : resumo;
-  const corpo = `<span class="modulo-icone">${m.icone}</span>
+function card(m, resumo) {
+  return `<a class="modulo" href="${m.pagina}">
+      <span class="modulo-icone">${m.icone}</span>
       <h2>${m.titulo}</h2>
       <p>${m.descricao}</p>
-      ${status ? `<span class="modulo-status${status.alerta ? " com-alerta" : ""}">${esc(status.texto)}</span>` : ""}`;
-  if (semLink && perfil.papel === "adm")
-    return `<a class="modulo" href="usuarios.html?editar=${encodeURIComponent(perfil.id)}">${corpo}<span class="modulo-abrir">Cadastrar link</span></a>`;
-  if (semLink) return `<div class="modulo em-breve" aria-disabled="true">${corpo}</div>`;
-  const nova = destino.externo ? ' target="_blank" rel="noopener"' : "";
-  return `<a class="modulo" href="${esc(destino.href)}"${nova}>${corpo}<span class="modulo-abrir">${destino.externo ? "Abrir em nova aba" : "Abrir"}</span></a>`;
+      ${resumo ? `<span class="modulo-status${resumo.alerta ? " com-alerta" : ""}">${esc(resumo.texto)}</span>` : ""}
+      <span class="modulo-abrir">Abrir</span>
+    </a>`;
 }
 
 // Cada grupo ocupa tantas colunas quantos cards tiver (até 4): grupos pequenos ficam lado a lado
@@ -98,7 +93,7 @@ function renderizar(perfil, resumo = {}) {
     const colunas = Math.min(mods.length, 4);
     return `<section class="inicio-grupo span-${colunas}" style="--colunas:${colunas}" aria-labelledby="g-${g.id}">
         <h2 class="subtitulo-area" id="g-${g.id}">${g.titulo}</h2>
-        <div class="modulos">${mods.map((m) => card(m, perfil, resumo[m.id])).join("")}</div>
+        <div class="modulos">${mods.map((m) => card(m, resumo[m.id])).join("")}</div>
       </section>`;
   });
   const soConta = MODULOS.every((m) => m.todos || !pode(perfil, m.id));

@@ -120,7 +120,7 @@ function renderPermissoes() {
   const sempre = '<span class="acesso acesso-sim">Sempre</span>';
   const seLiberado = '<span class="acesso acesso-se">Se liberado</span>';
   const nunca = '<span class="acesso acesso-nao">Nunca</span>';
-  const comLink = "<small>com o link do painel cadastrado</small>";
+  const comLink = "<small>o próprio painel, depois de importado</small>";
   const linha = (titulo, adm, pessoal, cliente) => `<tr><th scope="row">${titulo}</th><td>${adm}</td><td>${pessoal}</td><td>${cliente}</td></tr>`;
   $("#matriz").innerHTML = [
     linha("Painel gerencial", sempre, '<span class="acesso acesso-se">Com algum módulo profissional</span>', nunca),
@@ -397,7 +397,7 @@ async function iniciar() {
   $("#conteudo").hidden = false;
   await recarregar();
 
-  // Vindo do início ("Cadastrar link"): abre o cadastro pedido
+  // Endereço com ?editar=<id>: abre o cadastro pedido
   const pedido = usuarios.find((u) => u.id === new URLSearchParams(location.search).get("editar"));
   if (pedido) {
     history.replaceState(null, "", location.pathname);
