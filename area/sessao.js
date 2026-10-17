@@ -1,10 +1,12 @@
-// Parte comum das páginas da área restrita: conexão, exigência de login, menu suspenso e aviso do modo demonstração.
+// Parte comum das páginas da área restrita: conexão, exigência de login, perfil e permissões,
+// menu suspenso e aviso do modo demonstração.
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config-area.js";
 import { criarArmazem } from "./dados.js";
-import { MODULOS } from "./modulos.js";
+import { GRUPOS, MODULOS, linkFinancas, moduloDaPagina, pode } from "./modulos.js";
+import { esc } from "./ui.js";
 
 export const PAGINA_LOGIN = new URL("../area-restrita.html", import.meta.url).href;
-export const PAGINA_PAINEL = new URL("index.html", import.meta.url).href;
+export const PAGINA_INICIO = new URL("index.html", import.meta.url).href;
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -12,7 +14,17 @@ export function conectar() {
   return criarArmazem({ url: SUPABASE_URL, chave: SUPABASE_ANON_KEY });
 }
 
-// Abre uma página da área: sem login, volta para a tela de login (e retorna para esta página depois de entrar).
+// Tipo de aparelho e navegador, para o histórico de acessos (ex.: "Celular · Chrome")
+function dispositivo() {
+  const ua = navigator.userAgent;
+  const tipo = /iPad|Tablet/i.test(ua) ? "Tablet" : /Mobi|Android|iPhone/i.test(ua) ? "Celular" : "Computador";
+  const nav = /Edg\//.test(ua) ? "Edge" : /OPR\//.test(ua) ? "Opera" : /Firefox\//.test(ua) ? "Firefox"
+    : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "Navegador";
+  return `${tipo} · ${nav}`;
+}
+
+// Abre uma página da área: sem login, volta para a tela de login (e retorna para esta página depois de entrar);
+// com acesso pendente ou desativado, sai; sem permissão no módulo, volta para o início.
 export async function abrirPagina(pagina) {
   let armazem;
   try {
@@ -27,38 +39,74 @@ export async function abrirPagina(pagina) {
     return null;
   }
 
-  montarMenu(pagina);
-  $("#usuario").textContent = usuario.email || "";
-  $("#area-top").hidden = false;
-  $("#btn-sair").addEventListener("click", async () => {
+  let perfil;
+  try {
+    perfil = await armazem.registrarAcesso(pagina, dispositivo());
+  } catch (err) {
+    mostrarErro(err.message, armazem);
+    return null;
+  }
+  if (!perfil) {
+    mostrarErro("Não foi possível carregar o seu perfil de acesso. Saia e entre de novo; se continuar, fale com o administrador.", armazem);
+    return null;
+  }
+  if (perfil.situacao !== "ativo") {
     await armazem.sair();
-    location.replace(PAGINA_LOGIN);
-  });
+    location.replace(`${PAGINA_LOGIN}?acesso=${perfil.situacao}`);
+    return null;
+  }
+  const modulo = moduloDaPagina(pagina);
+  if (modulo && !pode(perfil, modulo.id)) {
+    location.replace(`${PAGINA_INICIO}?sem-permissao=${modulo.id}`);
+    return null;
+  }
+
+  montarMenu(pagina, perfil);
+  $("#usuario").textContent = perfil.nome || usuario.email || "";
+  $("#area-top").hidden = false;
+  $("#btn-sair").addEventListener("click", () => sair(armazem));
 
   if (armazem.modo === "demo") {
     $("#aviso-demo").hidden = false;
     $("#btn-limpar-demo").addEventListener("click", async () => {
-      if (!confirm("Apagar todos os dados de teste deste navegador?")) return;
+      if (!confirm("Apagar todos os dados de teste deste navegador (inclusive os usuários)?")) return;
       await armazem.limparTudo();
       location.reload();
     });
   }
-  return { armazem, usuario };
+  return { armazem, usuario, perfil };
 }
 
-function montarMenu(atual) {
+async function sair(armazem) {
+  await armazem.sair();
+  location.replace(PAGINA_LOGIN);
+}
+
+// Item do menu e card do início: página da área ou, nas finanças pessoais, o painel do projeto Financeiro
+export function destinoModulo(m, perfil) {
+  if (!m.externo) return { href: m.pagina };
+  const link = linkFinancas(perfil);
+  return link ? { href: link, externo: true } : null;
+}
+
+function montarMenu(atual, perfil) {
   const lugar = $("#menu-area");
   if (!lugar) return;
-  const itens = [{ titulo: "Painel", pagina: "index.html" }, ...MODULOS]
-    .map((m) => {
-      if (!m.pagina) return `<span class="menu-item desativado">${m.titulo}<small>Em breve</small></span>`;
-      const marcado = m.pagina === atual ? ' aria-current="page"' : "";
-      return `<a class="menu-item" href="${m.pagina}"${marcado}>${m.titulo}</a>`;
-    })
-    .join("");
+  const item = (m) => {
+    const destino = destinoModulo(m, perfil);
+    if (!destino) return `<span class="menu-item desativado">${m.titulo}<small>Sem link</small></span>`;
+    const marcado = m.pagina === atual ? ' aria-current="page"' : "";
+    const nova = destino.externo ? ' target="_blank" rel="noopener"' : "";
+    return `<a class="menu-item" href="${esc(destino.href)}"${marcado}${nova}>${m.titulo}${destino.externo ? "<small>Nova aba</small>" : ""}</a>`;
+  };
+  const grupos = GRUPOS.map((g) => {
+    const itens = MODULOS.filter((m) => m.grupo === g.id && pode(perfil, m.id)).map(item).join("");
+    return itens ? `<p class="menu-grupo">${g.titulo}</p>${itens}` : "";
+  }).join("");
+  const inicio = atual === "index.html" ? ' aria-current="page"' : "";
   lugar.innerHTML = `<details class="menu-suspenso">
       <summary>Menu</summary>
-      <div class="menu-lista">${itens}<a class="menu-item menu-site" href="../index.html">Voltar ao site</a></div>
+      <div class="menu-lista"><a class="menu-item" href="index.html"${inicio}>Início</a>${grupos}<a class="menu-item menu-site" href="../index.html">Voltar ao site</a></div>
     </details>`;
 
   const menu = lugar.querySelector("details");
@@ -73,8 +121,12 @@ function montarMenu(atual) {
   });
 }
 
-function mostrarErro(texto) {
+function mostrarErro(texto, armazem) {
   const main = document.querySelector("main");
   main.hidden = false;
-  main.insertAdjacentHTML("afterbegin", `<p class="cartao erro-geral" role="alert">${texto}</p>`);
+  main.insertAdjacentHTML("afterbegin", `<p class="cartao erro-geral" role="alert">${esc(texto)}</p>`);
+  if (armazem) {
+    $("#area-top").hidden = false;
+    $("#btn-sair").addEventListener("click", () => sair(armazem));
+  }
 }

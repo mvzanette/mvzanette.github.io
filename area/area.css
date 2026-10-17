@@ -1450,3 +1450,622 @@ a.modulo:hover {
     padding-right: 16px;
   }
 }
+
+/* =====================================================================
+   Início (índice dos módulos), usuários e permissões, minha conta e login
+   ===================================================================== */
+
+/* Menu suspenso agrupado (Profissional, Pessoal, Administração, Sua conta) */
+.menu-lista {
+  max-height: calc(100vh - var(--header-h) - 24px);
+  overflow-y: auto;
+}
+
+.menu-grupo {
+  margin: 8px 0 2px;
+  padding: 10px 18px 4px;
+  border-top: 1px solid var(--gray-200);
+  font: 700 0.68rem var(--font-head);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Listas do painel gerencial: as que ficam ocultas por permissão não deixam buraco */
+.painel-listas {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+/* ---------- Início ---------- */
+.inicio-data {
+  margin: 0 0 6px;
+  font: 600 0.78rem var(--font-head);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.inicio-cabecalho h1 {
+  margin: 0;
+  font-size: 2rem;
+  letter-spacing: 0.01em;
+  color: var(--graphite-900);
+}
+
+.inicio-sub {
+  margin: 6px 0 0;
+  color: var(--graphite-700);
+}
+
+.aviso-inicio {
+  margin: 20px 0 0;
+  padding: 12px 16px;
+  background: #fff6d6;
+  border-left: 4px solid var(--yellow);
+  color: #5c4500;
+}
+
+.aviso-vazio {
+  margin: 20px 0 0;
+}
+
+/* Grupos lado a lado: cada um ocupa tantas colunas quantos cards tiver */
+.inicio-grupos {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 30px 20px;
+  margin-top: 30px;
+}
+
+/* Título em cima e cards esticados até a altura da linha, para os grupos lado a lado ficarem alinhados */
+.inicio-grupo {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-width: 0;
+}
+
+.inicio-grupo.span-2 { grid-column: span 2; }
+.inicio-grupo.span-3 { grid-column: span 3; }
+.inicio-grupo.span-4 { grid-column: span 4; }
+
+.inicio-grupo .modulos {
+  grid-template-columns: repeat(var(--colunas, 1), minmax(0, 1fr));
+}
+
+.inicio-grupo .subtitulo-area {
+  margin-top: 0;
+}
+
+@media (max-width: 1100px) {
+  .inicio-grupos {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .inicio-grupo.span-3,
+  .inicio-grupo.span-4 {
+    grid-column: 1 / -1;
+  }
+
+  .inicio-grupo .modulos {
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .inicio-grupos {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inicio-grupo[class*="span-"] {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Indicadores da página de usuários: quatro na mesma linha */
+#kpis-usuarios {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (max-width: 900px) {
+  #kpis-usuarios {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.tabela-wrap + .dica {
+  margin-top: 10px;
+}
+
+/* ---------- Abas (submenu da página de usuários) ---------- */
+.abas {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  border-bottom: 2px solid var(--gray-200);
+  overflow-x: auto;
+}
+
+.abas [role="tab"] {
+  margin-bottom: -2px;
+  padding: 12px 18px;
+  background: none;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  font: 600 0.85rem var(--font-head);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.abas [role="tab"]:hover {
+  color: var(--graphite-900);
+}
+
+.abas [role="tab"][aria-selected="true"] {
+  color: var(--graphite-900);
+  border-bottom-color: var(--yellow);
+}
+
+/* ---------- Lista de usuários ---------- */
+.usuario-nome {
+  font-weight: 600;
+  color: var(--graphite-900);
+}
+
+.tabela-usuarios td small {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.voce {
+  margin-left: 4px;
+  padding: 1px 6px;
+  background: var(--gray-200);
+  font: 700 0.62rem var(--font-head);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--graphite-700);
+  vertical-align: 2px;
+}
+
+.modulos-celula {
+  max-width: 280px;
+  color: var(--graphite-700);
+}
+
+.sem {
+  color: var(--gray-500);
+}
+
+.online {
+  font-weight: 700;
+  color: var(--ok);
+  white-space: nowrap;
+}
+
+.online::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+
+.papel {
+  display: inline-block;
+  padding: 3px 8px;
+  font: 700 0.7rem var(--font-head);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  border-left: 3px solid var(--gray-300);
+  background: var(--gray-100);
+  color: var(--graphite-700);
+}
+
+.papel-adm { border-color: var(--yellow); background: #fff6d6; color: #5c4500; }
+.papel-pessoal { border-color: var(--serie-1); background: #e9f1fb; color: #1c4f8f; }
+.papel-cliente { border-color: var(--graphite-700); }
+
+.sit-ativo { color: var(--ok); }
+.sit-aguardando { color: var(--graphite-700); }
+.sit-pendente { color: var(--white); background: var(--alerta); border-color: var(--alerta); }
+.sit-inativo { color: var(--gray-500); }
+
+/* ---------- Cadastro de usuário ---------- */
+.dialogo fieldset.bloco {
+  min-width: 0;
+  margin-inline: 0;
+}
+
+.bloco legend {
+  margin-left: -6px;
+  padding: 0 6px;
+  font: 700 0.85rem var(--font-head);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--graphite-900);
+}
+
+.papeis {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.permissoes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.area .papel-opcao,
+.area .permissao {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  font: 400 0.9rem var(--font-body);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.papel-opcao input,
+.permissao input {
+  flex: none;
+  margin-top: 3px;
+  accent-color: var(--graphite-900);
+}
+
+.papel-opcao strong,
+.permissao strong {
+  display: block;
+  font: 700 0.92rem var(--font-head);
+  letter-spacing: 0.02em;
+  color: var(--graphite-900);
+}
+
+.papel-opcao small,
+.permissao small {
+  display: block;
+  font-size: 0.84rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.papel-opcao:has(input:checked),
+.permissao:has(input:checked) {
+  background: #fffbea;
+  border-color: var(--graphite-900);
+  box-shadow: inset 0 0 0 1px var(--graphite-900);
+}
+
+.papel-opcao:has(input:disabled),
+.permissao:has(input:disabled) {
+  cursor: default;
+}
+
+.permissao.vetada {
+  opacity: 0.5;
+}
+
+.campo-link {
+  margin-top: 14px;
+}
+
+.campo-link .dica {
+  font: 400 0.84rem var(--font-body);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.bloco-texto {
+  margin-top: 24px;
+}
+
+.info-acesso h3 {
+  margin: 0 0 12px;
+  font-size: 0.85rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.info-grade {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.info-grade span {
+  display: block;
+  font: 600 0.72rem var(--font-head);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.info-grade strong {
+  font-size: 0.92rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--graphite-900);
+}
+
+.info-acesso .dica {
+  margin: 12px 0 0;
+}
+
+.passos-acesso {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 16px;
+  padding-left: 20px;
+}
+
+.mensagem-acesso {
+  margin-bottom: 10px;
+  background: var(--gray-100) !important;
+  font: 400 0.9rem/1.5 var(--font-body) !important;
+  resize: vertical;
+}
+
+/* ---------- Perfis e permissões ---------- */
+.papeis-resumo {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 8px;
+}
+
+.papel-card {
+  padding: 18px 20px;
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+}
+
+.papel-card p {
+  margin: 10px 0 6px;
+  font-size: 0.92rem;
+  color: var(--graphite-700);
+}
+
+.papel-card small {
+  color: var(--muted);
+}
+
+.matriz tbody th {
+  background: var(--white);
+  border-top: 1px solid var(--gray-200);
+  font: 600 0.9rem var(--font-body);
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: normal;
+  color: var(--graphite-900);
+}
+
+.acesso {
+  display: inline-block;
+  font: 700 0.72rem var(--font-head);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.acesso-sim { color: var(--ok); }
+.acesso-se { color: #5c4500; }
+.acesso-nao { color: var(--gray-500); }
+
+.matriz td small {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.regras-acesso {
+  max-width: 860px;
+}
+
+.resumo-acessos {
+  margin: 0 0 10px;
+  font: 600 0.85rem var(--font-head);
+  letter-spacing: 0.04em;
+  color: var(--graphite-700);
+}
+
+/* ---------- Minha conta ---------- */
+.conta-grade {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.conta-bloco {
+  display: grid;
+  gap: 14px;
+}
+
+.conta-bloco p {
+  margin: 0;
+}
+
+.conta-bloco .btn {
+  justify-self: start;
+}
+
+.conta-info {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+  margin: 0;
+}
+
+.conta-info dt {
+  font: 600 0.72rem var(--font-head);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.conta-info dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--graphite-900);
+}
+
+/* ---------- Login em duas colunas ---------- */
+.login-caixa {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  width: 100%;
+  max-width: 880px;
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-top: 4px solid var(--yellow);
+}
+
+.login-lado {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 40px 36px;
+  background: var(--graphite-900);
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.login-rotulo {
+  margin: 0;
+  font: 600 0.74rem var(--font-head);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--yellow);
+}
+
+.login-lado h1 {
+  margin: 0;
+  font-size: 1.9rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--white);
+}
+
+.login-lado > p {
+  margin: 0;
+}
+
+.login-pontos {
+  display: grid;
+  gap: 16px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.login-pontos li {
+  padding-left: 14px;
+  border-left: 3px solid var(--yellow);
+}
+
+.login-pontos strong {
+  display: block;
+  font: 700 0.95rem var(--font-head);
+  letter-spacing: 0.04em;
+  color: var(--white);
+}
+
+.login-pontos span {
+  font-size: 0.9rem;
+}
+
+.login-caixa .login {
+  max-width: none;
+  align-content: start;
+  padding: 40px 36px;
+}
+
+.login h2 {
+  margin: 0;
+  font-size: 1.3rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.login .aviso-acesso {
+  padding: 12px 14px;
+  background: #fff6d6;
+  border-left: 4px solid var(--yellow);
+  font-size: 0.92rem;
+  color: #5c4500;
+}
+
+@media (max-width: 900px) {
+  .papeis,
+  .papeis-resumo,
+  .conta-grade {
+    grid-template-columns: 1fr;
+  }
+
+  .info-grade {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .login-caixa {
+    grid-template-columns: 1fr;
+  }
+
+  .login-lado {
+    padding: 26px 22px;
+  }
+
+  .login-pontos {
+    display: none;
+  }
+
+  .login-caixa .login {
+    padding: 28px 22px;
+  }
+}
+
+@media (max-width: 600px) {
+  .permissoes,
+  .conta-info {
+    grid-template-columns: 1fr;
+  }
+
+  .inicio-cabecalho h1 {
+    font-size: 1.6rem;
+  }
+
+  /* Abas viram botões em linhas quando não cabem na largura do celular */
+  .abas {
+    flex-wrap: wrap;
+    gap: 6px;
+    border-bottom: 0;
+  }
+
+  .abas [role="tab"] {
+    margin: 0;
+    padding: 8px 12px;
+    border: 1px solid var(--gray-300);
+    font-size: 0.75rem;
+  }
+
+  .abas [role="tab"][aria-selected="true"] {
+    background: var(--white);
+    border-color: var(--graphite-900);
+    box-shadow: inset 0 -3px 0 var(--yellow);
+  }
+}

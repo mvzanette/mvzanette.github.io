@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Usuários e permissões | Área restrita</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23f5b800'/%3E%3Ctext x='16' y='21.5' text-anchor='middle' font-family='Arial, sans-serif' font-weight='800' font-size='14' fill='%23111214'%3EMZ%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@500;600;700;800&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+  <link rel="stylesheet" href="area.css">
+  <script type="module" src="usuarios.js"></script>
+</head>
+<body class="area">
+
+  <header class="site-header">
+    <div class="area-esq">
+    <a class="logo" href="../index.html" aria-label="Voltar ao site">
+      <span class="logo-name">Marcos Zanette</span>
+      <span class="logo-sub">Área restrita</span>
+    </a>
+      <div id="menu-area"></div>
+    </div>
+    <div class="area-top" id="area-top" hidden>
+      <span class="usuario" id="usuario"></span>
+      <button class="btn-link" id="btn-sair" type="button">Sair</button>
+    </div>
+  </header>
+
+  <div class="aviso-demo" id="aviso-demo" hidden>
+    <strong>Modo demonstração.</strong> Os dados ficam só neste navegador e os e-mails de alerta não são enviados.
+    Para usar de verdade, configure o Supabase conforme o README.
+    <button class="btn-link" id="btn-limpar-demo" type="button">Apagar dados de teste</button>
+  </div>
+
+  <main class="area-main" id="conteudo" hidden>
+    <nav class="trilha" aria-label="Você está em"><a href="index.html">Início</a> / Usuários e permissões</nav>
+    <div class="area-cabecalho">
+      <h1>Usuários e permissões</h1>
+      <div class="area-acoes">
+        <button class="btn btn-primary" id="btn-novo" type="button">Novo usuário</button>
+      </div>
+    </div>
+
+    <div class="abas" role="tablist" aria-label="Seções">
+      <button type="button" role="tab" id="aba-usuarios" aria-controls="sec-usuarios" aria-selected="true">Usuários</button>
+      <button type="button" role="tab" id="aba-permissoes" aria-controls="sec-permissoes" aria-selected="false" tabindex="-1">Perfis e permissões</button>
+      <button type="button" role="tab" id="aba-acessos" aria-controls="sec-acessos" aria-selected="false" tabindex="-1">Histórico de acessos</button>
+    </div>
+
+    <!-- ============ USUÁRIOS ============ -->
+    <section id="sec-usuarios" role="tabpanel" aria-labelledby="aba-usuarios">
+      <div class="kpis" id="kpis-usuarios"></div>
+      <div class="filtros">
+        <input type="search" id="busca" placeholder="Buscar por nome ou e-mail" aria-label="Buscar por nome ou e-mail">
+        <select id="filtro-papel" aria-label="Perfil"></select>
+        <select id="filtro-situacao" aria-label="Situação"></select>
+      </div>
+      <div class="tabela-wrap">
+        <table class="tabela tabela-usuarios">
+          <thead>
+            <tr><th>Usuário</th><th>Perfil</th><th>Módulos liberados</th><th>Situação</th><th>Último acesso</th><th class="num">Acessos</th></tr>
+          </thead>
+          <tbody id="lista-usuarios"></tbody>
+        </table>
+      </div>
+      <p class="dica">Clique em um usuário para alterar o perfil, os módulos liberados ou a situação.
+        “Acessos” conta as visitas (uma nova visita começa depois de 30 minutos sem uso).</p>
+    </section>
+
+    <!-- ============ PERFIS E PERMISSÕES ============ -->
+    <section id="sec-permissoes" role="tabpanel" aria-labelledby="aba-permissoes" hidden>
+      <div class="papeis-resumo" id="papeis-resumo"></div>
+      <h2 class="subtitulo-area">O que cada perfil acessa</h2>
+      <div class="tabela-wrap">
+        <table class="tabela matriz">
+          <thead><tr><th>Módulo</th><th>Administrador</th><th>Pessoal</th><th>Cliente</th></tr></thead>
+          <tbody id="matriz"></tbody>
+        </table>
+      </div>
+      <div class="regras-acesso">
+        <h2 class="subtitulo-area">Regras</h2>
+        <ul class="lista-simples">
+          <li>Os módulos profissionais (ART, controle financeiro e demandas da engenharia) mostram os mesmos dados para todos que têm permissão: não existe uma cópia separada por pessoa.</li>
+          <li>Cliente nunca acessa os módulos profissionais, mesmo que estejam marcados: o banco de dados bloqueia.</li>
+          <li>Finanças pessoais (gastos e investimentos) é separado do controle financeiro da engenharia: abre o painel do projeto Financeiro no endereço cadastrado para cada pessoa, e os dados ficam no próprio painel, fora deste site.</li>
+          <li>Cadastro marcado como inativo perde o acesso na hora, inclusive se estiver com a área aberta.</li>
+          <li>Sempre fica pelo menos um administrador ativo.</li>
+        </ul>
+        <h2 class="subtitulo-area">Como cadastrar alguém</h2>
+        <ol class="lista-simples">
+          <li>Aqui, em <strong>Novo usuário</strong>: nome, e-mail, perfil e módulos.</li>
+          <li>No Supabase, em <em>Authentication → Users → Add user → Create new user</em>: o mesmo e-mail, uma senha provisória e <em>Auto Confirm User</em> marcado.</li>
+          <li>Envie para a pessoa o endereço da área, o e-mail e a senha provisória. No primeiro acesso, ela troca a senha em <em>Minha conta</em>.</li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ============ HISTÓRICO ============ -->
+    <section id="sec-acessos" role="tabpanel" aria-labelledby="aba-acessos" hidden>
+      <div class="filtros filtros-2">
+        <select id="filtro-acesso-usuario" aria-label="Usuário"></select>
+        <select id="filtro-acesso-periodo" aria-label="Período">
+          <option value="1">Hoje</option>
+          <option value="7" selected>Últimos 7 dias</option>
+          <option value="30">Últimos 30 dias</option>
+          <option value="180">Últimos 180 dias</option>
+        </select>
+      </div>
+      <p class="resumo-acessos" id="resumo-acessos"></p>
+      <div class="tabela-wrap">
+        <table class="tabela compacta">
+          <thead><tr><th>Data e hora</th><th>Usuário</th><th>Página</th><th>Aparelho</th></tr></thead>
+          <tbody id="lista-acessos"></tbody>
+        </table>
+      </div>
+      <p class="dica">O histórico guarda os últimos 180 dias. A mesma página reaberta em menos de 5 minutos não se repete.</p>
+    </section>
+  </main>
+
+  <!-- ============ CADASTRO ============ -->
+  <dialog class="dialogo" id="dlg-usuario" aria-labelledby="titulo-usuario">
+    <form id="form-usuario" novalidate>
+      <div class="dlg-cab">
+        <h2 id="titulo-usuario">Novo usuário</h2>
+        <button class="btn-link" type="button" data-fechar>Fechar</button>
+      </div>
+      <div class="dlg-corpo">
+        <div class="campos">
+          <label class="c3">Nome<input name="nome" autocomplete="off" maxlength="80" required></label>
+          <label class="c3">E-mail (usuário de login)<input name="email" type="email" autocomplete="off" required></label>
+        </div>
+        <p class="dica" id="dica-email" hidden>O e-mail já está ligado a uma conta de login. Para trocar, altere primeiro no Supabase.</p>
+
+        <fieldset class="bloco grupo-papel">
+          <legend>Perfil de acesso</legend>
+          <div class="papeis" id="opcoes-papel"></div>
+          <p class="dica" id="dica-papel" hidden>Você não pode alterar o próprio perfil nem a própria situação.</p>
+        </fieldset>
+
+        <fieldset class="bloco">
+          <legend>Módulos liberados</legend>
+          <p class="dica" id="dica-modulos"></p>
+          <div class="permissoes" id="opcoes-modulos"></div>
+          <label class="campo-link" id="campo-link" hidden>Link do painel de finanças pessoais
+            <input name="link_financas" type="url" inputmode="url" placeholder="https://claude.ai/artifact/…" autocomplete="off">
+            <span class="dica">Endereço do painel do projeto Financeiro desta pessoa. Fica guardado no banco, fora do código do site.</span>
+          </label>
+        </fieldset>
+
+        <fieldset class="bloco">
+          <legend>Situação</legend>
+          <div class="opcoes" id="opcoes-situacao"></div>
+        </fieldset>
+
+        <label class="bloco-texto">Observação<textarea name="observacao" rows="2" maxlength="500"></textarea></label>
+
+        <div class="bloco info-acesso" id="info-acesso" hidden></div>
+        <p class="erro" id="erro-usuario" role="alert" hidden></p>
+      </div>
+      <div class="dlg-rodape">
+        <button class="btn btn-perigo esquerda" type="button" id="btn-excluir" hidden>Excluir cadastro</button>
+        <button class="btn btn-claro" type="button" data-fechar>Cancelar</button>
+        <button class="btn btn-primary" type="submit">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ============ CRIAR O ACESSO NO SUPABASE ============ -->
+  <dialog class="dialogo" id="dlg-acesso" aria-labelledby="titulo-acesso">
+    <div class="dlg-cab">
+      <h2 id="titulo-acesso">Falta criar o acesso</h2>
+      <button class="btn-link" type="button" data-fechar>Fechar</button>
+    </div>
+    <div class="dlg-corpo">
+      <p>O cadastro está salvo. Para a pessoa conseguir entrar, crie o login dela no Supabase:</p>
+      <ol class="passos-acesso">
+        <li>Abra <strong>Authentication → Users</strong> e clique em <strong>Add user → Create new user</strong>.</li>
+        <li>E-mail: <strong id="acesso-email"></strong>. Senha: uma senha provisória escolhida por você.</li>
+        <li>Marque <strong>Auto Confirm User</strong> e clique em <strong>Create user</strong>.</li>
+      </ol>
+      <p><a class="btn btn-claro" id="link-supabase" href="https://supabase.com/dashboard" target="_blank" rel="noopener">Abrir o Supabase</a></p>
+      <h3 class="subtitulo-area">Mensagem para enviar à pessoa</h3>
+      <textarea class="mensagem-acesso" id="mensagem-acesso" rows="7" readonly></textarea>
+      <p><button class="btn btn-claro" type="button" id="btn-copiar">Copiar mensagem</button></p>
+      <p class="dica">Assim que a pessoa entrar pela primeira vez, a situação muda de “Aguardando 1º acesso” para “Ativo”.</p>
+    </div>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+</body>
+</html>

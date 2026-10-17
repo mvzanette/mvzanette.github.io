@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Minha conta | Área restrita</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23f5b800'/%3E%3Ctext x='16' y='21.5' text-anchor='middle' font-family='Arial, sans-serif' font-weight='800' font-size='14' fill='%23111214'%3EMZ%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@500;600;700;800&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+  <link rel="stylesheet" href="area.css">
+  <script type="module" src="conta.js"></script>
+</head>
+<body class="area">
+
+  <header class="site-header">
+    <div class="area-esq">
+    <a class="logo" href="../index.html" aria-label="Voltar ao site">
+      <span class="logo-name">Marcos Zanette</span>
+      <span class="logo-sub">Área restrita</span>
+    </a>
+      <div id="menu-area"></div>
+    </div>
+    <div class="area-top" id="area-top" hidden>
+      <span class="usuario" id="usuario"></span>
+      <button class="btn-link" id="btn-sair" type="button">Sair</button>
+    </div>
+  </header>
+
+  <div class="aviso-demo" id="aviso-demo" hidden>
+    <strong>Modo demonstração.</strong> Os dados ficam só neste navegador e os e-mails de alerta não são enviados.
+    Para usar de verdade, configure o Supabase conforme o README.
+    <button class="btn-link" id="btn-limpar-demo" type="button">Apagar dados de teste</button>
+  </div>
+
+  <main class="area-main" id="conteudo" hidden>
+    <nav class="trilha" aria-label="Você está em"><a href="index.html">Início</a> / Minha conta</nav>
+    <div class="area-cabecalho">
+      <h1>Minha conta</h1>
+    </div>
+
+    <div class="conta-grade">
+      <form class="cartao-painel conta-bloco" id="form-dados">
+        <h2>Seus dados</h2>
+        <label>Nome<input name="nome" autocomplete="name" maxlength="80"></label>
+        <dl class="conta-info">
+          <div><dt>E-mail (usuário)</dt><dd id="conta-email"></dd></div>
+          <div><dt>Perfil</dt><dd id="conta-papel"></dd></div>
+          <div><dt>Módulos liberados</dt><dd id="conta-modulos"></dd></div>
+          <div><dt>Primeiro acesso</dt><dd id="conta-primeiro"></dd></div>
+        </dl>
+        <button class="btn btn-primary" type="submit">Salvar nome</button>
+      </form>
+
+      <form class="cartao-painel conta-bloco" id="form-senha">
+        <h2>Trocar senha</h2>
+        <p class="dica">Use pelo menos 8 caracteres. Se recebeu uma senha provisória, troque-a aqui no primeiro acesso.</p>
+        <label>Nova senha<input type="password" name="senha" autocomplete="new-password" minlength="8" required></label>
+        <label>Repita a nova senha<input type="password" name="confirmacao" autocomplete="new-password" minlength="8" required></label>
+        <p class="erro" id="erro-senha" role="alert" hidden></p>
+        <button class="btn btn-primary" type="submit">Salvar nova senha</button>
+      </form>
+    </div>
+
+    <h2 class="subtitulo-area">Seus últimos acessos</h2>
+    <div class="tabela-wrap">
+      <table class="tabela compacta">
+        <thead><tr><th>Data e hora</th><th>Página</th><th>Aparelho</th></tr></thead>
+        <tbody id="meus-acessos"></tbody>
+      </table>
+    </div>
+    <p class="dica">Se aparecer algum acesso que você não reconhece, troque a senha e avise o administrador.</p>
+  </main>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+</body>
+</html>

@@ -1,4 +1,5 @@
 // Login e armazenamento da área restrita: modo demonstração (navegador) ou Supabase (produção).
+import { ENGENHARIA } from "./modulos.js";
 
 const COLUNAS = [
   "id", "numero", "crea", "tipo", "forma", "contratante", "contratante_doc", "proprietario", "local",
@@ -7,6 +8,12 @@ const COLUNAS = [
 ];
 
 const somenteColunas = (art) => Object.fromEntries(COLUNAS.filter((c) => c in art).map((c) => [c, art[c] ?? null]));
+
+const novoId = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()));
+
+// ART com todas as colunas e com id: várias ARTs (novas e já cadastradas) gravam juntas sem apagar campos
+const PADRAO_ART = { crea: "MG", atividades: [], tos: [] };
+const linhaArt = (art) => ({ ...Object.fromEntries(COLUNAS.map((c) => [c, art[c] ?? PADRAO_ART[c] ?? null])), id: art.id || novoId() });
 
 // Demais tabelas da área restrita (financeiro e demandas): colunas gravadas e colunas numéricas
 const TABELAS = {
@@ -30,6 +37,31 @@ const numeros = (nome, obj) => {
   for (const c of TABELAS[nome].numeros) if (obj[c] != null) obj[c] = Number(obj[c]);
   return obj;
 };
+
+// Cadastro de usuários: o que o administrador grava (o resto o banco preenche a cada acesso)
+const COLUNAS_PERFIL = ["email", "nome", "papel", "modulos", "situacao", "link_financas", "observacao"];
+const SEM_ADM = "É preciso manter pelo menos um administrador ativo.";
+export const BANCO_DESATUALIZADO =
+  "O banco de dados precisa ser atualizado: rode de novo o arquivo supabase/schema.sql no SQL Editor do Supabase.";
+
+// Mesmas regras do banco: e-mail em minúsculas, link só https e cliente sem módulo de engenharia
+function regrasPerfil(p) {
+  const linha = Object.fromEntries(COLUNAS_PERFIL.filter((c) => c in p).map((c) => [c, p[c] === "" ? null : p[c] ?? null]));
+  if ("email" in linha) linha.email = String(linha.email || "").trim().toLowerCase();
+  if ("nome" in linha) linha.nome = linha.nome ? String(linha.nome).trim() || null : null;
+  if ("link_financas" in linha) {
+    linha.link_financas = linha.link_financas ? String(linha.link_financas).trim() || null : null;
+    if (linha.link_financas && !/^https:\/\//.test(linha.link_financas)) throw new Error("O link do painel precisa começar com https://");
+  }
+  if (linha.modulos && linha.papel === "cliente") linha.modulos = linha.modulos.filter((m) => !ENGENHARIA.includes(m));
+  return linha;
+}
+
+const mensagemPerfil = (error) =>
+  error.code === "23505" ? "Já existe um cadastro com este e-mail."
+  : error.code === "23514" ? "Dados inválidos: confira o e-mail e o link do painel (precisa começar com https://)."
+  : error.code === "PGRST116" || error.code === "42501" ? "Sem permissão para alterar usuários."
+  : error.message;
 
 export async function criarArmazem({ url, chave }) {
   return url && chave ? armazemSupabase(url, chave) : armazemDemo();
@@ -58,40 +90,27 @@ function armazemDemo() {
     },
   };
   const pdfs = new Map(); // PDFs só durante a sessão
-  const ler = () => {
+  const lerJson = (chave, padrao) => {
     try {
-      return JSON.parse(localStorage.getItem(CHAVE)) || { arts: [], tratados: [] };
+      return JSON.parse(localStorage.getItem(chave)) ?? padrao;
     } catch {
-      return { arts: [], tratados: [] };
+      return padrao;
     }
   };
-  const gravar = (d) => {
+  const gravarJson = (chave, valor) => {
     try {
-      localStorage.setItem(CHAVE, JSON.stringify(d));
+      localStorage.setItem(chave, JSON.stringify(valor));
     } catch {
       /* navegador sem armazenamento: os dados valem só até fechar a página */
     }
   };
+  const ler = () => lerJson(CHAVE, { arts: [], tratados: [] });
+  const gravar = (d) => gravarJson(CHAVE, d);
   let estado = ler();
-  const id = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()));
 
   const colecaoDemo = (nome) => {
     const chave = `mz-area-demo-${nome}`;
-    const lerColecao = () => {
-      try {
-        return JSON.parse(localStorage.getItem(chave)) || [];
-      } catch {
-        return [];
-      }
-    };
-    const gravarColecao = (lista) => {
-      try {
-        localStorage.setItem(chave, JSON.stringify(lista));
-      } catch {
-        /* sem armazenamento: vale até fechar a página */
-      }
-    };
-    let lista = lerColecao();
+    let lista = lerJson(chave, []);
     return {
       async listar() {
         return structuredClone(lista);
@@ -101,17 +120,17 @@ function armazemDemo() {
         const existente = linha.id && lista.find((x) => x.id === linha.id);
         let r;
         if (existente) r = Object.assign(existente, linha);
-        else lista.push((r = { ...linha, id: linha.id || id() }));
-        gravarColecao(lista);
+        else lista.push((r = { ...linha, id: linha.id || novoId() }));
+        gravarJson(chave, lista);
         return structuredClone(r);
       },
       async remover(idItem) {
         lista = lista.filter((x) => x.id !== idItem);
-        gravarColecao(lista);
+        gravarJson(chave, lista);
       },
       limpar() {
         lista = [];
-        gravarColecao(lista);
+        gravarJson(chave, lista);
       },
     };
   };
@@ -121,9 +140,23 @@ function armazemDemo() {
     const linha = somenteColunas(art);
     const existente = estado.arts.find((a) => (linha.id && a.id === linha.id) || a.numero === linha.numero);
     if (existente) Object.assign(existente, linha, { id: existente.id });
-    else estado.arts.push({ ...linha, id: linha.id || id() });
+    else estado.arts.push({ ...linha, id: linha.id || novoId() });
     return existente || estado.arts[estado.arts.length - 1];
   };
+
+  // Usuários e histórico de acessos da demonstração (o primeiro e-mail que entra vira o administrador)
+  const PERFIS = "mz-area-demo-perfis";
+  const ACESSOS = "mz-area-demo-acessos";
+  const lerPerfis = () => lerJson(PERFIS, []);
+  const eu = () => {
+    const email = (sessao.ler() || "").toLowerCase();
+    return lerPerfis().find((p) => p.email === email) || null;
+  };
+  const exigirAdm = () => {
+    const p = eu();
+    if (!p || p.papel !== "adm" || p.situacao !== "ativo") throw new Error("Sem permissão para alterar usuários.");
+  };
+  const algumAdm = (perfis, exceto) => perfis.some((p) => p.id !== exceto && p.papel === "adm" && p.situacao === "ativo");
 
   return {
     modo: "demo",
@@ -133,12 +166,88 @@ function armazemDemo() {
     },
     async entrar(email, senha) {
       if (!email || !senha) throw new Error("Informe usuário e senha.");
-      sessao.gravar(email);
+      sessao.gravar(email.trim().toLowerCase());
     },
     async recuperarSenha() {},
     async definirSenha() {},
     async sair() {
       sessao.gravar(null);
+    },
+    async registrarAcesso(pagina, dispositivo) {
+      const email = (sessao.ler() || "").toLowerCase();
+      if (!email) return null;
+      const perfis = lerPerfis();
+      const agora = new Date().toISOString();
+      let p = perfis.find((x) => x.email === email);
+      if (!p) {
+        const temAdm = algumAdm(perfis);
+        p = {
+          id: novoId(), email, nome: null, papel: temAdm ? "cliente" : "adm", modulos: [],
+          situacao: temAdm ? "pendente" : "ativo", link_financas: null,
+          observacao: temAdm ? "Conta criada sem cadastro no site: defina o perfil e libere o acesso." : null,
+          primeiro_acesso: null, ultimo_acesso: null, visita_anterior: null, acessos: 0, criado_em: agora,
+        };
+        perfis.push(p);
+      }
+      p.user_id = p.user_id || `demo:${email}`;
+      if (p.situacao === "ativo") {
+        if (!p.ultimo_acesso || Date.now() - Date.parse(p.ultimo_acesso) > 30 * 60e3) {
+          p.acessos += 1;
+          p.visita_anterior = p.ultimo_acesso;
+        }
+        p.primeiro_acesso = p.primeiro_acesso || agora;
+        p.ultimo_acesso = agora;
+        const log = lerJson(ACESSOS, []);
+        const repetido = log.some((a) => a.perfil_id === p.id && a.pagina === pagina && Date.now() - Date.parse(a.em) < 5 * 60e3);
+        if (!repetido) log.unshift({ id: novoId(), perfil_id: p.id, pagina, dispositivo, em: agora });
+        gravarJson(ACESSOS, log.slice(0, 500));
+      }
+      gravarJson(PERFIS, perfis);
+      return structuredClone(p);
+    },
+    usuarios: {
+      async listar() {
+        exigirAdm();
+        return lerPerfis();
+      },
+      async salvar(perfil) {
+        exigirAdm();
+        const linha = regrasPerfil(perfil);
+        const perfis = lerPerfis();
+        if (perfis.some((p) => p.email === linha.email && p.id !== perfil.id)) throw new Error("Já existe um cadastro com este e-mail.");
+        let p = perfil.id && perfis.find((x) => x.id === perfil.id);
+        if (p) {
+          if (p.papel === "adm" && p.situacao === "ativo" && (linha.papel !== "adm" || linha.situacao !== "ativo") && !algumAdm(perfis, p.id))
+            throw new Error(SEM_ADM);
+          Object.assign(p, linha);
+        } else {
+          p = { id: novoId(), user_id: null, nome: null, papel: "cliente", modulos: [], situacao: "ativo", link_financas: null,
+            observacao: null, primeiro_acesso: null, ultimo_acesso: null, visita_anterior: null, acessos: 0,
+            criado_em: new Date().toISOString(), ...linha };
+          perfis.push(p);
+        }
+        gravarJson(PERFIS, perfis);
+        return structuredClone(p);
+      },
+      async remover(idPerfil) {
+        exigirAdm();
+        const perfis = lerPerfis();
+        const p = perfis.find((x) => x.id === idPerfil);
+        if (p && p.papel === "adm" && p.situacao === "ativo" && !algumAdm(perfis, p.id)) throw new Error(SEM_ADM);
+        gravarJson(PERFIS, perfis.filter((x) => x.id !== idPerfil));
+        gravarJson(ACESSOS, lerJson(ACESSOS, []).filter((a) => a.perfil_id !== idPerfil));
+      },
+    },
+    async acessos({ limite = 300 } = {}) {
+      const p = eu();
+      const log = lerJson(ACESSOS, []);
+      return (p && p.papel === "adm" ? log : log.filter((a) => p && a.perfil_id === p.id)).slice(0, limite);
+    },
+    async atualizarMeuNome(nome) {
+      const perfis = lerPerfis();
+      const p = perfis.find((x) => x.email === (sessao.ler() || "").toLowerCase());
+      if (p) p.nome = String(nome || "").trim().slice(0, 80) || null;
+      gravarJson(PERFIS, perfis);
     },
     async listar() {
       return structuredClone(estado.arts);
@@ -179,6 +288,8 @@ function armazemDemo() {
       estado = { arts: [], tratados: [] };
       gravar(estado);
       Object.values(colecoes).forEach((c) => c.limpar());
+      gravarJson(PERFIS, []);
+      gravarJson(ACESSOS, []);
     },
   };
 }
@@ -189,10 +300,6 @@ async function armazemSupabase(url, chave) {
   const sb = createClient(url, chave);
   const falhou = (error) => {
     if (error) throw new Error(error.message);
-  };
-  const uid = async () => {
-    const { data } = await sb.auth.getSession();
-    return data.session && data.session.user.id;
   };
 
   return {
@@ -217,6 +324,43 @@ async function armazemSupabase(url, chave) {
     async sair() {
       await sb.auth.signOut();
     },
+    // Liga a conta ao cadastro, registra o acesso e devolve o perfil (papel, módulos, situação)
+    async registrarAcesso(pagina, dispositivo) {
+      const { data, error } = await sb.rpc("registrar_acesso", { p_pagina: pagina, p_dispositivo: dispositivo });
+      if (error) throw new Error(error.code === "PGRST202" || /registrar_acesso/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+      return data;
+    },
+    usuarios: {
+      async listar() {
+        const { data, error } = await sb.from("perfis").select("*").order("criado_em");
+        falhou(error);
+        return data || [];
+      },
+      async salvar(perfil) {
+        const linha = regrasPerfil(perfil);
+        const consulta = perfil.id ? sb.from("perfis").update(linha).eq("id", perfil.id) : sb.from("perfis").insert(linha);
+        const { data, error } = await consulta.select().single();
+        if (error) throw new Error(mensagemPerfil(error));
+        return data;
+      },
+      async remover(idPerfil) {
+        const { error } = await sb.from("perfis").delete().eq("id", idPerfil);
+        if (error) throw new Error(mensagemPerfil(error));
+      },
+    },
+    async acessos({ limite = 300 } = {}) {
+      const { data, error } = await sb
+        .from("acessos")
+        .select("id, perfil_id, pagina, dispositivo, em")
+        .order("em", { ascending: false })
+        .limit(limite);
+      falhou(error);
+      return data || [];
+    },
+    async atualizarMeuNome(nome) {
+      const { error } = await sb.rpc("atualizar_meu_nome", { p_nome: nome });
+      falhou(error);
+    },
     async listar() {
       const { data, error } = await sb.from("arts").select("*").order("fim", { ascending: true, nullsFirst: false });
       falhou(error);
@@ -227,14 +371,8 @@ async function armazemSupabase(url, chave) {
       return r;
     },
     async salvarVarios(arts) {
-      const user_id = await uid();
-      const linhas = arts.map((a) => {
-        const l = { ...somenteColunas(a), user_id };
-        if (!l.id) delete l.id;
-        return l;
-      });
-      const { data, error } = await sb.from("arts").upsert(linhas, { onConflict: "user_id,numero" }).select();
-      falhou(error);
+      const { data, error } = await sb.from("arts").upsert(arts.map(linhaArt), { onConflict: "id" }).select();
+      if (error) throw new Error(error.code === "23505" ? "Já existe uma ART com este número." : error.message);
       return data;
     },
     async remover(idArt) {
@@ -244,7 +382,7 @@ async function armazemSupabase(url, chave) {
       falhou(error);
     },
     async enviarPdf(art, arquivo) {
-      const caminho = `${await uid()}/${art.numero.replace(/[^\w.-]/g, "_")}.pdf`;
+      const caminho = `pdf/${art.numero.replace(/[^\w.-]/g, "_")}.pdf`;
       const { error } = await sb.storage.from("arts").upload(caminho, arquivo, { upsert: true, contentType: "application/pdf" });
       falhou(error);
       return caminho;
@@ -262,7 +400,7 @@ async function armazemSupabase(url, chave) {
           return (data || []).map((x) => numeros(nome, x));
         },
         async salvar(obj) {
-          const linha = { ...limpar(nome, obj), user_id: await uid() };
+          const linha = limpar(nome, obj);
           if (!linha.id) delete linha.id;
           const { data, error } = await sb.from(nome).upsert(linha).select().single();
           falhou(error);
@@ -281,7 +419,7 @@ async function armazemSupabase(url, chave) {
     },
     async marcarTratado(alerta) {
       const { error } = await sb.from("alertas").upsert(
-        { user_id: await uid(), art_id: alerta.art.id, marco: alerta.marco, mensagem: alerta.mensagem, lido_em: new Date().toISOString() },
+        { art_id: alerta.art.id, marco: alerta.marco, mensagem: alerta.mensagem, lido_em: new Date().toISOString() },
         { onConflict: "art_id,marco" }
       );
       falhou(error);

@@ -29,24 +29,38 @@
 
   <main class="area-main">
     <section class="tela-login" id="tela-login" hidden>
-      <form class="cartao login" id="form-login">
-        <h1>Área restrita</h1>
-        <p>Acesso exclusivo. Entre com seu usuário e senha.</p>
-        <label>Usuário (e-mail)<input type="email" name="email" autocomplete="username" required></label>
-        <label>Senha<input type="password" name="senha" autocomplete="current-password" required></label>
-        <p class="erro" id="erro-login" role="alert" hidden></p>
-        <button class="btn btn-primary" type="submit">Entrar</button>
-        <button class="btn-link" id="btn-recuperar" type="button">Esqueci a senha</button>
-      </form>
+      <div class="login-caixa">
+        <div class="login-lado">
+          <p class="login-rotulo">Marcos Zanette · Engenharia Mecânica</p>
+          <h1>Área restrita</h1>
+          <p>Ambiente de gestão para usuários cadastrados.</p>
+          <ul class="login-pontos">
+            <li><strong>Acesso por perfil</strong><span>Cada usuário vê apenas os módulos liberados para ele.</span></li>
+            <li><strong>Dados protegidos</strong><span>Login individual e regras de acesso no banco de dados.</span></li>
+            <li><strong>Acessos registrados</strong><span>Data, horário e aparelho de cada acesso ficam no histórico.</span></li>
+          </ul>
+        </div>
 
-      <form class="cartao login" id="form-nova-senha" hidden>
-        <h1>Nova senha</h1>
-        <p>Crie a nova senha de acesso (mínimo de 8 caracteres).</p>
-        <label>Nova senha<input type="password" name="senha" autocomplete="new-password" minlength="8" required></label>
-        <label>Repita a nova senha<input type="password" name="confirmacao" autocomplete="new-password" minlength="8" required></label>
-        <p class="erro" id="erro-senha" role="alert" hidden></p>
-        <button class="btn btn-primary" type="submit">Salvar senha</button>
-      </form>
+        <form class="login" id="form-login">
+          <h2>Entrar</h2>
+          <p>Use o e-mail e a senha do seu cadastro.</p>
+          <p class="aviso-acesso" id="aviso-acesso" role="status" hidden></p>
+          <label>Usuário (e-mail)<input type="email" name="email" autocomplete="username" required></label>
+          <label>Senha<input type="password" name="senha" autocomplete="current-password" required></label>
+          <p class="erro" id="erro-login" role="alert" hidden></p>
+          <button class="btn btn-primary" type="submit">Entrar</button>
+          <button class="btn-link" id="btn-recuperar" type="button">Esqueci a senha</button>
+        </form>
+
+        <form class="login" id="form-nova-senha" hidden>
+          <h2>Nova senha</h2>
+          <p>Crie a nova senha de acesso (mínimo de 8 caracteres).</p>
+          <label>Nova senha<input type="password" name="senha" autocomplete="new-password" minlength="8" required></label>
+          <label>Repita a nova senha<input type="password" name="confirmacao" autocomplete="new-password" minlength="8" required></label>
+          <p class="erro" id="erro-senha" role="alert" hidden></p>
+          <button class="btn btn-primary" type="submit">Salvar senha</button>
+        </form>
+      </div>
     </section>
   </main>
 

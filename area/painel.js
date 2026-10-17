@@ -1,7 +1,7 @@
-// Painel gerencial da área restrita (area/index.html): indicadores de ARTs, financeiro e demandas,
-// gráfico mensal, listas de prazos e cards de acesso a cada recurso.
+// Painel gerencial da área restrita (area/painel.html): indicadores de ARTs, financeiro e demandas,
+// gráfico mensal e listas de prazos. Cada bloco aparece só para quem tem permissão no módulo.
 import { abrirPagina } from "./sessao.js";
-import { MODULOS } from "./modulos.js";
+import { pode } from "./modulos.js";
 import * as R from "./regras.js";
 import * as G from "./regras-gestao.js";
 import { $, esc, moeda, moedaCurta, porcento, opcoes } from "./ui.js";
@@ -231,23 +231,14 @@ function renderListas() {
     : `<li class="nada">Nenhum recebimento em atraso.</li>`;
 }
 
-// ---------------------------------------------------------------- cards dos recursos
-function card(m) {
-  const corpo = `<span class="modulo-icone">${m.icone}</span>
-      <h2>${m.titulo}</h2>
-      <p>${m.descricao}</p>`;
-  return m.pagina
-    ? `<a class="modulo" href="${m.pagina}">${corpo}<span class="modulo-abrir">Abrir</span></a>`
-    : `<div class="modulo em-breve" aria-disabled="true">${corpo}<span class="modulo-status">Em breve</span></div>`;
-}
-
 // Início: roda depois de todo o módulo carregado
 async function iniciar() {
-  const sessao = await abrirPagina("index.html");
+  const sessao = await abrirPagina("painel.html");
   if (!sessao) return;
-  const { armazem } = sessao;
+  const { armazem, perfil } = sessao;
+  const tem = (modulo) => pode(perfil, modulo);
+  document.querySelectorAll("[data-modulo]").forEach((el) => (el.hidden = !tem(el.dataset.modulo)));
   $("#conteudo").hidden = false;
-  $("#modulos").innerHTML = MODULOS.map(card).join("");
   $("#periodo").innerHTML = opcoes(G.PERIODOS, chavePeriodo);
   $("#periodo").addEventListener("change", (e) => {
     chavePeriodo = e.target.value;
@@ -260,13 +251,13 @@ async function iniciar() {
   });
   try {
     [dados.arts, dados.tratados, dados.lancamentos, dados.demandas] = await Promise.all([
-      armazem.listar(),
-      armazem.tratados(),
-      armazem.colecao("lancamentos").listar(),
-      armazem.colecao("demandas").listar(),
+      tem("art") ? armazem.listar() : [],
+      tem("art") ? armazem.tratados() : new Set(),
+      tem("financeiro") ? armazem.colecao("lancamentos").listar() : [],
+      tem("demandas") ? armazem.colecao("demandas").listar() : [],
     ]);
   } catch (err) {
-    $("#kpis-art").innerHTML = `<p class="erro">Não foi possível carregar os dados: ${esc(err.message)}</p>`;
+    $(".area-cabecalho").insertAdjacentHTML("afterend", `<p class="erro">Não foi possível carregar os dados: ${esc(err.message)}</p>`);
   }
   renderizar();
   new ResizeObserver(() => desenharGrafico()).observe($("#grafico-mensal"));

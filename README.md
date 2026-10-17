@@ -15,7 +15,7 @@ Custo: **R$ 0** (hospedagem no GitHub Pages + formulário pelo FormSubmit).
 | `styles.css` | Visual do site (fundo branco, grafite e amarelo industrial). |
 | `main.js` | Menu do celular e formulário. Não precisa mexer. |
 | `img/` | Fotos do site (ver "Fotos"). |
-| `area-restrita.html`, `area/` | **Área restrita**: login, painel de recursos e Controle de ART (ver seção própria abaixo). |
+| `area-restrita.html`, `area/` | **Área restrita**: login, início com os módulos (Profissional e Pessoal), usuários e permissões (ver seção própria abaixo). |
 | `supabase/schema.sql` | Estrutura do banco de dados da área restrita. |
 | `ferramentas/alertas-art.mjs`, `.github/workflows/alertas-art.yml` | Rotina diária que envia por e-mail os alertas de ART, os prazos das demandas e os recebimentos em atraso. |
 
@@ -107,23 +107,64 @@ Endereço: `area-restrita.html` (link discreto no rodapé do site; não aparece 
 ## Como funciona
 
 1. **Login** (`area-restrita.html`): usuário (e-mail) e senha. Tem "Esqueci a senha", que envia um link para criar uma senha nova.
-2. **Painel gerencial** (`area/index.html`): página inicial da área, com os indicadores (ver abaixo), o gráfico mensal, as listas de prazos e um card para cada recurso.
-3. **Menu** no alto de todas as páginas da área, com os mesmos recursos, "Voltar ao site" e **Sair**.
-4. Qualquer página da área aberta sem login volta para a tela de login e, depois de entrar, retorna para a página pedida.
+2. **Início** (`area/index.html`): o índice da área, com saudação, data do último acesso e um card para cada módulo liberado ao perfil, em divisões:
+   - **Profissional** (as funções da engenharia): Painel gerencial, Controle de ART, Controle financeiro e Controle de demandas;
+   - **Pessoal**: Finanças pessoais (gastos e investimentos, de cada pessoa);
+   - **Administração** (só o administrador): Usuários e permissões;
+   - **Sua conta**: Minha conta.
 
-Recursos:
+   Cada card mostra o que pede atenção (alertas de ART, recebimentos em atraso, prazos vencidos, contas aguardando liberação).
+3. **Menu** no alto de todas as páginas da área, com as mesmas divisões, "Voltar ao site" e **Sair**.
+4. Qualquer página da área aberta sem login volta para a tela de login e, depois de entrar, retorna para a página pedida. Página de um módulo não liberado volta para o início com um aviso.
 
-| Recurso | Página | Situação |
+Módulos:
+
+| Divisão | Módulo | Página |
 | --- | --- | --- |
-| Controle de ART | `area/art.html` | Pronto |
-| Controle financeiro | `area/financeiro.html` | Pronto |
-| Controle de demandas | `area/demandas.html` | Pronto |
+| Profissional | Painel gerencial | `area/painel.html` |
+| Profissional | Controle de ART | `area/art.html` |
+| Profissional | Controle financeiro (da engenharia) | `area/financeiro.html` |
+| Profissional | Controle de demandas | `area/demandas.html` |
+| Pessoal | Finanças pessoais | link do painel do projeto Financeiro de cada pessoa |
+| Administração | Usuários e permissões | `area/usuarios.html` |
+| Sua conta | Minha conta | `area/conta.html` |
 
-**Para incluir um recurso novo:** acrescente um item em `area/modulos.js` e crie a página na pasta `area/` (use `area/financeiro.html` como modelo: o cabeçalho, o menu e o login vêm de `area/sessao.js`).
+**Para incluir um módulo novo:** acrescente um item em `area/modulos.js` e crie a página na pasta `area/` (use `area/financeiro.html` como modelo: o cabeçalho, o menu, o login e a checagem de permissão vêm de `area/sessao.js`). Se o módulo guardar dados, crie a tabela e a política de acesso em `supabase/schema.sql`.
+
+## Usuários e permissões
+
+Perfis de acesso:
+
+| Perfil | Para quem | O que acessa |
+| --- | --- | --- |
+| **Administrador** | você | Tudo, inclusive Usuários e permissões |
+| **Pessoal** | família e pessoas próximas | Os módulos que você liberar; por padrão, Finanças pessoais |
+| **Cliente** | clientes da engenharia | Os módulos que você liberar, **nunca** os profissionais (o banco bloqueia) |
+
+- Os módulos profissionais mostram **os mesmos dados** para todos que têm permissão (não existe cópia separada por pessoa). Ex.: liberando o Controle financeiro para alguém, a pessoa vê os lançamentos da engenharia.
+- A página **Usuários e permissões** tem três partes: **Usuários** (lista com perfil, módulos, situação, último acesso e número de visitas, com busca e filtros), **Perfis e permissões** (quadro do que cada perfil acessa) e **Histórico de acessos** (data, hora, página e aparelho de cada acesso, dos últimos 180 dias).
+- **Situações:** ativo; aguardando 1º acesso (cadastrado, ainda não entrou); aguardando liberação (conta criada no Supabase sem cadastro no site); inativo (perde o acesso na hora). Sempre fica pelo menos um administrador ativo.
+- Na primeira vez que o banco é usado, quem entra primeiro vira o administrador.
+
+**Cadastrar alguém:**
+
+1. Na área, **Usuários e permissões → Novo usuário**: nome, e-mail, perfil e módulos.
+2. No Supabase, **Authentication → Users → Add user → Create new user**: o mesmo e-mail, uma senha provisória e **Auto Confirm User** marcado. O site mostra o botão que abre essa tela e uma mensagem pronta para enviar à pessoa (sem a senha, que vai em separado).
+3. No primeiro acesso, a pessoa troca a senha em **Minha conta**.
+
+**Se alguém esquecer a senha:** o "Esqueci a senha" só envia e-mail para quem faz parte da equipe do projeto no Supabase (o envio para outros endereços exige configurar um servidor de e-mail próprio, SMTP). Para os demais, exclua a conta da pessoa em **Authentication → Users** e crie de novo com o mesmo e-mail e uma senha provisória: o cadastro dela no site (perfil, módulos e histórico) se liga de novo sozinho no próximo acesso.
+
+## Finanças pessoais
+
+É separado do Controle financeiro da engenharia: são os gastos do dia a dia, o cartão e as faturas e os investimentos de cada pessoa, no painel do **projeto Financeiro**.
+
+- O card abre o painel em uma nova aba, no **link cadastrado para cada pessoa** em Usuários e permissões: cada um abre o próprio painel.
+- Os dados financeiros continuam no próprio painel, **fora deste site e do repositório público**. O link fica guardado no banco, não no código.
+- Para outra pessoa abrir um painel do Claude, ele precisa estar compartilhado com ela (no painel, menu **Compartilhar**).
 
 ## Painel gerencial
 
-Escolha o período no alto (este ano, este mês, últimos 12 meses, ano anterior ou todo o período). Cada indicador leva ao recurso correspondente.
+Fica em `area/painel.html`. Cada bloco aparece só para quem tem permissão no módulo correspondente. Escolha o período no alto (este ano, este mês, últimos 12 meses, ano anterior ou todo o período). Cada indicador leva ao recurso correspondente.
 
 - **ARTs:** ativas, próximas do vencimento (fim previsto nos próximos 45 dias), vencidas sem baixa e alertas pendentes.
 - **Financeiro:** lucro líquido (com a margem), total recebido, gastos totais, a receber, em atraso e ticket médio. Os valores do período seguem o regime de caixa: contam a data em que o dinheiro foi recebido ou pago.
@@ -169,8 +210,8 @@ Enquanto `area/config-area.js` estiver vazio, a área restrita funciona em **mod
 ### 1. Supabase (banco de dados e login – gratuito)
 
 1. Crie a conta em [supabase.com](https://supabase.com) e um projeto (região **South America (São Paulo)**). Guarde a senha do banco.
-2. Em **SQL Editor**, cole todo o conteúdo de `supabase/schema.sql` e clique em **Run**. Depois de atualizações do site, rode de novo: o script só cria o que falta e não apaga dados.
-3. Em **Authentication → Users → Add user**, crie o seu usuário (e-mail e senha, marcando *Auto Confirm User*).
+2. Em **SQL Editor**, cole todo o conteúdo de `supabase/schema.sql` e clique em **Run** (com o seletor ao lado do botão em **Primary Database**). Depois de atualizações do site, rode de novo: o script só cria ou ajusta o que falta e não apaga dados. Se a área mostrar "O banco de dados precisa ser atualizado", é este passo.
+3. Em **Authentication → Users → Add user**, crie o seu usuário (e-mail e senha, marcando *Auto Confirm User*). No primeiro login, ele vira o administrador da área.
 4. Em **Authentication → Sign In / Providers**, **desative "Allow new users to sign up"**: assim ninguém mais consegue criar conta.
 5. Em **Authentication → URL Configuration**:
    - *Site URL*: `https://mvzanette.github.io/mzengenharia/`;
@@ -202,7 +243,8 @@ Observações:
 
 ## Segurança e privacidade
 
-- O código do site é público, mas os dados não: ficam no Supabase, protegidos pelo login e por regras de acesso no banco (cada usuário só enxerga os próprios registros). Os PDFs ficam em armazenamento privado.
+- O código do site é público, mas os dados não: ficam no Supabase, protegidos pelo login e por regras de acesso no banco. Só entra quem tem cadastro ativo, cada módulo só abre para quem tem permissão e clientes nunca acessam os módulos profissionais. Os PDFs ficam em armazenamento privado.
+- As finanças pessoais não passam pelo site: o card só abre o painel do projeto Financeiro.
 - **Nunca** coloque PDFs de ART, relatórios ou planilhas exportadas dentro do repositório (o `.gitignore` já bloqueia `.pdf`, `.csv` e `.xlsx`).
 - A chave Secret (`sb_secret_…` ou `service_role`) dá acesso total ao banco: guarde-a só nos *Secrets* do GitHub, no `SUPABASE_SERVICE_ROLE_KEY`.
 

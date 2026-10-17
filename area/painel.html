@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Painel gerencial | Área restrita</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23f5b800'/%3E%3Ctext x='16' y='21.5' text-anchor='middle' font-family='Arial, sans-serif' font-weight='800' font-size='14' fill='%23111214'%3EMZ%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@500;600;700;800&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+  <link rel="stylesheet" href="area.css">
+  <script type="module" src="painel.js"></script>
+</head>
+<body class="area">
+
+  <header class="site-header">
+    <div class="area-esq">
+    <a class="logo" href="../index.html" aria-label="Voltar ao site">
+      <span class="logo-name">Marcos Zanette</span>
+      <span class="logo-sub">Área restrita</span>
+    </a>
+      <div id="menu-area"></div>
+    </div>
+    <div class="area-top" id="area-top" hidden>
+      <span class="usuario" id="usuario"></span>
+      <button class="btn-link" id="btn-sair" type="button">Sair</button>
+    </div>
+  </header>
+
+  <div class="aviso-demo" id="aviso-demo" hidden>
+    <strong>Modo demonstração.</strong> Os dados ficam só neste navegador e os e-mails de alerta não são enviados.
+    Para usar de verdade, configure o Supabase conforme o README.
+    <button class="btn-link" id="btn-limpar-demo" type="button">Apagar dados de teste</button>
+  </div>
+
+  <main class="area-main" id="conteudo" hidden>
+    <nav class="trilha" aria-label="Você está em"><a href="index.html">Início</a> / Painel gerencial</nav>
+    <div class="area-cabecalho">
+      <h1>Painel gerencial</h1>
+      <label class="filtro-periodo">Período<select id="periodo"></select></label>
+    </div>
+
+    <!-- Cada bloco aparece só para quem tem permissão no módulo correspondente (data-modulo) -->
+    <section class="painel-grupo" aria-labelledby="t-art" data-modulo="art">
+      <h2 class="subtitulo-area" id="t-art">ARTs</h2>
+      <div class="kpis" id="kpis-art"></div>
+    </section>
+
+    <section class="painel-grupo" aria-labelledby="t-fin" data-modulo="financeiro">
+      <h2 class="subtitulo-area" id="t-fin">Financeiro</h2>
+      <div class="kpis" id="kpis-fin"></div>
+    </section>
+
+    <section class="painel-grupo" aria-labelledby="t-dem" data-modulo="demandas">
+      <h2 class="subtitulo-area" id="t-dem">Demandas</h2>
+      <div class="kpis" id="kpis-dem"></div>
+    </section>
+
+    <div class="painel-graficos" data-modulo="financeiro">
+      <figure class="cartao-painel">
+        <figcaption>
+          <h2>Recebido e gasto por mês</h2>
+          <ul class="legenda" aria-label="Legenda">
+            <li><span class="chave serie-1"></span>Recebido</li>
+            <li><span class="chave serie-2"></span>Gasto</li>
+          </ul>
+        </figcaption>
+        <div class="grafico" id="grafico-mensal"></div>
+        <details class="ver-tabela">
+          <summary>Ver em tabela</summary>
+          <div class="tabela-wrap">
+            <table class="tabela compacta" id="tabela-mensal">
+              <thead><tr><th>Mês</th><th class="num">Recebido</th><th class="num">Gasto</th><th class="num">Resultado</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </details>
+      </figure>
+      <figure class="cartao-painel">
+        <figcaption><h2>Receita por tipo de serviço</h2></figcaption>
+        <div id="por-servico"></div>
+      </figure>
+    </div>
+
+    <div class="painel-listas">
+      <div class="cartao-painel" data-modulo="art">
+        <h2>ARTs a vencer em 45 dias</h2>
+        <ul class="lista-painel" id="lista-art"></ul>
+        <a class="link-painel" href="art.html">Abrir o Controle de ART</a>
+      </div>
+      <div class="cartao-painel" data-modulo="demandas">
+        <h2>Prazos das demandas</h2>
+        <ul class="lista-painel" id="lista-dem"></ul>
+        <a class="link-painel" href="demandas.html">Abrir o Controle de demandas</a>
+      </div>
+      <div class="cartao-painel" data-modulo="financeiro">
+        <h2>Recebimentos em atraso</h2>
+        <ul class="lista-painel" id="lista-rec"></ul>
+        <a class="link-painel" href="financeiro.html">Abrir o Controle financeiro</a>
+      </div>
+    </div>
+  </main>
+</body>
+</html>
