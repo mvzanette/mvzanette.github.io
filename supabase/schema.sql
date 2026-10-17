@@ -132,6 +132,13 @@ alter table public.alertas enable row level security;
 alter table public.demandas enable row level security;
 alter table public.lancamentos enable row level security;
 
+-- Acesso pela API, mesmo em projetos criados sem expor tabelas novas
+-- automaticamente. As políticas abaixo continuam limitando cada linha ao dono.
+grant usage on schema public to authenticated, service_role;
+grant select, insert, update, delete
+  on public.arts, public.alertas, public.demandas, public.lancamentos
+  to authenticated, service_role;
+
 drop policy if exists "arts do proprio usuario" on public.arts;
 create policy "arts do proprio usuario" on public.arts
   for all to authenticated
