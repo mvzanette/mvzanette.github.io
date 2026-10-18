@@ -1,6 +1,6 @@
 // Início da área restrita (area/index.html): índice dos módulos liberados para o perfil, agrupados como no
 // menu, com um resumo do que pede atenção em cada um.
-import { abrirPagina } from "./sessao.js";
+import { abrirPagina, paginaEmpresa } from "./sessao.js";
 import { GRUPOS, MODULOS, PAPEIS, pode, situacaoDe } from "./modulos.js";
 import * as R from "./regras.js";
 import * as G from "./regras-gestao.js";
@@ -29,16 +29,27 @@ function cabecalho(perfil) {
 }
 
 // Resumo de cada módulo: { texto, alerta }. Só consulta o que o perfil pode ver.
-async function resumos(armazem, perfil) {
+async function resumos(armazem, perfil, empresas) {
   const tem = (m) => pode(perfil, m);
   const r = {};
-  const [arts, tratados, lancamentos, demandas, usuarios] = await Promise.all([
+  const [arts, tratados, todosLanc, demandas, usuarios] = await Promise.all([
     tem("art") ? armazem.listar() : null,
     tem("art") ? armazem.tratados() : null,
-    tem("financeiro") ? armazem.colecao("lancamentos").listar() : null,
+    tem("financeiro") || tem("empresas") ? armazem.colecao("lancamentos").listar() : null,
     tem("demandas") ? armazem.colecao("demandas").listar() : null,
     tem("usuarios") ? armazem.usuarios.listar() : null,
   ].map((p) => Promise.resolve(p).catch(() => null)));
+  // Controle financeiro e painel: só a engenharia; os lançamentos com empresa ficam nos cards das empresas
+  const lancamentos = todosLanc && tem("financeiro") ? todosLanc.filter((l) => !l.empresa_id) : null;
+  if (todosLanc && tem("empresas")) {
+    r.empresas = {};
+    for (const e of empresas) {
+      const aReceber = todosLanc.filter((l) => l.empresa_id === e.id && l.tipo === "receita" && !l.pago_em);
+      const atrasado = aReceber.some((l) => G.situacaoLancamento(l, hoje) === "atrasado");
+      const total = aReceber.reduce((t, l) => t + Number(l.valor), 0);
+      r.empresas[e.id] = total ? { texto: `${moeda(total)} a receber${atrasado ? " (com atraso)" : ""}`, alerta: atrasado } : { texto: "Nada a receber" };
+    }
+  }
   const financas = tem("financas") ? await Promise.resolve(armazem.financas.ler(perfil.id)).catch(() => undefined) : undefined;
 
   if (arts && tratados) {
@@ -75,25 +86,34 @@ async function resumos(armazem, perfil) {
   return r;
 }
 
-function card(m, resumo) {
-  return `<a class="modulo" href="${m.pagina}">
+function card(m, resumo, empresa = null) {
+  const titulo = empresa ? `Finanças ${esc(empresa.nome)}` : m.titulo;
+  const descricao = empresa ? (empresa.observacao ? esc(empresa.observacao) : "Reembolsos, ARTs pagas pela empresa e o que falta receber.") : m.descricao;
+  return `<a class="modulo" href="${empresa ? paginaEmpresa(empresa) : m.pagina}">
       <span class="modulo-icone">${m.icone}</span>
-      <h2>${m.titulo}</h2>
-      <p>${m.descricao}</p>
+      <h2>${titulo}</h2>
+      <p>${descricao}</p>
       ${resumo ? `<span class="modulo-status${resumo.alerta ? " com-alerta" : ""}">${esc(resumo.texto)}</span>` : ""}
       <span class="modulo-abrir">Abrir</span>
     </a>`;
 }
 
+// Cards de um módulo: as finanças das empresas têm um card por empresa cadastrada
+function cardsDoModulo(m, resumo, empresas) {
+  if (m.id !== "empresas") return [card(m, resumo[m.id])];
+  if (!empresas.length) return [card(m, { texto: "Cadastre as empresas para começar", alerta: true })];
+  return empresas.map((e) => card(m, resumo.empresas && resumo.empresas[e.id], e));
+}
+
 // Cada grupo ocupa tantas colunas quantos cards tiver (até 4): grupos pequenos ficam lado a lado
-function renderizar(perfil, resumo = {}) {
+function renderizar(perfil, empresas, resumo = {}) {
   const grupos = GRUPOS.map((g) => {
-    const mods = MODULOS.filter((m) => m.grupo === g.id && pode(perfil, m.id));
-    if (!mods.length) return "";
-    const colunas = Math.min(mods.length, 4);
+    const cards = MODULOS.filter((m) => m.grupo === g.id && pode(perfil, m.id)).flatMap((m) => cardsDoModulo(m, resumo, empresas));
+    if (!cards.length) return "";
+    const colunas = Math.min(cards.length, 4);
     return `<section class="inicio-grupo span-${colunas}" style="--colunas:${colunas}" aria-labelledby="g-${g.id}">
         <h2 class="subtitulo-area" id="g-${g.id}">${g.titulo}</h2>
-        <div class="modulos">${mods.map((m) => card(m, resumo[m.id])).join("")}</div>
+        <div class="modulos">${cards.join("")}</div>
       </section>`;
   });
   const soConta = MODULOS.every((m) => m.todos || !pode(perfil, m.id));
@@ -105,7 +125,7 @@ function renderizar(perfil, resumo = {}) {
 async function iniciar() {
   const sessao = await abrirPagina("index.html");
   if (!sessao) return;
-  const { armazem, perfil } = sessao;
+  const { armazem, perfil, empresas } = sessao;
   cabecalho(perfil);
 
   const negado = MODULOS.find((m) => m.id === new URLSearchParams(location.search).get("sem-permissao"));
@@ -115,9 +135,9 @@ async function iniciar() {
     history.replaceState(null, "", location.pathname);
   }
 
-  renderizar(perfil);
+  renderizar(perfil, empresas);
   $("#conteudo").hidden = false;
-  renderizar(perfil, await resumos(armazem, perfil));
+  renderizar(perfil, empresas, await resumos(armazem, perfil, empresas));
 }
 
 iniciar();

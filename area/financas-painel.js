@@ -4,6 +4,7 @@
 // da fatura) continua no painel original, aberto pelo botão "Abrir no Claude".
 // Nenhum dado pessoal fica neste código: nomes, valores e cartões vêm todos dos dados importados.
 import { outrasPessoas } from "./financas-importar.js";
+import { chavesFatura, chavesGastos, efetivo, lerCategorias, nomeConta } from "./financas-classificacao.js";
 
 const MESES_PADRAO = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 const VAZIO = {arquivo: "", faturas: [], parcelamentos: [], comprometido: {}, categorias: {}, postos: {}, lancamentos: [], alertas: []};
@@ -35,9 +36,17 @@ function completar(dados) {
 
 // Desenha o painel uma vez por página (depois de importar dados novos, a página é recarregada).
 // Os gastos lançados pelo site entram junto com os do projeto; atualizarGastos() redesenha depois de lançar ou apagar.
+// A classificação feita no site (categoria, subcategoria, essencial, conta e complemento) vale por cima do que veio
+// do projeto; atualizarClassificacao() redesenha depois de classificar ou de mudar a lista de categorias.
 export function desenharFinancas({ dados, carteira = null, modo = "completo", nome = "", linkClaude = null,
-  gastosSite = [], aoLancarGasto = null, aoApagarGasto = null }) {
+  gastosSite = [], aoLancarGasto = null, aoApagarGasto = null,
+  categorias = null, ajustes = [], contas = [], aoClassificar = null, aoEditarCategorias = null, comDesejos = false }) {
   const D = completar(dados);
+  let CATS = categorias || lerCategorias(null, dados);
+  let AJ = new Map(ajustes.map(a => [a.chave, a]));
+  let CONTAS = contas;
+  const ef = l => efetivo(l, AJ.get(l.chave), CATS);
+  const nomeDaConta = c => (CONTAS.find(x => x.id === c) || {}).nome || nomeConta(c);
   const SO_FATURAS = modo === "faturas";
   const CARTEIRA = carteira || null;
   const TEM_NOME = !!String(nome || "").trim();
@@ -103,7 +112,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       if (m.lancamentos.some(l => l.origem !== "site" && l.data === g.data && Math.abs(l.valor - valor) < 0.01)) { duplicados++; continue; }
       m.lancamentos.push({data: g.data, desc: g.descricao, valor, forma: FORMAS_SITE[g.forma] || "Outro", cat: g.categoria || "Outros",
         parcelas: parcelas > 1 ? `1/${parcelas}` : null, obs: g.observacao || "",
-        essencial: g.essencial === true ? "Essencial" : g.essencial === false ? "Não essencial" : null, origem: "site", id: g.id});
+        essencial: g.essencial === true ? "Essencial" : g.essencial === false ? "Não essencial" : null, origem: "site", id: g.id,
+        sub: g.subcategoria || null, conta: g.conta || null});
       // Parcelado no cartão: as próximas parcelas entram nas faturas seguintes, a não ser que a compra já
       // apareça numa fatura processada pelo projeto (aí as parcelas já estão contadas)
       if (parcelas > 1 && !D.cartao.lancamentos.some(l => l.data === g.data && Math.abs(l.valor - valor) < 0.01)) {
@@ -115,6 +125,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       }
     }
     D.meses.forEach(x => x.lancamentos.sort((p, q) => String(p.data).localeCompare(String(q.data))));
+    // Chave de cada lançamento, para achar a classificação feita no site
+    D.meses.forEach(x => chavesGastos(x.lancamentos).forEach((k, i) => { x.lancamentos[i].chave = k; }));
     if (atual) atual = D.meses.find(x => x.chave === atual.chave) || atual;
   }
   mesclarGastosSite(gastosSite);
@@ -366,12 +378,14 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     $id("atalhos").querySelectorAll("[data-ir]").forEach(b => b.onclick = () => irPara(b.dataset.ir, true));
   }
 
-  function renderPrevisao() {
+  // Previsão mês a mês: receita, cartão (parcelas, fixos e o que já foi lançado), quanto ainda cabe no cartão
+  // e a sobra para Pix, débito e dinheiro se o cartão fechar na previsão. Também usada pela lista de desejos.
+  function previsaoMeses(n = 7) {
     const fixCartao = sum(D.recorrentes.filter(r => card(r.forma)), r => r.valor);
     const fixOutros = sum(D.recorrentes.filter(r => !card(r.forma)), r => r.valor);
     const [a0, m0] = hojeKey.split("-").map(Number);
     const linhas = [];
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < n; i++) {
       const [a, m] = nextYM(a0, m0, i), [fa, fm] = nextYM(a, m);
       const mm = D.meses.find(x => x.ano === a && x.mes === m);
       const fat = lbl(fa, fm);
@@ -381,8 +395,20 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
         if (c.snap) { parc = c.snap.total; nota = "aberta"; } else parc = c.parcelas;
       }
       const gastoCartao = META != null ? Math.max(META, cartao) : cartao;
-      linhas.push({mes: lbl(a, m), fat, parc, nota, livre: META != null ? META - cartao : null, sobra: rec - INV - gastoCartao - fixOutros});
+      linhas.push({chave: `${a}-${String(m).padStart(2, "0")}`, mes: lbl(a, m), fat, parc, nota, receita: rec, cartao,
+        livre: META != null ? META - cartao : null, sobra: rec - INV - gastoCartao - fixOutros});
     }
+    return linhas;
+  }
+  // Gasto médio fora do cartão (Pix, débito, dinheiro) nos meses fechados, para estimar o que sobra de verdade
+  const mediaForaCartao = () => {
+    const fechados = D.meses.filter(m => m.chave < hojeKey);
+    const base = fechados.length ? fechados : D.meses.filter(m => m.chave === hojeKey);
+    return base.length ? sum(base, m => sum(m.lancamentos.filter(l => !card(l.forma)), l => l.valor)) / base.length : 0;
+  };
+
+  function renderPrevisao() {
+    const linhas = previsaoMeses(7);
     const cel = v => `<td class="r num" style="color:${v < 0 ? "var(--bad)" : "var(--ok)"};font-weight:600">${n(v)}</td>`;
     $id("previsao").innerHTML = `
       <h2>Previsão dos próximos meses</h2>
@@ -396,7 +422,23 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   const SEMANA = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
   const diaSemana = iso => SEMANA[new Date(iso + "T12:00").getDay()];
   const ehAjuste = l => /^ajuste/i.test(l.desc || "");
-  const catDe = l => (ehAjuste(l) ? "Não detalhado (ajuste)" : l.cat || "Outros");
+  const catDe = l => (ehAjuste(l) ? "Não detalhado (ajuste)" : ef(l).categoria);
+  const rotuloEssencial = e => (e.essencial === true ? " · essencial" : e.essencial === false ? " · não essencial" : "");
+  const chipConta = e => (e.conta !== "pessoal" ? ` · <span class="chip conta">${esc(nomeDaConta(e.conta))}</span>` : "");
+  // Essencial, não essencial e sem classificação (o ajuste "não detalhado" fica à parte)
+  function divisaoEssencial(L) {
+    const det = L.filter(l => !ehAjuste(l));
+    const ess = sum(det.filter(l => ef(l).essencial === true), l => l.valor);
+    const nEss = sum(det.filter(l => ef(l).essencial === false), l => l.valor);
+    return [[ess, "var(--parc)", "Essencial"], [nEss, "var(--inv)", "Não essencial"], [sum(det, l => l.valor) - ess - nEss, "var(--line)", "Sem classificação"],
+      [sum(L.filter(ehAjuste), l => l.valor), "var(--muted)", "Não detalhado"]].filter(s => s[0] > 0.004);
+  }
+  // Total por conta (pessoal, engenharia, empresas), só quando há lançamento fora da conta pessoal
+  function porConta(L) {
+    const t = {};
+    L.forEach(l => { const c = ef(l).conta; t[c] = (t[c] || 0) + l.valor; });
+    return Object.keys(t).some(c => c !== "pessoal") ? Object.entries(t).sort((a, b) => (a[0] === "pessoal" ? -1 : b[0] === "pessoal" ? 1 : b[1] - a[1])) : [];
+  }
   function opcoes(sel, valores, rotuloTodos) {
     const antes = sel.value;
     sel.innerHTML = `<option value="">${rotuloTodos}</option>` + valores.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
@@ -407,12 +449,12 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const L = m.lancamentos;
     const det = L.filter(l => !ehAjuste(l)), aj = L.filter(ehAjuste);
     const total = sum(L, l => l.valor), totDet = sum(det, l => l.valor), totAj = sum(aj, l => l.valor);
-    const ess = sum(det.filter(l => l.essencial === "Essencial"), l => l.valor), nEss = totDet - ess;
     const dias = new Set(det.map(l => l.data)).size;
     const pctT = v => (total > 0 ? `${(v / total * 100).toLocaleString("pt-BR", {maximumFractionDigits: 0})}%` : "—");
     const porForma = {};
     L.forEach(l => { const k = l.forma || "Outro"; (porForma[k] ||= {v: 0, q: 0}); porForma[k].v += l.valor; porForma[k].q++; });
-    const segs = [[ess, "var(--parc)", "Essencial"], [nEss, "var(--inv)", "Não essencial"], [totAj, "var(--muted)", "Não detalhado"]].filter(s => s[0] > 0);
+    const segs = divisaoEssencial(L);
+    const contas = porConta(L);
     $id("g-resumo").innerHTML = `
       <h2>Resumo de ${esc(m.rotulo)}</h2>
       ${L.length ? `
@@ -423,18 +465,27 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       <div class="label" style="margin:14px 0 2px">Por forma de pagamento</div>
       <div class="scroll"><table><tbody>${Object.entries(porForma).sort((a, b) => b[1].v - a[1].v).map(([k, o]) =>
         `<tr><td>${esc(k)}<div class="sub">${o.q} ${o.q === 1 ? "lançamento" : "lançamentos"}</div></td><td class="r num">${n(o.v)}</td><td class="r num muted">${pctT(o.v)}</td></tr>`).join("")}</tbody></table></div>
+      ${contas.length ? `<div class="label" style="margin:14px 0 2px">Por conta</div>
+      <div class="scroll"><table><tbody>${contas.map(([c, v]) => `<tr><td>${esc(nomeDaConta(c))}</td><td class="r num">${n(v)}</td><td class="r num muted">${pctT(v)}</td></tr>`).join("")}</tbody></table></div>` : ""}
       ${totAj ? `<div class="note"><b>Inclui ${brl(totAj)} não detalhados.</b> ${esc(aj.map(a => a.desc.replace(/^ajuste:\s*/i, "")).join("; "))}. Esse valor fica fora das categorias detalhadas e do gráfico por dia.</div>` : ""}
   `
       : `<p class="muted" style="margin:0">Nenhum gasto lançado em ${esc(m.rotulo)}.</p>`}`;
 
-    // Por categoria (o ajuste não detalhado fica por último)
+    // Por categoria, com as subcategorias (o ajuste não detalhado fica por último)
     const porCat = {};
-    L.forEach(l => { const k = catDe(l); (porCat[k] ||= {v: 0, q: 0}); porCat[k].v += l.valor; porCat[k].q++; });
+    L.forEach(l => {
+      const k = catDe(l);
+      const o = (porCat[k] ||= {v: 0, q: 0, subs: {}});
+      o.v += l.valor; o.q++;
+      const s = !ehAjuste(l) && ef(l).subcategoria;
+      if (s) o.subs[s] = (o.subs[s] || 0) + l.valor;
+    });
     const ultimo = k => (k.startsWith("Não detalhado") ? 1 : 0);
     const cats = Object.entries(porCat).sort((a, b) => ultimo(a[0]) - ultimo(b[0]) || b[1].v - a[1].v);
     const maxc = Math.max(1, ...cats.map(c => c[1].v));
     $id("g-cats").innerHTML = `<h2>Por categoria</h2>${cats.length ? cats.map(([k, o]) =>
-      `<div class="cat"><span>${esc(k)} <span class="sub">· ${o.q}</span></span><span class="num">${brl(o.v)} <span class="muted">${pctT(o.v)}</span></span><div class="track"><span style="width:${o.v / maxc * 100}%${ultimo(k) ? ";background:var(--muted)" : ""}"></span></div></div>`).join("")
+      `<div class="cat"><span>${esc(k)} <span class="sub">· ${o.q}</span></span><span class="num">${brl(o.v)} <span class="muted">${pctT(o.v)}</span></span><div class="track"><span style="width:${o.v / maxc * 100}%${ultimo(k) ? ";background:var(--muted)" : ""}"></span></div></div>
+      ${Object.entries(o.subs).sort((a, b) => b[1] - a[1]).map(([s, v]) => `<div class="subcat"><span>${esc(s)}</span><span class="num">${brl(v)}</span></div>`).join("")}`).join("")
       : '<p class="muted" style="margin:0">Sem gastos no mês.</p>'}`;
 
     // Gasto por dia (sem o ajuste)
@@ -458,23 +509,48 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
 
     opcoes($id("g-fcat"), Object.keys(porCat).sort(), "Todas");
     opcoes($id("g-fforma"), Object.keys(porForma).sort(), "Todas");
+    const fConta = $id("g-fconta");
+    const contasMes = [...new Set(L.map(l => ef(l).conta))];
+    fConta.closest("label").hidden = !contasMes.some(c => c !== "pessoal");
+    opcoesComRotulo(fConta, contasMes.map(c => [c, nomeDaConta(c)]), "Todas");
     renderGastosLista(m);
   }
+  function opcoesComRotulo(sel, pares, rotuloTodos) {
+    const antes = sel.value;
+    sel.innerHTML = `<option value="">${rotuloTodos}</option>` + pares.map(([v, r]) => `<option value="${esc(v)}">${esc(r)}</option>`).join("");
+    if (pares.some(([v]) => v === antes)) sel.value = antes;
+  }
 
+  // O que vai para o diálogo de classificar um lançamento (página financas.js)
+  function paraClassificar(l, tipo) {
+    return {chave: l.chave, tipo, site: l.origem === "site", id: l.id || null, titulo: tipo === "fatura" ? l.nome : l.desc,
+      data: l.data || null, valor: l.valor, mes: l.mes || null, forma: l.forma || null, parcela: l.parcela || l.parcelas || null,
+      atual: ef(l), ajuste: AJ.get(l.chave) || null, original: efetivo(l, null, CATS),
+      essencialOriginal: efetivo(l, null, null).semAjuste}; // o que veio do projeto (sem o padrão da categoria)
+  }
+
+  let listaGastos = [];
   function renderGastosLista(m) {
-    const fc = $id("g-fcat").value, ff = $id("g-fforma").value, q = semAcento($id("g-busca").value.trim());
-    const L = m.lancamentos.filter(l => (!fc || catDe(l) === fc) && (!ff || (l.forma || "Outro") === ff)
-      && (!q || semAcento(`${l.desc} ${l.obs || ""} ${l.cat || ""}`).includes(q)));
+    const fc = $id("g-fcat").value, ff = $id("g-fforma").value, fco = $id("g-fconta").value, q = semAcento($id("g-busca").value.trim());
+    const L = m.lancamentos.filter(l => {
+      const e = ef(l);
+      return (!fc || catDe(l) === fc) && (!ff || (l.forma || "Outro") === ff) && (!fco || e.conta === fco)
+        && (!q || semAcento(`${l.desc} ${l.obs || ""} ${e.categoria} ${e.subcategoria || ""} ${e.complemento || ""} ${nomeDaConta(e.conta)}`).includes(q));
+    });
+    listaGastos = L;
+    const indice = new Map(L.map((l, i) => [l, i]));
     const porData = {};
     L.forEach(l => (porData[l.data] ||= []).push(l));
     const datas = Object.keys(porData).sort().reverse();
     $id("g-itens").innerHTML = L.length ? datas.map(d => `<div class="dgroup"><div class="dhead"><span>${dBR(d)} · ${diaSemana(d)}</span><span class="num">${brl(sum(porData[d], l => l.valor))}</span></div>
-      <table><tbody>${porData[d].map(l => `<tr><td>${esc(l.desc)}${ehAjuste(l) ? ' <span class="chip neutral">ajuste</span>' : ""}${l.origem === "site" ? ' <span class="chip info">lançado no site</span>' : ""}
-        <div class="sub">${esc(catDe(l))} · ${esc(l.forma || "")}${l.parcelas ? ` · parcela ${esc(l.parcelas)}` : ""}${l.essencial ? ` · ${esc(l.essencial.toLowerCase())}` : ""}${l.obs && !ehAjuste(l) ? ` · ${esc(l.obs)}` : ""}</div></td>
-        <td class="r num">${n(l.valor)}${l.origem === "site" && aoApagarGasto ? `<div><button type="button" class="btn sec mini" data-apagar-gasto="${esc(l.id)}">Apagar</button></div>` : ""}</td></tr>`).join("")}</tbody></table></div>`).join("")
+      <table><tbody>${porData[d].map(l => { const e = ef(l); return `<tr><td>${esc(l.desc)}${ehAjuste(l) ? ' <span class="chip neutral">ajuste</span>' : ""}${l.origem === "site" ? ' <span class="chip info">lançado no site</span>' : ""}
+        ${e.complemento ? `<div class="compl">${esc(e.complemento)}</div>` : ""}
+        <div class="sub">${esc(catDe(l))}${e.subcategoria && !ehAjuste(l) ? ` › ${esc(e.subcategoria)}` : ""} · ${esc(l.forma || "")}${l.parcelas ? ` · parcela ${esc(l.parcelas)}` : ""}${ehAjuste(l) ? "" : rotuloEssencial(e)}${chipConta(e)}${l.obs && !ehAjuste(l) && l.origem !== "site" ? ` · ${esc(l.obs)}` : ""}</div></td>
+        <td class="r num">${n(l.valor)}<div class="acoes-lanc">${aoClassificar && !ehAjuste(l) ? `<button type="button" class="btn sec mini" data-classificar-g="${indice.get(l)}">Classificar</button>` : ""}${l.origem === "site" && aoApagarGasto ? `<button type="button" class="btn sec mini" data-apagar-gasto="${esc(l.id)}">Apagar</button>` : ""}</div></td></tr>`; }).join("")}</tbody></table></div>`).join("")
       + `<p class="sub" style="margin:10px 0 0">${L.length} ${L.length === 1 ? "lançamento" : "lançamentos"} · total ${brl(sum(L, l => l.valor))}</p>`
       : `<p class="muted" style="margin:6px 0 0">${m.lancamentos.length ? "Nenhum lançamento com esses filtros." : `Nenhum gasto lançado em ${esc(m.rotulo)}.`}</p>`;
     $id("g-itens").querySelectorAll("[data-apagar-gasto]").forEach(b => { b.onclick = () => aoApagarGasto(b.dataset.apagarGasto); });
+    $id("g-itens").querySelectorAll("[data-classificar-g]").forEach(b => { b.onclick = () => aoClassificar(paraClassificar(listaGastos[Number(b.dataset.classificarG)], "gasto")); });
   }
 
   // ---------- Cartão e faturas ----------
@@ -522,6 +598,9 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   let QUEM = "dono";
   { const s = lembrar("fatura-de"); if (!SO_FATURAS && PESSOAS[s]) QUEM = s; }
   const FC = () => PESSOAS[QUEM].cartao;
+  // Chave de cada lançamento das faturas (a outra pessoa tem prefixo próprio), para a classificação feita no site
+  chavesFatura(PESSOAS.dono.cartao.lancamentos, "c").forEach((k, i) => { PESSOAS.dono.cartao.lancamentos[i].chave = k; });
+  if (PESSOAS.outra) chavesFatura(PESSOAS.outra.cartao.lancamentos, "co").forEach((k, i) => { PESSOAS.outra.cartao.lancamentos[i].chave = k; });
 
   const fatSel = {};
   function renderFaturaAnalise() {
@@ -529,11 +608,17 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const C = FC(), F = C.faturas;
     if (!F.length) { box.innerHTML = `<h2>Análise da fatura</h2><p class="muted" style="margin:0">Nenhuma fatura ${QUEM === "dono" && !TEM_NOME ? "sua" : `de ${esc(PESSOAS[QUEM].nome)}`} processada ainda.</p>`; return; }
     const f = F.find(x => x.mes === fatSel[QUEM]) || F.at(-1);
-    const cats = Object.entries(C.categorias[f.mes] || {}).sort((a, b) => b[1] - a[1]);
+    const doMes = C.lancamentos.filter(l => l.mes === f.mes);
+    // Categorias somadas dos lançamentos com a classificação feita no site (sem lançamentos, as do projeto)
+    const somaCat = {};
+    doMes.forEach(l => { const k = ef(l).categoria; somaCat[k] = (somaCat[k] || 0) + l.valor; });
+    const cats = Object.entries(doMes.length ? somaCat : C.categorias[f.mes] || {}).sort((a, b) => b[1] - a[1]);
     const maxc = Math.max(1, ...cats.map(c => c[1]));
+    const segs = divisaoEssencial(doMes), totSegs = sum(segs, s => s[0]);
+    const contas = porConta(doMes);
     const al = C.alertas.filter(a => a.mes === f.mes);
     const prio = {"Alta": "bad", "Média": "warn", "Media": "warn", "Baixa": "neutral", "Info": "info"};
-    const top = C.lancamentos.filter(l => l.mes === f.mes).sort((a, b) => b.valor - a.valor).slice(0, 6);
+    const top = [...doMes].sort((a, b) => b.valor - a.valor).slice(0, 6);
     const kv = [["Total a pagar", brl(f.total)], ["Vencimento", dataLonga(f.vencimento)],
       ["À vista (nacional)", brl(f.avista)], ["Parcelas", brl(f.parcelas)], ["Internacional", brl(f.internacional)], ["Encargos e IOF", brl(f.encargos)],
       ["Lançamentos", f.n_lanc != null ? esc(f.n_lanc) : "—"], ["Pagamento mínimo", brl(f.minimo)],
@@ -545,10 +630,15 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       ${META != null && QUEM === "dono" && !SO_FATURAS ? `<p class="sub" style="margin:10px 0 0">${f.total > META ? `Ficou <b class="num" style="color:var(--bad)">${brl(f.total - META)}</b> acima da sua previsão de ${brl(META)}.` : `Ficou ${brl(META - f.total)} abaixo da sua previsão de ${brl(META)}.`}${f.conferencia === "OK" ? " A soma dos lançamentos confere com o total da fatura." : ""}</p>` : ""}
       <div class="label" style="margin:16px 0 6px">Categorias</div>
       ${cats.map(([k, v]) => `<div class="cat"><span>${esc(k)}</span><span class="num">${brl(v)} <span class="muted">${f.gastos ? Math.round(v / f.gastos * 100) + "%" : ""}</span></span><div class="track"><span style="width:${v / maxc * 100}%"></span></div></div>`).join("")}
+      ${totSegs > 0 ? `<div class="label" style="margin:16px 0 6px">Essencial e não essencial</div>
+        <div class="stack" role="img" aria-label="Essencial e não essencial na fatura">${segs.map(s => `<span style="width:${s[0] / totSegs * 100}%;background:${s[1]}"></span>`).join("")}</div>
+        <div class="legend">${segs.map(s => `<span><i style="background:${s[1]}"></i>${s[2]} <span class="num">${brl(s[0])}</span> (${Math.round(s[0] / totSegs * 100)}%)</span>`).join("")}</div>` : ""}
+      ${contas.length ? `<div class="label" style="margin:16px 0 6px">Por conta</div>
+        <div class="scroll"><table><tbody>${contas.map(([c, v]) => `<tr><td>${esc(nomeDaConta(c))}</td><td class="r num">${n(v)}</td></tr>`).join("")}</tbody></table></div>` : ""}
       ${al.length ? `<div class="label" style="margin:16px 0 6px">Pontos de atenção</div>
         <div class="scroll"><table><tbody>${al.map(a => `<tr><td><span class="chip ${prio[a.prioridade] || "neutral"}">${esc(a.prioridade || "")}</span> ${esc(a.tipo || "")}<div class="sub">${esc(a.nome || "")}${a.detalhe ? ` · ${esc(a.detalhe)}` : ""}</div></td><td class="r num">${a.valor != null ? n(a.valor) : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}
       <div class="label" style="margin:16px 0 6px">Maiores lançamentos</div>
-      <div class="scroll"><table><tbody>${top.map(l => `<tr><td>${esc(l.nome)}<div class="sub">${esc(l.cat)}${l.parcela ? ` · parcela ${esc(l.parcela)}` : ""}${l.data ? ` · ${dBR(l.data)}` : ""}</div></td><td class="r num">${n(l.valor)}</td></tr>`).join("")}</tbody></table></div>
+      <div class="scroll"><table><tbody>${top.map(l => { const e = ef(l); return `<tr><td>${esc(l.nome)}${e.complemento ? `<div class="compl">${esc(e.complemento)}</div>` : ""}<div class="sub">${esc(e.categoria)}${e.subcategoria ? ` › ${esc(e.subcategoria)}` : ""}${l.parcela ? ` · parcela ${esc(l.parcela)}` : ""}${l.data ? ` · ${dBR(l.data)}` : ""}</div></td><td class="r num">${n(l.valor)}</td></tr>`; }).join("")}</tbody></table></div>
       <p class="sub" style="margin:10px 0 0">Os lançamentos completos estão no fim desta página.</p>`;
     box.querySelectorAll("[data-fat]").forEach(b => b.onclick = () => {
       fatSel[QUEM] = b.dataset.fat; renderFaturaAnalise();
@@ -620,39 +710,46 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const antes = selM.value;
     selM.innerHTML = meses.map(mm => `<option value="${esc(mm)}">${esc(mm)}</option>`).join("");
     if (meses.includes(antes)) selM.value = antes; else if (meses.length) selM.value = meses.at(-1);
-    opcoes($id("f-fcat"), [...new Set(T.filter(l => l.mes === selM.value).map(l => l.cat))].sort(), "Todas");
+    opcoes($id("f-fcat"), [...new Set(T.filter(l => l.mes === selM.value).map(l => ef(l).categoria))].sort(), "Todas");
     renderFaturaLista();
   }
 
   let fatTodos = false;
+  let listaFatura = [];
   function renderFaturaLista() {
     const mm = $id("f-fmes").value, fc = $id("f-fcat").value, q = semAcento($id("f-busca").value.trim());
-    const L = FC().lancamentos.filter(l => l.mes === mm && (!fc || l.cat === fc) && (!q || semAcento(`${l.nome} ${l.cidade} ${l.cat}`).includes(q)))
-      .sort((a, b) => (b.data || "").localeCompare(a.data || ""));
+    const L = FC().lancamentos.filter(l => {
+      const e = ef(l);
+      return l.mes === mm && (!fc || e.categoria === fc)
+        && (!q || semAcento(`${l.nome} ${l.cidade} ${e.categoria} ${e.subcategoria || ""} ${e.complemento || ""} ${nomeDaConta(e.conta)}`).includes(q));
+    }).sort((a, b) => (b.data || "").localeCompare(a.data || ""));
     const corta = !fatTodos && !fc && !q && L.length > 30;
     const V = corta ? L.slice(0, 25) : L;
-    $id("f-itens").innerHTML = L.length ? `<div class="scroll"><table><thead><tr><th>Data</th><th>Lançamento</th><th class="r">Valor</th></tr></thead><tbody>${V.map(l =>
-      `<tr><td class="num muted" style="padding-right:10px">${l.data ? dBR(l.data) : ""}</td><td>${esc(l.nome)}<div class="sub">${esc(l.cat)}${l.cidade ? ` · ${esc(l.cidade)}` : ""}${l.parcela ? ` · parcela ${esc(l.parcela)}` : ""}${l.tipo && l.tipo !== "Nacional" ? ` · ${esc(l.tipo)}` : ""}</div></td><td class="r num">${n(l.valor)}</td></tr>`).join("")}</tbody></table></div>
+    listaFatura = V;
+    $id("f-itens").innerHTML = L.length ? `<div class="scroll"><table><thead><tr><th>Data</th><th>Lançamento</th><th class="r">Valor</th></tr></thead><tbody>${V.map((l, i) => { const e = ef(l); return `<tr><td class="num muted" style="padding-right:10px">${l.data ? dBR(l.data) : ""}</td>
+      <td>${esc(l.nome)}${e.complemento ? `<div class="compl">${esc(e.complemento)}</div>` : ""}<div class="sub">${esc(e.categoria)}${e.subcategoria ? ` › ${esc(e.subcategoria)}` : ""}${l.cidade ? ` · ${esc(l.cidade)}` : ""}${l.parcela ? ` · parcela ${esc(l.parcela)}` : ""}${l.tipo && l.tipo !== "Nacional" ? ` · ${esc(l.tipo)}` : ""}${rotuloEssencial(e)}${chipConta(e)}</div></td>
+      <td class="r num">${n(l.valor)}${aoClassificar ? `<div class="acoes-lanc"><button type="button" class="btn sec mini" data-classificar-f="${i}">Classificar</button></div>` : ""}</td></tr>`; }).join("")}</tbody></table></div>
       ${corta ? `<button type="button" class="btn sec mini" id="f-todos" style="margin-top:10px">Mostrar todos os ${L.length} lançamentos</button>` : ""}
       <p class="sub" style="margin:10px 0 0">${corta ? `Mostrando os 25 mais recentes de ${L.length}` : `${L.length} ${L.length === 1 ? "lançamento" : "lançamentos"}`} · total da seleção ${brl(sum(L, l => l.valor))}</p>`
       : `<p class="muted" style="margin:6px 0 0">${FC().lancamentos.length ? "Nenhum lançamento com esses filtros." : "Nenhuma fatura processada ainda."}</p>`;
     if (corta) $id("f-todos").onclick = () => { fatTodos = true; renderFaturaLista(); const t = $id("f-itens"); t.tabIndex = -1; t.focus(); };
+    $id("f-itens").querySelectorAll("[data-classificar-f]").forEach(b => { b.onclick = () => aoClassificar(paraClassificar(listaFatura[Number(b.dataset.classificarF)], "fatura")); });
   }
 
-  // ---------- Abas: visão geral, gastos do dia a dia, cartão e faturas, investimentos ----------
-  const ABAS = ["geral", "gastos", "cartao", "investimentos"];
+  // ---------- Abas: visão geral, gastos do dia a dia, cartão e faturas, investimentos, lista de desejos ----------
+  const ABAS = ["geral", "gastos", "cartao", "investimentos", "desejos"];
   function irPara(aba, rolar) {
-    if (SO_FATURAS && aba !== "investimentos") aba = "cartao";
-    if (!ABAS.includes(aba) || (aba === "investimentos" && !CARTEIRA)) aba = "geral";
+    if (SO_FATURAS && aba !== "investimentos" && aba !== "desejos") aba = "cartao";
+    if (!ABAS.includes(aba) || (aba === "investimentos" && !CARTEIRA) || (aba === "desejos" && !comDesejos)) aba = SO_FATURAS ? "cartao" : "geral";
     document.querySelectorAll("#fin-abas [role=tab]").forEach(t => {
       const sel = t.dataset.aba === aba;
       t.setAttribute("aria-selected", String(sel));
       t.tabIndex = sel ? 0 : -1;
     });
-    ["geral", "gastos", "cartao"].forEach(k => { $id("view-" + k).hidden = k !== aba; });
+    ["geral", "gastos", "cartao", "desejos"].forEach(k => { $id("view-" + k).hidden = k !== aba; });
     $id("fin-root").hidden = aba === "investimentos";
     $id("view-inv").hidden = aba !== "investimentos";
-    if (!SO_FATURAS || CARTEIRA) {
+    if (!SO_FATURAS || CARTEIRA || comDesejos) {
       guardar("aba", aba);
       try { if (location.hash !== "#" + aba) history.replaceState(null, "", "#" + aba); } catch (e) { /* sem histórico */ }
     }
@@ -664,14 +761,15 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   function iniciarAbas() {
     const barra = $id("fin-abas");
     const tabs = [...barra.querySelectorAll("[role=tab]")];
-    const quem = {geral: DONO, gastos: DONO, cartao: OUTRA ? `${DONO} e ${OUTRA.nome}` : DONO, investimentos: TITULARES || DONO};
+    const quem = {geral: DONO, gastos: DONO, cartao: OUTRA ? `${DONO} e ${OUTRA.nome}` : DONO, investimentos: TITULARES || DONO, desejos: "Prioridades e projeção"};
     tabs.forEach(t => { const s = t.querySelector("small"); if (s) s.textContent = quem[t.dataset.aba]; });
     $id("tab-inv").hidden = !CARTEIRA;
+    $id("tab-desejos").hidden = !comDesejos;
     document.querySelectorAll("[data-dono]").forEach(el => { el.textContent = DONO; });
     if (SO_FATURAS) {
       $id("tab-geral").hidden = true;
       $id("tab-gastos").hidden = true;
-      if (!CARTEIRA) { barra.hidden = true; irPara("cartao", false); return; }
+      if (!CARTEIRA && !comDesejos) { barra.hidden = true; irPara("cartao", false); return; }
     }
     const visiveis = () => tabs.filter(t => !t.hidden);
     tabs.forEach(t => t.addEventListener("click", () => irPara(t.dataset.aba, true)));
@@ -767,8 +865,12 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   else seguro(null, render);
   mostrarQuem();
 
-  // Filtros das listas
-  ["g-fcat", "g-fforma"].forEach(id => $id(id).addEventListener("change", () => seguro("g-itens", () => renderGastosLista(atual))));
+  // Filtros das listas e o botão da lista de categorias
+  ["g-fcat", "g-fforma", "g-fconta"].forEach(id => $id(id).addEventListener("change", () => seguro("g-itens", () => renderGastosLista(atual))));
+  document.querySelectorAll("[data-editar-categorias]").forEach(b => {
+    b.hidden = !aoEditarCategorias;
+    b.onclick = () => aoEditarCategorias();
+  });
   $id("g-busca").addEventListener("input", () => seguro("g-itens", () => renderGastosLista(atual)));
   $id("f-fmes").addEventListener("change", () => seguro("f-itens", renderFaturaLanc));
   $id("f-fcat").addEventListener("change", () => seguro("f-itens", renderFaturaLista));
@@ -791,6 +893,18 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       seguro(null, render);
       seguro("parcelas", renderParcelas);
     },
+    // Depois de classificar um lançamento ou de mudar a lista de categorias
+    atualizarClassificacao({ajustes: novos, categorias: c, contas: cs} = {}) {
+      if (novos) AJ = new Map(novos.map(a => [a.chave, a]));
+      if (c) CATS = c;
+      if (cs) CONTAS = cs;
+      if (!SO_FATURAS) seguro(null, render);
+      mostrarQuem();
+    },
+    // Para a lista de desejos: previsão dos próximos meses (só no painel completo, que tem as receitas)
+    previsao: n => (SO_FATURAS ? [] : previsaoMeses(n)),
+    mediaForaCartao: () => (SO_FATURAS ? 0 : mediaForaCartao()),
+    meta: META,
   };
 }
 

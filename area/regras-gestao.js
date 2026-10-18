@@ -44,6 +44,11 @@ export const CATEGORIAS = {
   despesa: ["Deslocamento", "Taxa de ART", "Impostos", "Materiais e equipamentos", "Software e assinaturas",
     "Serviços de terceiros", "Outros"],
 };
+// Lançamentos com as empresas (finanças das empresas): o que a empresa paga a você e o que você paga por ela
+export const CATEGORIAS_EMPRESA = {
+  receita: ["Reembolso de despesas", "Pagamento de ART", "Salário e benefícios", "Bônus e PLR", "Serviços prestados", "Outros"],
+  despesa: ["Despesa a reembolsar", "Taxa de ART", "Deslocamento", "Alimentação", "Hospedagem", "Materiais", "Outros"],
+};
 export const FORMAS = ["Pix", "Transferência", "Boleto", "Dinheiro", "Cartão", "Outro"];
 
 // ---------------------------------------------------------------- datas e períodos

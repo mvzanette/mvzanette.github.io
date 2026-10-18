@@ -5,6 +5,7 @@ const COLUNAS = [
   "id", "numero", "crea", "tipo", "forma", "contratante", "contratante_doc", "proprietario", "local",
   "endereco", "contrato", "valor", "taxa", "celebrado", "inicio", "fim", "registrada", "atividades",
   "tos", "observacao", "chave", "tipo_servico", "baixa_data", "baixa_motivo", "anterior_id", "pdf_path", "notas",
+  "vinculo", "empresa_id",
 ];
 
 const somenteColunas = (art) => Object.fromEntries(COLUNAS.filter((c) => c in art).map((c) => [c, art[c] ?? null]));
@@ -24,7 +25,7 @@ const TABELAS = {
   },
   lancamentos: {
     colunas: ["id", "tipo", "descricao", "categoria", "cliente", "valor", "competencia", "vencimento", "pago_em",
-      "forma", "art_id", "demanda_id", "observacao"],
+      "forma", "art_id", "demanda_id", "observacao", "empresa_id"],
     numeros: ["valor"],
   },
 };
@@ -57,6 +58,18 @@ function regrasPerfil(p) {
   return linha;
 }
 
+// Texto opcional aparado e cortado no tamanho da coluna (vazio vira null)
+const texto = (v, max) => String(v ?? "").trim().slice(0, max) || null;
+const simNao = (v) => (v === true || v === false ? v : null);
+const soCampos = (obj, campos) => Object.fromEntries(campos.filter((c) => c in obj).map((c) => [c, obj[c]]));
+const hojeLocal = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+// Conta de um lançamento das finanças pessoais: pessoal, engenharia (trabalho autônomo) ou uma empresa
+const contaValida = (v) => (/^(pessoal|engenharia|empresa:[0-9a-f-]{36})$/.test(String(v || "")) ? v : null);
+
 // Gasto lançado pelo site em Finanças pessoais: só as colunas da tabela, com tipos certos
 const FORMAS_GASTO = ["cartao", "pix", "debito", "dinheiro", "outro"];
 function limparGasto(g) {
@@ -74,8 +87,72 @@ function limparGasto(g) {
     categoria: String(g.categoria || "").trim().slice(0, 60) || null,
     essencial: g.essencial === true || g.essencial === false ? g.essencial : null,
     observacao: String(g.observacao || "").trim().slice(0, 300) || null,
+    subcategoria: texto(g.subcategoria, 60),
+    conta: contaValida(g.conta),
   };
 }
+
+// Classificação de um gasto lançado pelo site (o que dá para mudar depois de lançado)
+const limparClassificacao = (c) => ({
+  categoria: texto(c.categoria, 60),
+  subcategoria: texto(c.subcategoria, 60),
+  essencial: simNao(c.essencial),
+  observacao: texto(c.observacao, 300),
+  conta: contaValida(c.conta),
+});
+
+// Classificação de um lançamento que vem do projeto Financeiro (gastos do dia a dia e faturas)
+const limparAjuste = (a) => ({
+  perfil_id: a.perfil_id,
+  chave: String(a.chave).slice(0, 400),
+  categoria: texto(a.categoria, 60),
+  subcategoria: texto(a.subcategoria, 60),
+  essencial: simNao(a.essencial),
+  complemento: texto(a.complemento, 200),
+  conta: contaValida(a.conta),
+});
+
+// Desejo de compra: só as colunas da tabela, com tipos certos
+function limparDesejo(d) {
+  const valor = Math.round(Number(d.valor) * 100) / 100;
+  if (!String(d.nome || "").trim()) throw new Error("Informe o que você quer comprar.");
+  if (!(valor > 0)) throw new Error("Informe o valor (maior que zero).");
+  const quem = ["eu", "outra", "conjunto"].includes(d.quem) ? d.quem : "eu";
+  if (quem === "outra" && !d.outra_id) throw new Error("Escolha a pessoa que vai comprar.");
+  const link = texto(d.link, 500);
+  if (link && !/^https:\/\//.test(link)) throw new Error("O link precisa começar com https://");
+  const forma = d.forma === "parcelado" ? "parcelado" : "avista";
+  const situacao = ["desejo", "comprado", "desistiu"].includes(d.situacao) ? d.situacao : "desejo";
+  return {
+    ...(d.id ? { id: d.id } : {}),
+    perfil_id: d.perfil_id,
+    nome: String(d.nome).trim().slice(0, 120),
+    valor,
+    prioridade: Math.min(5, Math.max(1, parseInt(d.prioridade, 10) || 3)),
+    quem,
+    outra_id: quem === "eu" ? null : d.outra_id || null,
+    parte: Math.min(100, Math.max(0, Number.isFinite(Number(d.parte)) ? Number(d.parte) : 50)),
+    forma,
+    parcelas: forma === "parcelado" ? Math.min(48, Math.max(2, parseInt(d.parcelas, 10) || 2)) : 1,
+    quando: /^\d{4}-\d{2}$/.test(d.quando || "") ? `${d.quando}-01` : d.quando || null,
+    guardado: Math.max(0, Math.round(Number(d.guardado || 0) * 100) / 100),
+    categoria: texto(d.categoria, 60),
+    link,
+    observacao: texto(d.observacao, 300),
+    situacao,
+    comprado_em: situacao === "comprado" ? d.comprado_em || hojeLocal() : null,
+  };
+}
+const numerosDesejo = (d) => ({ ...d, valor: Number(d.valor), guardado: Number(d.guardado), parte: Number(d.parte) });
+
+// Empresa (os nomes ficam só no banco)
+function limparEmpresa(e) {
+  const nome = String(e.nome || "").trim().slice(0, 80);
+  if (!nome) throw new Error("Informe o nome da empresa.");
+  return { nome, observacao: texto(e.observacao, 300), ordem: Number.isFinite(Number(e.ordem)) ? Number(e.ordem) : 0 };
+}
+const EMPRESA_REPETIDA = "Já existe uma empresa com esse nome.";
+const EMPRESA_COM_LANCAMENTOS = "Esta empresa tem lançamentos. Apague-os antes de remover a empresa.";
 
 // Nome guardado do PDF: data de envio na frente (evita sobrescrever) e só letras, números, ponto e hífen
 const nomeArquivoPdf = (nome) => {
@@ -179,11 +256,24 @@ function armazemDemo() {
   const ACESSOS = "mz-area-demo-acessos";
   const FINANCAS = "mz-area-demo-financas";
   const GASTOS = "mz-area-demo-financas-gastos";
+  const EMPRESAS = "mz-area-demo-empresas";
+  const PREFS = "mz-area-demo-financas-prefs";
+  const AJUSTES = "mz-area-demo-financas-ajustes";
+  const DESEJOS = "mz-area-demo-financas-desejos";
   const pdfsFinancas = []; // PDFs só durante a sessão
   const lerPerfis = () => lerJson(PERFIS, []);
   const eu = () => {
     const email = (sessao.ler() || "").toLowerCase();
     return lerPerfis().find((p) => p.email === email) || null;
+  };
+  // Mesmas regras do banco para as finanças pessoais: a própria pessoa ou o administrador
+  const exigirDono = (perfilId) => {
+    const p = eu();
+    if (!p || (p.papel !== "adm" && perfilId !== p.id)) throw new Error("Sem permissão para alterar este painel.");
+  };
+  const doDesejo = (d) => {
+    const p = eu();
+    return !!p && (p.papel === "adm" || d.perfil_id === p.id || d.outra_id === p.id);
   };
   const exigirAdm = () => {
     const p = eu();
@@ -323,6 +413,94 @@ function armazemDemo() {
         const i = pdfsFinancas.findIndex((a) => a.caminho === caminho);
         if (i >= 0) pdfsFinancas.splice(i, 1);
       },
+      async atualizarGasto(idGasto, campos) {
+        const todos = lerJson(GASTOS, []);
+        const g = todos.find((x) => x.id === idGasto);
+        if (!g) throw new Error("Gasto não encontrado.");
+        exigirDono(g.perfil_id);
+        Object.assign(g, limparClassificacao(campos));
+        gravarJson(GASTOS, todos);
+        return structuredClone(g);
+      },
+      async preferencias(perfilId) {
+        return lerJson(PREFS, {})[perfilId] || null;
+      },
+      async salvarPreferencias(perfilId, campos) {
+        exigirDono(perfilId);
+        const todos = lerJson(PREFS, {});
+        todos[perfilId] = { perfil_id: perfilId, categorias: {}, plano: {}, ...todos[perfilId], ...soCampos(campos, ["categorias", "plano"]),
+          atualizado_em: new Date().toISOString() };
+        gravarJson(PREFS, todos);
+        return structuredClone(todos[perfilId]);
+      },
+      async ajustes(perfilId) {
+        return lerJson(AJUSTES, []).filter((a) => a.perfil_id === perfilId);
+      },
+      async salvarAjustes(lista) {
+        const todos = lerJson(AJUSTES, []);
+        const salvos = lista.map((a) => {
+          exigirDono(a.perfil_id);
+          const linha = { ...limparAjuste(a), atualizado_em: new Date().toISOString() };
+          let x = todos.find((t) => t.perfil_id === linha.perfil_id && t.chave === linha.chave);
+          if (x) Object.assign(x, linha);
+          else todos.push((x = { id: novoId(), ...linha }));
+          return structuredClone(x);
+        });
+        gravarJson(AJUSTES, todos);
+        return salvos;
+      },
+      async apagarAjuste(idAjuste) {
+        gravarJson(AJUSTES, lerJson(AJUSTES, []).filter((a) => a.id !== idAjuste));
+      },
+      async desejos() {
+        return lerJson(DESEJOS, []).filter(doDesejo);
+      },
+      async salvarDesejo(desejo) {
+        const linha = limparDesejo(desejo);
+        const todos = lerJson(DESEJOS, []);
+        let d = linha.id && todos.find((x) => x.id === linha.id);
+        if (!doDesejo(linha) || (d && !doDesejo(d))) throw new Error("Sem permissão para alterar este desejo.");
+        const agora = new Date().toISOString();
+        if (d) Object.assign(d, linha, { atualizado_em: agora });
+        else todos.push((d = { id: novoId(), criado_em: agora, ...linha, atualizado_em: agora }));
+        gravarJson(DESEJOS, todos);
+        return structuredClone(d);
+      },
+      async apagarDesejo(idDesejo) {
+        gravarJson(DESEJOS, lerJson(DESEJOS, []).filter((d) => d.id !== idDesejo || !doDesejo(d)));
+      },
+      // Quem usa as finanças (para dividir desejos): só o primeiro nome
+      async pessoas() {
+        const usa = (x) => x.situacao === "ativo" && (x.papel === "adm" || (x.papel === "pessoal" && (x.modulos || []).includes("financas")));
+        const p = eu();
+        if (!p || !usa(p)) return [];
+        return lerPerfis().filter(usa).map((x) => ({ id: x.id, nome: (x.nome || x.email).split(/[\s@]/)[0] }))
+          .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+      },
+    },
+    // Empresas com que há movimento financeiro (os nomes ficam só nos dados)
+    empresas: {
+      async listar() {
+        return lerJson(EMPRESAS, []).sort((a, b) => a.ordem - b.ordem || a.nome.localeCompare(b.nome, "pt-BR"));
+      },
+      async salvar(empresa) {
+        const linha = limparEmpresa(empresa);
+        const lista = lerJson(EMPRESAS, []);
+        if (lista.some((x) => x.id !== empresa.id && x.nome.toLowerCase() === linha.nome.toLowerCase())) throw new Error(EMPRESA_REPETIDA);
+        let e = empresa.id && lista.find((x) => x.id === empresa.id);
+        if (e) Object.assign(e, linha);
+        else lista.push((e = { id: novoId(), criado_em: new Date().toISOString(), ...linha }));
+        gravarJson(EMPRESAS, lista);
+        return structuredClone(e);
+      },
+      async remover(idEmpresa) {
+        if ((await colecoes.lancamentos.listar()).some((l) => l.empresa_id === idEmpresa)) throw new Error(EMPRESA_COM_LANCAMENTOS);
+        gravarJson(EMPRESAS, lerJson(EMPRESAS, []).filter((x) => x.id !== idEmpresa));
+        estado.arts.forEach((a) => {
+          if (a.empresa_id === idEmpresa) a.empresa_id = null;
+        });
+        gravar(estado);
+      },
     },
     async listar() {
       return structuredClone(estado.arts);
@@ -367,6 +545,10 @@ function armazemDemo() {
       gravarJson(ACESSOS, []);
       gravarJson(FINANCAS, {});
       gravarJson(GASTOS, []);
+      gravarJson(EMPRESAS, []);
+      gravarJson(PREFS, {});
+      gravarJson(AJUSTES, []);
+      gravarJson(DESEJOS, []);
     },
   };
 }
@@ -492,6 +674,82 @@ async function armazemSupabase(url, chave) {
       async apagarPdf(caminho) {
         const { error } = await sb.storage.from("financas").remove([caminho]);
         falhou(error);
+      },
+      async atualizarGasto(idGasto, campos) {
+        const { data, error } = await sb.from("financas_gastos").update(limparClassificacao(campos)).eq("id", idGasto).select().single();
+        if (error) throw new Error(error.code === "42501" || error.code === "PGRST116" ? "Sem permissão para alterar este gasto." : error.message);
+        return { ...data, valor: Number(data.valor) };
+      },
+      async preferencias(perfilId) {
+        const { data, error } = await sb.from("financas_preferencias").select("*").eq("perfil_id", perfilId).maybeSingle();
+        if (error) throw new Error(/financas_preferencias/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+        return data;
+      },
+      async salvarPreferencias(perfilId, campos) {
+        const { data, error } = await sb
+          .from("financas_preferencias")
+          .upsert({ perfil_id: perfilId, ...soCampos(campos, ["categorias", "plano"]) }, { onConflict: "perfil_id" })
+          .select()
+          .single();
+        if (error) throw new Error(error.code === "42501" || error.code === "PGRST116" ? "Sem permissão para alterar estas preferências." : error.message);
+        return data;
+      },
+      async ajustes(perfilId) {
+        const { data, error } = await sb.from("financas_ajustes").select("*").eq("perfil_id", perfilId);
+        if (error) throw new Error(/financas_ajustes/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+        return data || [];
+      },
+      async salvarAjustes(lista) {
+        if (!lista.length) return [];
+        const { data, error } = await sb.from("financas_ajustes").upsert(lista.map(limparAjuste), { onConflict: "perfil_id,chave" }).select();
+        if (error) throw new Error(error.code === "42501" ? "Sem permissão para classificar neste painel." : error.message);
+        return data || [];
+      },
+      async apagarAjuste(idAjuste) {
+        const { error } = await sb.from("financas_ajustes").delete().eq("id", idAjuste);
+        falhou(error);
+      },
+      async desejos() {
+        const { data, error } = await sb.from("financas_desejos").select("*").order("prioridade").order("criado_em");
+        if (error) throw new Error(/financas_desejos/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+        return (data || []).map(numerosDesejo);
+      },
+      async salvarDesejo(desejo) {
+        const { id, ...campos } = limparDesejo(desejo);
+        const consulta = id ? sb.from("financas_desejos").update(campos).eq("id", id) : sb.from("financas_desejos").insert(campos);
+        const { data, error } = await consulta.select().single();
+        if (error) throw new Error(error.code === "42501" || error.code === "PGRST116" ? "Sem permissão para alterar este desejo." : error.message);
+        return numerosDesejo(data);
+      },
+      async apagarDesejo(idDesejo) {
+        const { error } = await sb.from("financas_desejos").delete().eq("id", idDesejo);
+        falhou(error);
+      },
+      async pessoas() {
+        const { data, error } = await sb.rpc("pessoas_financas");
+        if (error) throw new Error(error.code === "PGRST202" || /pessoas_financas/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+        return data || [];
+      },
+    },
+    empresas: {
+      async listar() {
+        const { data, error } = await sb.from("empresas").select("*").order("ordem").order("nome");
+        if (error) throw new Error(/empresas/.test(error.message) && /exist|schema cache/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+        return data || [];
+      },
+      async salvar(empresa) {
+        const linha = limparEmpresa(empresa);
+        const consulta = empresa.id ? sb.from("empresas").update(linha).eq("id", empresa.id) : sb.from("empresas").insert(linha);
+        const { data, error } = await consulta.select().single();
+        if (error) {
+          throw new Error(error.code === "23505" ? EMPRESA_REPETIDA
+            : error.code === "42501" || error.code === "PGRST116" ? "Sem permissão para alterar as empresas." : error.message);
+        }
+        return data;
+      },
+      async remover(idEmpresa) {
+        const { error } = await sb.from("empresas").delete().eq("id", idEmpresa);
+        if (error) throw new Error(error.code === "23503" ? EMPRESA_COM_LANCAMENTOS : error.message);
       },
     },
     async listar() {

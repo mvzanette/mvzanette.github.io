@@ -126,6 +126,7 @@ function renderPermissoes() {
     linha("Painel gerencial", sempre, '<span class="acesso acesso-se">Com algum módulo profissional</span>', nunca),
     linha("Controle de ART", sempre, seLiberado, nunca),
     linha("Controle financeiro", sempre, seLiberado, nunca),
+    linha("Finanças das empresas", sempre, seLiberado, nunca),
     linha("Controle de demandas", sempre, seLiberado, nunca),
     linha("Finanças pessoais", sempre + comLink, '<span class="acesso acesso-se">Liberado por padrão</span>' + comLink, seLiberado + comLink),
     linha("Usuários e permissões", sempre, nunca, nunca),

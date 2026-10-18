@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Finanças das empresas | Área restrita</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23f5b800'/%3E%3Ctext x='16' y='21.5' text-anchor='middle' font-family='Arial, sans-serif' font-weight='800' font-size='14' fill='%23111214'%3EMZ%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@500;600;700;800&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css?v=12bc86b1">
+  <link rel="stylesheet" href="area.css?v=827164a0">
+  <script type="importmap" data-versoes>{"imports": {"./art.js": "./art.js?v=67208bf7", "./config-area.js": "./config-area.js?v=c77553f2", "./conta.js": "./conta.js?v=fdce23ea", "./dados.js": "./dados.js?v=d1d3bf43", "./demandas.js": "./demandas.js?v=19d8f618", "./financas-classificacao.js": "./financas-classificacao.js?v=9573c6b7", "./financas-desejos.js": "./financas-desejos.js?v=44514c8a", "./financas-importar.js": "./financas-importar.js?v=71dfaaa4", "./financas-painel.js": "./financas-painel.js?v=3e7eceee", "./financas.js": "./financas.js?v=372cb597", "./financeiro.js": "./financeiro.js?v=c6aaedbd", "./inicio.js": "./inicio.js?v=36840010", "./leitores.js": "./leitores.js?v=2d72bdc2", "./login.js": "./login.js?v=f434d5fc", "./modulos.js": "./modulos.js?v=fac7935d", "./painel.js": "./painel.js?v=f606b3b3", "./pdf-texto.js": "./pdf-texto.js?v=b5de895d", "./regras-gestao.js": "./regras-gestao.js?v=351037e5", "./regras.js": "./regras.js?v=3eaec5e4", "./sessao.js": "./sessao.js?v=c9d6a0d9", "./ui.js": "./ui.js?v=efb69f88", "./usuarios.js": "./usuarios.js?v=d53a64e9", "./vendor/pdf.min.mjs": "./vendor/pdf.min.mjs?v=f548e26b", "./vendor/pdf.worker.min.mjs": "./vendor/pdf.worker.min.mjs?v=8860b503"}}</script>
+  <script type="module" src="financeiro.js?v=c6aaedbd"></script>
+</head>
+<body class="area" data-livro="empresas">
+
+  <header class="site-header">
+    <div class="area-esq">
+    <a class="logo" href="../index.html" aria-label="Voltar ao site">
+      <span class="logo-name">Marcos Zanette</span>
+      <span class="logo-sub">Área restrita</span>
+    </a>
+      <div id="menu-area"></div>
+    </div>
+    <div class="area-top" id="area-top" hidden>
+      <span class="usuario" id="usuario"></span>
+      <button class="btn-link" id="btn-sair" type="button">Sair</button>
+    </div>
+  </header>
+
+  <div class="aviso-demo" id="aviso-demo" hidden>
+    <strong>Modo demonstração.</strong> Os dados ficam só neste navegador e os e-mails de alerta não são enviados.
+    Para usar de verdade, configure o Supabase conforme o README.
+    <button class="btn-link" id="btn-limpar-demo" type="button">Apagar dados de teste</button>
+  </div>
+
+  <main class="area-main">
+    <!-- Nenhuma empresa cadastrada ainda -->
+    <section class="cartao fin-vazio" id="sem-empresas" hidden>
+      <nav class="trilha" aria-label="Você está em"><a href="index.html">Início</a> / Finanças das empresas</nav>
+      <h1>Finanças das empresas</h1>
+      <p>Cadastre as empresas com que você tem movimento financeiro: onde trabalha, ou que pagam as ARTs que você tira.
+        Cada uma ganha uma página no menu, com os valores a receber (reembolsos, taxas de ART pagas por ela) e o que você pagou por ela.</p>
+      <button class="btn btn-primary" id="btn-primeira-empresa" type="button">Cadastrar empresa</button>
+    </section>
+
+    <section id="tela" hidden>
+      <nav class="trilha" aria-label="Você está em"><a href="index.html">Início</a> / Finanças das empresas / <span id="trilha-empresa"></span></nav>
+      <div class="area-cabecalho">
+        <div>
+          <h1 id="titulo">Finanças das empresas</h1>
+          <p class="dica empresa-obs" id="empresa-obs" hidden></p>
+        </div>
+        <div class="area-acoes">
+          <button class="btn btn-primary" id="btn-receita" type="button">Nova receita</button>
+          <button class="btn btn-claro" id="btn-despesa" type="button">Nova despesa</button>
+          <button class="btn btn-claro" id="btn-exportar" type="button">Exportar planilha</button>
+          <button class="btn btn-claro" id="btn-empresas" type="button">Empresas</button>
+        </div>
+      </div>
+      <nav class="empresas-abas" id="empresas-abas" aria-label="Empresas" hidden></nav>
+
+      <div class="filtros filtros-4">
+        <input type="search" id="busca" placeholder="Buscar por descrição, referência ou categoria" aria-label="Buscar">
+        <select id="periodo" aria-label="Período"></select>
+        <select id="filtro-tipo" aria-label="Tipo">
+          <option value="">Receitas e despesas</option>
+          <option value="receita">Receitas (a empresa paga a você)</option>
+          <option value="despesa">Despesas (você paga pela empresa)</option>
+        </select>
+        <select id="filtro-situacao" aria-label="Situação">
+          <option value="">Todas as situações</option>
+          <option value="pago">Recebido / pago</option>
+          <option value="pendente">A receber / a pagar</option>
+          <option value="atrasado">Atrasado / vencido</option>
+        </select>
+      </div>
+
+      <div class="kpis" id="resumo"></div>
+
+      <div class="tabela-wrap">
+        <table class="tabela" id="tabela">
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Tipo</th>
+              <th>Descrição</th>
+              <th>Referência</th>
+              <th>Categoria</th>
+              <th>Vencimento</th>
+              <th class="num">Valor</th>
+              <th>Situação</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <p class="vazio" id="vazio" hidden>Nenhum lançamento com esta empresa no período. Use <b>Nova receita</b> para o que a empresa paga a você (reembolsos, taxas de ART) ou <b>Nova despesa</b> para o que você pagou por ela.</p>
+      </div>
+
+      <h2 class="subtitulo-area">Resumo mensal</h2>
+      <p class="dica">Valores efetivamente recebidos e pagos em cada mês (regime de caixa).</p>
+      <div class="tabela-wrap">
+        <table class="tabela compacta" id="tabela-mensal">
+          <thead><tr><th>Mês</th><th class="num">Recebido</th><th class="num">Pago</th><th class="num">Saldo</th></tr></thead>
+          <tbody></tbody>
+          <tfoot></tfoot>
+        </table>
+      </div>
+
+      <!-- ARTs tiradas para a empresa e lançamentos pessoais marcados com ela -->
+      <section class="secao-extra" id="secao-arts" hidden></section>
+      <section class="secao-extra" id="secao-pessoais" hidden></section>
+    </section>
+  </main>
+
+  <dialog class="dialogo" id="dlg-lanc"></dialog>
+  <dialog class="dialogo largo" id="dlg-empresas" aria-label="Empresas"></dialog>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+</body>
+</html>

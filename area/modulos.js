@@ -4,8 +4,8 @@
 
 const svg = (caminhos) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${caminhos}</svg>`;
 
-// Profissional: as funções da engenharia. Pessoal: finanças pessoais (gastos e investimentos de cada pessoa),
-// separadas do controle financeiro da engenharia.
+// Profissional: as funções da engenharia e as finanças das empresas onde você trabalha. Pessoal: finanças
+// pessoais (gastos e investimentos de cada pessoa), separadas do controle financeiro da engenharia.
 export const GRUPOS = [
   { id: "profissional", titulo: "Profissional" },
   { id: "pessoal", titulo: "Pessoal" },
@@ -13,8 +13,10 @@ export const GRUPOS = [
   { id: "conta", titulo: "Sua conta" },
 ];
 
-// Módulos profissionais que guardam dados da engenharia: nunca ficam abertos para clientes
-export const ENGENHARIA = ["art", "financeiro", "demandas"];
+// Módulos profissionais (dados da engenharia e das empresas): nunca ficam abertos para clientes
+export const ENGENHARIA = ["art", "financeiro", "demandas", "empresas"];
+// Módulos que aparecem no painel gerencial
+const DO_PAINEL = ["art", "financeiro", "demandas"];
 
 export const MODULOS = [
   {
@@ -40,6 +42,15 @@ export const MODULOS = [
     descricao: "Receitas e despesas da engenharia: valores a receber e em atraso, resumo mensal e exportação em planilha.",
     pagina: "financeiro.html",
     icone: svg('<rect x="2" y="5" width="20" height="14" rx="1"/><path d="M2 10h20"/><path d="M6 15h4"/>'),
+  },
+  {
+    // No menu e no início aparece uma entrada por empresa cadastrada (os nomes vêm do banco)
+    id: "empresas",
+    grupo: "profissional",
+    titulo: "Finanças das empresas",
+    descricao: "Valores com as empresas onde você trabalha: reembolsos, ARTs pagas por elas e o que falta receber.",
+    pagina: "empresas.html",
+    icone: svg('<path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-4h6v4"/><path d="M9 10h.01M15 10h.01M9 14h.01M15 14h.01"/>'),
   },
   {
     id: "demandas",
@@ -81,6 +92,7 @@ export const MODULOS = [
 export const PERMISSOES = [
   { id: "art", titulo: "Controle de ART", detalhe: "Todas as ARTs, alertas e PDFs." },
   { id: "financeiro", titulo: "Controle financeiro", detalhe: "Todos os lançamentos de receitas e despesas da engenharia." },
+  { id: "empresas", titulo: "Finanças das empresas", detalhe: "Lançamentos com as empresas cadastradas: reembolsos, ARTs pagas por elas e valores a receber." },
   { id: "demandas", titulo: "Controle de demandas", detalhe: "Todas as solicitações de clientes, propostas e prazos." },
   { id: "financas", titulo: "Finanças pessoais", detalhe: "Gastos, cartão e investimentos: o painel do projeto Financeiro da própria pessoa." },
 ];
@@ -124,7 +136,7 @@ export function pode(perfil, modulo) {
   if (m && m.todos) return true;
   if (perfil.papel === "adm") return true;
   if (m && m.somenteAdm) return false;
-  if (modulo === "painel") return ENGENHARIA.some((e) => pode(perfil, e));
+  if (modulo === "painel") return DO_PAINEL.some((e) => pode(perfil, e));
   return liberavel(perfil.papel, modulo) && (perfil.modulos || []).includes(modulo);
 }
 

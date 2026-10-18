@@ -1,5 +1,6 @@
 -- ============================================================
--- Área restrita (usuários e permissões, Controle de ART, financeiro e demandas) – estrutura do banco (Supabase)
+-- Área restrita (usuários e permissões, Controle de ART, financeiro, demandas, finanças das empresas e
+-- finanças pessoais) – estrutura do banco (Supabase)
 -- Cole tudo no SQL Editor do Supabase e clique em "Run". Pode rodar de novo depois de
 -- atualizações: o script só cria ou ajusta o que falta e não apaga dados.
 -- ============================================================
@@ -135,7 +136,7 @@ create table if not exists public.perfis (
   email           text not null,
   nome            text,
   papel           text not null default 'cliente' check (papel in ('adm', 'pessoal', 'cliente')),
-  modulos         text[] not null default '{}' check (modulos <@ array['art', 'financeiro', 'demandas', 'financas']::text[]),
+  modulos         text[] not null default '{}',
   situacao        text not null default 'ativo' check (situacao in ('ativo', 'inativo', 'pendente')),
   link_financas   text check (link_financas is null or link_financas ~ '^https://'),
   observacao      text,
@@ -148,6 +149,11 @@ create table if not exists public.perfis (
 );
 
 create unique index if not exists perfis_email_key on public.perfis (email);
+
+-- Módulos que podem ser liberados (refeito a cada versão, para incluir os módulos novos)
+alter table public.perfis drop constraint if exists perfis_modulos_check;
+alter table public.perfis add constraint perfis_modulos_check
+  check (modulos <@ array['art', 'financeiro', 'demandas', 'financas', 'empresas']::text[]);
 
 -- Histórico de acessos: página aberta, data e hora e tipo de aparelho (guarda 180 dias)
 create table if not exists public.acessos (
@@ -195,6 +201,88 @@ create table if not exists public.financas_gastos (
 
 create index if not exists financas_gastos_perfil_data_idx on public.financas_gastos (perfil_id, data);
 
+-- Subcategoria e conta do gasto. Conta: pessoal (padrão), engenharia (trabalho autônomo) ou uma empresa
+-- ("empresa:" seguido do id da empresa)
+alter table public.financas_gastos add column if not exists subcategoria text;
+alter table public.financas_gastos add column if not exists conta text
+  check (conta is null or conta ~ '^(pessoal|engenharia|empresa:[0-9a-f-]{36})$');
+
+-- Empresas com que há movimento financeiro: onde você trabalha ou que pagam as ARTs que você tira.
+-- Os nomes ficam só aqui no banco (o código do site é público).
+create table if not exists public.empresas (
+  id         uuid primary key default gen_random_uuid(),
+  nome       text not null check (length(trim(nome)) > 0),
+  observacao text,
+  ordem      integer not null default 0,
+  criado_em  timestamptz not null default now(),
+  criado_por uuid default auth.uid() references auth.users (id) on delete set null
+);
+
+create unique index if not exists empresas_nome_key on public.empresas (lower(trim(nome)));
+
+-- ART tirada para uma empresa (que paga a taxa) ou para um cliente particular
+alter table public.arts add column if not exists vinculo text check (vinculo in ('empresa', 'particular'));
+alter table public.arts add column if not exists empresa_id uuid references public.empresas (id) on delete set null;
+
+-- Lançamento com empresa fica na página da empresa; sem empresa, é da engenharia (Controle financeiro).
+-- Empresa com lançamentos não pode ser apagada (os lançamentos passariam para a engenharia).
+alter table public.lancamentos add column if not exists empresa_id uuid references public.empresas (id) on delete restrict;
+create index if not exists lancamentos_empresa_idx on public.lancamentos (empresa_id);
+
+-- Preferências de cada pessoa nas finanças: lista de categorias e subcategorias (com o padrão essencial
+-- ou não) e o plano da lista de desejos (quanto guardar por mês)
+create table if not exists public.financas_preferencias (
+  perfil_id     uuid primary key references public.perfis (id) on delete cascade,
+  categorias    jsonb not null default '{}'::jsonb,
+  plano         jsonb not null default '{}'::jsonb,
+  atualizado_em timestamptz not null default now()
+);
+
+-- Classificação feita no site para os lançamentos que vêm do projeto Financeiro (gastos do dia a dia e
+-- lançamentos das faturas): categoria, subcategoria, essencial, conta e um complemento de texto.
+-- A chave identifica o lançamento (data, valor e descrição) e continua valendo depois de cada importação.
+create table if not exists public.financas_ajustes (
+  id            uuid primary key default gen_random_uuid(),
+  perfil_id     uuid not null references public.perfis (id) on delete cascade,
+  chave         text not null check (length(chave) between 3 and 400),
+  categoria     text,
+  subcategoria  text,
+  essencial     boolean,
+  complemento   text,
+  conta         text check (conta is null or conta ~ '^(pessoal|engenharia|empresa:[0-9a-f-]{36})$'),
+  atualizado_em timestamptz not null default now(),
+  unique (perfil_id, chave)
+);
+
+-- Lista de desejos de compra.
+--   quem: eu (quem cadastrou compra) · outra (a pessoa de outra_id compra) · conjunto (os dois; parte = % de quem cadastrou)
+--   O item aparece também para a pessoa de outra_id.
+create table if not exists public.financas_desejos (
+  id            uuid primary key default gen_random_uuid(),
+  perfil_id     uuid not null references public.perfis (id) on delete cascade,
+  nome          text not null check (length(trim(nome)) > 0),
+  valor         numeric(12, 2) not null check (valor > 0),
+  prioridade    smallint not null default 3 check (prioridade between 1 and 5),
+  quem          text not null default 'eu' check (quem in ('eu', 'outra', 'conjunto')),
+  outra_id      uuid references public.perfis (id) on delete set null,
+  parte         numeric(5, 2) not null default 50 check (parte between 0 and 100),
+  forma         text not null default 'avista' check (forma in ('avista', 'parcelado')),
+  parcelas      integer not null default 1 check (parcelas between 1 and 48),
+  quando        date,
+  guardado      numeric(12, 2) not null default 0 check (guardado >= 0),
+  categoria     text,
+  link          text check (link is null or link ~ '^https://'),
+  observacao    text,
+  situacao      text not null default 'desejo' check (situacao in ('desejo', 'comprado', 'desistiu')),
+  comprado_em   date,
+  criado_em     timestamptz not null default now(),
+  atualizado_em timestamptz not null default now(),
+  criado_por    uuid default auth.uid() references auth.users (id) on delete set null
+);
+
+create index if not exists financas_desejos_perfil_idx on public.financas_desejos (perfil_id);
+create index if not exists financas_desejos_outra_idx on public.financas_desejos (outra_id);
+
 -- ------------------------------------------------------------
 -- Funções e gatilhos
 -- ------------------------------------------------------------
@@ -226,7 +314,19 @@ drop trigger if exists financas_atualizado_em on public.financas;
 create trigger financas_atualizado_em before update on public.financas
   for each row execute function public.tocar_atualizado_em();
 
--- E-mail sempre em minúsculas; cliente nunca fica com módulo de engenharia
+drop trigger if exists financas_preferencias_atualizado_em on public.financas_preferencias;
+create trigger financas_preferencias_atualizado_em before update on public.financas_preferencias
+  for each row execute function public.tocar_atualizado_em();
+
+drop trigger if exists financas_ajustes_atualizado_em on public.financas_ajustes;
+create trigger financas_ajustes_atualizado_em before update on public.financas_ajustes
+  for each row execute function public.tocar_atualizado_em();
+
+drop trigger if exists financas_desejos_atualizado_em on public.financas_desejos;
+create trigger financas_desejos_atualizado_em before update on public.financas_desejos
+  for each row execute function public.tocar_atualizado_em();
+
+-- E-mail sempre em minúsculas; cliente nunca fica com módulo profissional
 create or replace function public.perfis_normalizar() returns trigger
 language plpgsql as $$
 begin
@@ -234,7 +334,7 @@ begin
   new.nome := nullif(trim(new.nome), '');
   new.link_financas := nullif(trim(new.link_financas), '');
   if new.papel = 'cliente' then
-    new.modulos := array(select m from unnest(new.modulos) as m where m not in ('art', 'financeiro', 'demandas'));
+    new.modulos := array(select m from unnest(new.modulos) as m where m not in ('art', 'financeiro', 'demandas', 'empresas'));
   end if;
   return new;
 end $$;
@@ -269,7 +369,7 @@ language sql stable security definer set search_path = '' as $$
 $$;
 
 -- Permissão de módulo: o administrador acessa tudo; pessoal e cliente, os módulos liberados no cadastro.
--- Os módulos de engenharia (ART, financeiro e demandas) nunca ficam abertos para clientes.
+-- Os módulos profissionais (ART, financeiro, demandas e finanças das empresas) nunca ficam abertos para clientes.
 create or replace function public.pode(p_modulo text) returns boolean
 language sql stable security definer set search_path = '' as $$
   select exists (
@@ -277,8 +377,24 @@ language sql stable security definer set search_path = '' as $$
     where user_id = auth.uid() and situacao = 'ativo'
       and (papel = 'adm'
         or (p_modulo = any (modulos)
-          and not (papel = 'cliente' and p_modulo in ('art', 'financeiro', 'demandas'))))
+          and not (papel = 'cliente' and p_modulo in ('art', 'financeiro', 'demandas', 'empresas'))))
   );
+$$;
+
+-- Pessoas que usam as finanças pessoais (para dividir desejos de compra): só o primeiro nome,
+-- e só para quem também usa as finanças (administrador ou perfil pessoal)
+create or replace function public.pessoas_financas() returns table (id uuid, nome text)
+language sql stable security definer set search_path = '' as $$
+  select p.id, coalesce(nullif(split_part(p.nome, ' ', 1), ''), split_part(p.email, '@', 1))
+  from public.perfis p
+  where p.situacao = 'ativo'
+    and (p.papel = 'adm' or (p.papel = 'pessoal' and 'financas' = any (p.modulos)))
+    and exists (
+      select 1 from public.perfis eu
+      where eu.user_id = auth.uid() and eu.situacao = 'ativo'
+        and (eu.papel = 'adm' or (eu.papel = 'pessoal' and 'financas' = any (eu.modulos)))
+    )
+  order by 2;
 $$;
 
 -- Chamada a cada página aberta: liga a conta ao cadastro, registra o acesso e devolve o perfil.
@@ -360,8 +476,9 @@ revoke all on function public.eh_adm() from public, anon;
 revoke all on function public.pode(text) from public, anon;
 revoke all on function public.registrar_acesso(text, text) from public, anon;
 revoke all on function public.atualizar_meu_nome(text) from public, anon;
+revoke all on function public.pessoas_financas() from public, anon;
 grant execute on function public.eh_adm(), public.pode(text), public.registrar_acesso(text, text),
-  public.atualizar_meu_nome(text) to authenticated, service_role;
+  public.atualizar_meu_nome(text), public.pessoas_financas() to authenticated, service_role;
 
 -- ------------------------------------------------------------
 -- Segurança: só entra quem tem perfil ativo, e cada módulo só abre para quem tem permissão
@@ -374,12 +491,17 @@ alter table public.perfis enable row level security;
 alter table public.acessos enable row level security;
 alter table public.financas enable row level security;
 alter table public.financas_gastos enable row level security;
+alter table public.empresas enable row level security;
+alter table public.financas_preferencias enable row level security;
+alter table public.financas_ajustes enable row level security;
+alter table public.financas_desejos enable row level security;
 
 -- Acesso pela API, mesmo em projetos criados sem expor tabelas novas
 -- automaticamente. As políticas abaixo continuam decidindo quais linhas cada um vê.
 grant usage on schema public to authenticated, service_role;
 grant select, insert, update, delete
-  on public.arts, public.alertas, public.demandas, public.lancamentos, public.perfis, public.financas, public.financas_gastos
+  on public.arts, public.alertas, public.demandas, public.lancamentos, public.perfis, public.financas, public.financas_gastos,
+     public.empresas, public.financas_preferencias, public.financas_ajustes, public.financas_desejos
   to authenticated, service_role;
 grant select on public.acessos to authenticated;
 grant select, insert, update, delete on public.acessos to service_role;
@@ -408,11 +530,24 @@ create policy "demandas com permissao" on public.demandas
   using ((select public.pode('demandas')))
   with check ((select public.pode('demandas')));
 
+-- Lançamentos da engenharia (sem empresa) com o módulo financeiro; os de uma empresa, com o módulo das empresas
 drop policy if exists "lancamentos com permissao" on public.lancamentos;
 create policy "lancamentos com permissao" on public.lancamentos
   for all to authenticated
-  using ((select public.pode('financeiro')))
-  with check ((select public.pode('financeiro')));
+  using (case when empresa_id is null then (select public.pode('financeiro')) else (select public.pode('empresas')) end)
+  with check (case when empresa_id is null then (select public.pode('financeiro')) else (select public.pode('empresas')) end);
+
+-- Empresas: quem cuida das finanças das empresas cadastra; ART e financeiro leem os nomes para classificar
+drop policy if exists "empresas - ler" on public.empresas;
+create policy "empresas - ler" on public.empresas
+  for select to authenticated
+  using ((select public.pode('empresas')) or (select public.pode('art')) or (select public.pode('financeiro')));
+
+drop policy if exists "empresas - alterar" on public.empresas;
+create policy "empresas - alterar" on public.empresas
+  for all to authenticated
+  using ((select public.pode('empresas')))
+  with check ((select public.pode('empresas')));
 
 -- Perfis: cada um lê o próprio; o administrador lê e altera todos
 drop policy if exists "perfis - ler" on public.perfis;
@@ -460,6 +595,45 @@ create policy "gastos do proprio perfil" on public.financas_gastos
   with check (
     (select public.eh_adm())
     or ((select public.pode('financas')) and perfil_id in (select id from public.perfis where user_id = auth.uid()))
+  );
+
+drop policy if exists "preferencias do proprio perfil" on public.financas_preferencias;
+create policy "preferencias do proprio perfil" on public.financas_preferencias
+  for all to authenticated
+  using (
+    (select public.eh_adm())
+    or ((select public.pode('financas')) and perfil_id in (select id from public.perfis where user_id = auth.uid()))
+  )
+  with check (
+    (select public.eh_adm())
+    or ((select public.pode('financas')) and perfil_id in (select id from public.perfis where user_id = auth.uid()))
+  );
+
+drop policy if exists "ajustes do proprio perfil" on public.financas_ajustes;
+create policy "ajustes do proprio perfil" on public.financas_ajustes
+  for all to authenticated
+  using (
+    (select public.eh_adm())
+    or ((select public.pode('financas')) and perfil_id in (select id from public.perfis where user_id = auth.uid()))
+  )
+  with check (
+    (select public.eh_adm())
+    or ((select public.pode('financas')) and perfil_id in (select id from public.perfis where user_id = auth.uid()))
+  );
+
+-- Desejos: de quem cadastrou e da outra pessoa do item (compra dela ou em conjunto)
+drop policy if exists "desejos do proprio perfil ou compartilhados" on public.financas_desejos;
+create policy "desejos do proprio perfil ou compartilhados" on public.financas_desejos
+  for all to authenticated
+  using (
+    (select public.eh_adm())
+    or ((select public.pode('financas')) and (perfil_id in (select id from public.perfis where user_id = auth.uid())
+      or outra_id in (select id from public.perfis where user_id = auth.uid())))
+  )
+  with check (
+    (select public.eh_adm())
+    or ((select public.pode('financas')) and (perfil_id in (select id from public.perfis where user_id = auth.uid())
+      or outra_id in (select id from public.perfis where user_id = auth.uid())))
   );
 
 -- Histórico: cada um vê o próprio; o administrador vê todos. Só a função registrar_acesso grava.

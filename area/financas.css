@@ -277,3 +277,51 @@
 .opcao-linha input { margin-top: 3px; }
 .dialogo-gasto { width: min(640px, calc(100% - 24px)); }
 .campo-parcelas { margin-top: 12px; max-width: 220px; }
+
+/* ---------- Classificação dos lançamentos ---------- */
+.fin .panel-topo { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.fin .panel-topo h2 { margin: 0; }
+.fin .compl { font-size: .82rem; font-style: italic; color: var(--ink); margin-top: 2px; }
+.fin .chip.conta { background: var(--graphite-900); color: var(--white); }
+.fin .acoes-lanc { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-top: 4px; }
+.fin .subcat { display: flex; justify-content: space-between; gap: 10px; font-size: .8rem; color: var(--muted); padding: 2px 0 2px 14px; }
+.fin .subcat:last-child { margin-bottom: 6px; }
+.classificar-info { display: grid; gap: 2px; padding: 12px 14px; margin-bottom: 16px; background: var(--gray-100); border-left: 3px solid var(--yellow); }
+.classificar-info span, .classificar-info small { color: var(--muted); font-size: .88rem; }
+.cat-edicao { padding: 12px 0; border-bottom: 1px solid var(--gray-200); }
+.cat-edicao-topo { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.cat-edicao-topo label { min-width: 180px; flex: 1 1 200px; }
+.cat-edicao-topo label:nth-of-type(2) { flex: 0 1 170px; min-width: 150px; }
+.cat-edicao .subs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+.sub-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 4px 3px 10px; font-size: .82rem; background: var(--gray-100); border: 1px solid var(--gray-300); }
+.sub-chip button { border: 0; background: none; font-size: 1rem; line-height: 1; padding: 0 4px; cursor: pointer; color: var(--muted); }
+.sub-chip button:hover { color: var(--graphite-900); }
+.sub-nova { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.sub-nova input { width: 180px; padding: 5px 8px; font: inherit; font-size: .85rem; border: 1px solid var(--gray-300); }
+
+/* ---------- Lista de desejos ---------- */
+.fin .desejos { display: grid; gap: 12px; }
+.fin .desejo { display: grid; gap: 4px; padding: 12px 0; border-top: 1px solid var(--line); }
+.fin .desejos .desejo:first-child { border-top: 0; padding-top: 0; }
+.fin .desejo-topo { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+.fin .desejo-topo .num { margin-left: auto; font-weight: 600; }
+.fin .desejo-nome { font-family: var(--display); font-size: 1.02rem; min-width: 0; overflow-wrap: anywhere; }
+.fin .desejo-nome a { color: var(--ink); }
+.fin .prio { font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; padding: 2px 7px; background: var(--line); color: var(--ink); white-space: nowrap; }
+.fin .prio-1 { background: var(--bad); color: var(--white); }
+.fin .prio-2 { background: var(--inv); color: var(--white); }
+.fin .prio-3 { background: var(--accent-soft); color: var(--warn); }
+.fin .desejo .track { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 4px; }
+.fin .desejo .track span { display: block; height: 100%; background: var(--gasto); }
+.fin .desejo-status { font-size: .86rem; font-weight: 600; }
+.fin .desejo-status.ok { color: var(--ok); }
+.fin .desejo-status.warn { color: var(--warn); }
+.fin .desejo-status.bad { color: var(--bad); }
+.fin .desejos-feitos { margin-top: 14px; }
+.fin .desejos-feitos summary { cursor: pointer; font-weight: 600; font-size: .9rem; }
+.fin .desejo.feito { opacity: .8; }
+.fin .plano { display: grid; gap: 10px; }
+.fin .plano label { display: grid; gap: 4px; font-size: .85rem; color: var(--muted); }
+.fin .plano input { padding: 8px 10px; font: inherit; color: var(--ink); border: 1px solid var(--gray-300); background: var(--surface); }
+.fin .plano .btn { justify-self: start; }
+.fin td.neg { color: var(--bad); }

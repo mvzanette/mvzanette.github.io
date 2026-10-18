@@ -61,7 +61,9 @@ export async function abrirPagina(pagina) {
     return null;
   }
 
-  montarMenu(pagina, perfil);
+  // Empresas cadastradas: uma entrada no menu para cada uma (os nomes vêm do banco)
+  const empresas = pode(perfil, "empresas") ? await armazem.empresas.listar().catch(() => []) : [];
+  montarMenu(pagina, perfil, empresas);
   $("#usuario").textContent = perfil.nome || usuario.email || "";
   $("#area-top").hidden = false;
   $("#btn-sair").addEventListener("click", () => sair(armazem));
@@ -74,7 +76,14 @@ export async function abrirPagina(pagina) {
       location.reload();
     });
   }
-  return { armazem, usuario, perfil };
+  return { armazem, usuario, perfil, empresas };
+}
+
+// Endereço da página de uma empresa e a empresa aberta agora (a primeira, se o endereço não disser)
+export const paginaEmpresa = (e) => `empresas.html?e=${encodeURIComponent(e.id)}`;
+export function empresaAberta(empresas) {
+  const id = new URLSearchParams(location.search).get("e");
+  return empresas.find((e) => e.id === id) || empresas[0] || null;
 }
 
 async function sair(armazem) {
@@ -82,10 +91,14 @@ async function sair(armazem) {
   location.replace(PAGINA_LOGIN);
 }
 
-function montarMenu(atual, perfil) {
+function montarMenu(atual, perfil, empresas) {
   const lugar = $("#menu-area");
   if (!lugar) return;
-  const item = (m) => `<a class="menu-item" href="${m.pagina}"${m.pagina === atual ? ' aria-current="page"' : ""}>${m.titulo}</a>`;
+  const aberta = atual === "empresas.html" ? empresaAberta(empresas) : null;
+  const item = (m) =>
+    m.id === "empresas" && empresas.length
+      ? empresas.map((e) => `<a class="menu-item" href="${paginaEmpresa(e)}"${e === aberta ? ' aria-current="page"' : ""}>Finanças ${esc(e.nome)}</a>`).join("")
+      : `<a class="menu-item" href="${m.pagina}"${m.pagina === atual ? ' aria-current="page"' : ""}>${m.titulo}</a>`;
   const grupos = GRUPOS.map((g) => {
     const itens = MODULOS.filter((m) => m.grupo === g.id && pode(perfil, m.id)).map(item).join("");
     return itens ? `<p class="menu-grupo">${g.titulo}</p>${itens}` : "";

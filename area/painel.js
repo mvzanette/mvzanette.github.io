@@ -253,7 +253,8 @@ async function iniciar() {
     [dados.arts, dados.tratados, dados.lancamentos, dados.demandas] = await Promise.all([
       tem("art") ? armazem.listar() : [],
       tem("art") ? armazem.tratados() : new Set(),
-      tem("financeiro") ? armazem.colecao("lancamentos").listar() : [],
+      // só a engenharia: os lançamentos com empresa ficam nas finanças das empresas
+      tem("financeiro") ? armazem.colecao("lancamentos").listar().then((l) => l.filter((x) => !x.empresa_id)) : [],
       tem("demandas") ? armazem.colecao("demandas").listar() : [],
     ]);
   } catch (err) {

@@ -10,10 +10,10 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@500;600;700;800&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../styles.css?v=12bc86b1">
-  <link rel="stylesheet" href="area.css?v=132826ae">
-  <link rel="stylesheet" href="financas.css?v=ed2b3f80">
-  <script type="importmap" data-versoes>{"imports": {"./art.js": "./art.js?v=6a2e0313", "./config-area.js": "./config-area.js?v=c77553f2", "./conta.js": "./conta.js?v=fdce23ea", "./dados.js": "./dados.js?v=2c4d37f6", "./demandas.js": "./demandas.js?v=19d8f618", "./financas-importar.js": "./financas-importar.js?v=71dfaaa4", "./financas-painel.js": "./financas-painel.js?v=c01f98a4", "./financas.js": "./financas.js?v=83252834", "./financeiro.js": "./financeiro.js?v=df2b8fd1", "./inicio.js": "./inicio.js?v=50102e66", "./leitores.js": "./leitores.js?v=2d72bdc2", "./login.js": "./login.js?v=f434d5fc", "./modulos.js": "./modulos.js?v=6a688d4a", "./painel.js": "./painel.js?v=acf70075", "./pdf-texto.js": "./pdf-texto.js?v=b5de895d", "./regras-gestao.js": "./regras-gestao.js?v=107e906a", "./regras.js": "./regras.js?v=3eaec5e4", "./sessao.js": "./sessao.js?v=42a59e9b", "./ui.js": "./ui.js?v=efb69f88", "./usuarios.js": "./usuarios.js?v=c16ad201", "./vendor/pdf.min.mjs": "./vendor/pdf.min.mjs?v=f548e26b", "./vendor/pdf.worker.min.mjs": "./vendor/pdf.worker.min.mjs?v=8860b503"}}</script>
-  <script type="module" src="financas.js?v=83252834"></script>
+  <link rel="stylesheet" href="area.css?v=827164a0">
+  <link rel="stylesheet" href="financas.css?v=f75d2bf8">
+  <script type="importmap" data-versoes>{"imports": {"./art.js": "./art.js?v=67208bf7", "./config-area.js": "./config-area.js?v=c77553f2", "./conta.js": "./conta.js?v=fdce23ea", "./dados.js": "./dados.js?v=d1d3bf43", "./demandas.js": "./demandas.js?v=19d8f618", "./financas-classificacao.js": "./financas-classificacao.js?v=9573c6b7", "./financas-desejos.js": "./financas-desejos.js?v=44514c8a", "./financas-importar.js": "./financas-importar.js?v=71dfaaa4", "./financas-painel.js": "./financas-painel.js?v=3e7eceee", "./financas.js": "./financas.js?v=372cb597", "./financeiro.js": "./financeiro.js?v=c6aaedbd", "./inicio.js": "./inicio.js?v=36840010", "./leitores.js": "./leitores.js?v=2d72bdc2", "./login.js": "./login.js?v=f434d5fc", "./modulos.js": "./modulos.js?v=fac7935d", "./painel.js": "./painel.js?v=f606b3b3", "./pdf-texto.js": "./pdf-texto.js?v=b5de895d", "./regras-gestao.js": "./regras-gestao.js?v=351037e5", "./regras.js": "./regras.js?v=3eaec5e4", "./sessao.js": "./sessao.js?v=c9d6a0d9", "./ui.js": "./ui.js?v=efb69f88", "./usuarios.js": "./usuarios.js?v=d53a64e9", "./vendor/pdf.min.mjs": "./vendor/pdf.min.mjs?v=f548e26b", "./vendor/pdf.worker.min.mjs": "./vendor/pdf.worker.min.mjs?v=8860b503"}}</script>
+  <script type="module" src="financas.js?v=372cb597"></script>
 </head>
 <body class="area">
 
@@ -67,6 +67,7 @@
         <button type="button" role="tab" id="tab-gastos" data-aba="gastos" aria-controls="view-gastos" aria-selected="false" tabindex="-1">Gastos do dia a dia<small></small></button>
         <button type="button" role="tab" id="tab-cartao" data-aba="cartao" aria-controls="view-cartao" aria-selected="false" tabindex="-1">Cartão e faturas<small></small></button>
         <button type="button" role="tab" id="tab-inv" data-aba="investimentos" aria-controls="view-inv" aria-selected="false" tabindex="-1">Investimentos<small></small></button>
+        <button type="button" role="tab" id="tab-desejos" data-aba="desejos" aria-controls="view-desejos" aria-selected="false" tabindex="-1" hidden>Lista de desejos<small></small></button>
       </div>
 
       <div class="fin" id="fin-root">
@@ -111,10 +112,11 @@
             <div class="col">
               <section class="panel" id="g-dias"></section>
               <section class="panel" id="g-lista">
-                <h2>Lançamentos</h2>
+                <div class="panel-topo"><h2>Lançamentos</h2><button type="button" class="btn sec mini" data-editar-categorias hidden>Categorias</button></div>
                 <div class="filters">
                   <label for="g-fcat">Categoria<select id="g-fcat"></select></label>
                   <label for="g-fforma">Forma<select id="g-fforma"></select></label>
+                  <label for="g-fconta" hidden>Conta<select id="g-fconta"></select></label>
                   <label for="g-busca" class="grow">Buscar<input id="g-busca" type="search" placeholder="ex.: almoço" autocomplete="off"></label>
                 </div>
                 <div id="g-itens"></div>
@@ -153,7 +155,7 @@
             </div>
           </div>
           <section class="panel" id="fatura-lanc" style="margin-top:18px">
-            <h2>Lançamentos da fatura</h2>
+            <div class="panel-topo"><h2>Lançamentos da fatura</h2><button type="button" class="btn sec mini" data-editar-categorias hidden>Categorias</button></div>
             <div class="filters">
               <label for="f-fmes">Fatura<select id="f-fmes"></select></label>
               <label for="f-fcat">Categoria<select id="f-fcat"></select></label>
@@ -161,6 +163,25 @@
             </div>
             <div id="f-itens"></div>
           </section>
+        </section>
+
+        <section class="view" id="view-desejos" role="tabpanel" aria-labelledby="tab-desejos" hidden>
+          <header class="top">
+            <div>
+              <div class="label">Lista de desejos</div>
+              <h1>Prioridades e quando dá para comprar</h1>
+            </div>
+            <button type="button" class="btn" id="btn-novo-desejo">Novo desejo</button>
+          </header>
+          <div class="grid">
+            <div class="col">
+              <section class="panel" id="d-lista"></section>
+            </div>
+            <div class="col">
+              <section class="panel" id="d-plano"></section>
+              <section class="panel" id="d-projecao"></section>
+            </div>
+          </div>
         </section>
 
         <footer id="rodape"></footer>
@@ -222,9 +243,12 @@
           <label class="c2">Valor (R$)<input name="valor" inputmode="decimal" autocomplete="off" placeholder="45,90" required></label>
           <label class="c4">Descrição<input name="descricao" maxlength="120" autocomplete="off" placeholder="ex.: farmácia" required></label>
           <label class="c2">Data<input name="data" type="date" required></label>
-          <label class="c4">Categoria<input name="categoria" list="categorias-gasto" maxlength="60" autocomplete="off" placeholder="ex.: Saúde"></label>
+          <label class="c4">Categoria<select name="categoria"></select></label>
+          <label class="c3">Subcategoria<select name="subcategoria"></select></label>
+          <label class="c3" data-campo-conta hidden>Conta (de quem é o dinheiro)<select name="conta"></select></label>
+          <label class="c3" data-campo-nova-categoria hidden>Nova categoria<input name="categoria_nova" maxlength="60" autocomplete="off"></label>
+          <label class="c3" data-campo-nova-sub hidden>Nova subcategoria<input name="subcategoria_nova" maxlength="60" autocomplete="off"></label>
         </div>
-        <datalist id="categorias-gasto"></datalist>
         <fieldset class="bloco">
           <legend>Forma de pagamento</legend>
           <div class="opcoes" id="formas-gasto">
@@ -252,6 +276,110 @@
       <div class="dlg-rodape">
         <button class="btn btn-claro" type="button" data-fechar>Cancelar</button>
         <button class="btn btn-primary" type="submit">Lançar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ============ CLASSIFICAR LANÇAMENTO ============ -->
+  <dialog class="dialogo dialogo-gasto" id="dlg-classificar" aria-labelledby="titulo-classificar">
+    <form id="form-classificar" novalidate>
+      <div class="dlg-cab">
+        <h2 id="titulo-classificar">Classificar lançamento</h2>
+        <button class="btn-link" type="button" data-fechar>Fechar</button>
+      </div>
+      <div class="dlg-corpo">
+        <div class="classificar-info" id="classificar-info"></div>
+        <div class="campos">
+          <label class="c3">Categoria<select name="categoria"></select></label>
+          <label class="c3">Subcategoria<select name="subcategoria"></select></label>
+          <label class="c3" data-campo-nova-categoria hidden>Nova categoria<input name="categoria_nova" maxlength="60" autocomplete="off"></label>
+          <label class="c3" data-campo-nova-sub hidden>Nova subcategoria<input name="subcategoria_nova" maxlength="60" autocomplete="off"></label>
+        </div>
+        <fieldset class="bloco">
+          <legend>Tipo</legend>
+          <div class="opcoes">
+            <label><input type="radio" name="essencial" value="sim"> Essencial</label>
+            <label><input type="radio" name="essencial" value="nao"> Não essencial</label>
+            <label><input type="radio" name="essencial" value=""> <span id="rotulo-essencial-padrao">Padrão da categoria</span></label>
+          </div>
+        </fieldset>
+        <label class="bloco-texto" data-campo-conta hidden>Conta (de quem é o dinheiro)<select name="conta"></select></label>
+        <label class="bloco-texto">Complemento<input name="complemento" maxlength="200" autocomplete="off" placeholder="ex.: PlayStation 5 comprado no Mercado Livre"></label>
+        <p class="dica" id="dica-classificar">Vale só aqui no site: o arquivo do projeto Financeiro não muda, e a classificação continua valendo depois de cada importação.</p>
+        <p class="erro" id="erro-classificar" role="alert" hidden></p>
+      </div>
+      <div class="dlg-rodape">
+        <button class="btn btn-claro esquerda" type="button" id="btn-desfazer-classificacao" hidden>Voltar ao original</button>
+        <button class="btn btn-claro" type="button" data-fechar>Cancelar</button>
+        <button class="btn btn-primary" type="submit">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ============ CATEGORIAS E SUBCATEGORIAS ============ -->
+  <dialog class="dialogo largo" id="dlg-categorias" aria-labelledby="titulo-categorias">
+    <div class="dlg-cab">
+      <h2 id="titulo-categorias">Categorias e subcategorias</h2>
+      <button class="btn-link" type="button" data-fechar>Fechar</button>
+    </div>
+    <div class="dlg-corpo">
+      <p class="dica">Esta lista aparece ao classificar os lançamentos e ao lançar gastos. Renomear uma categoria muda também os lançamentos que já estão nela. O padrão (essencial ou não) vale para os lançamentos que não têm essa informação.</p>
+      <div id="lista-categorias"></div>
+      <div class="linha-acoes"><button type="button" class="btn btn-claro" id="btn-nova-categoria">Nova categoria</button></div>
+      <p class="erro" id="erro-categorias" role="alert" hidden></p>
+    </div>
+    <div class="dlg-rodape">
+      <button class="btn btn-claro esquerda" type="button" id="btn-categorias-padrao">Voltar à lista padrão</button>
+      <button class="btn btn-claro" type="button" data-fechar>Cancelar</button>
+      <button class="btn btn-primary" type="button" id="btn-salvar-categorias">Salvar</button>
+    </div>
+  </dialog>
+
+  <!-- ============ DESEJO DE COMPRA ============ -->
+  <dialog class="dialogo dialogo-gasto" id="dlg-desejo" aria-labelledby="titulo-desejo">
+    <form id="form-desejo" novalidate>
+      <div class="dlg-cab">
+        <h2 id="titulo-desejo">Novo desejo</h2>
+        <button class="btn-link" type="button" data-fechar>Fechar</button>
+      </div>
+      <div class="dlg-corpo">
+        <div class="campos">
+          <label class="c4">O que comprar<input name="nome" maxlength="120" autocomplete="off" required placeholder="ex.: geladeira nova"></label>
+          <label class="c2">Valor estimado (R$)<input name="valor" inputmode="decimal" autocomplete="off" required placeholder="4.500,00"></label>
+          <label class="c2">Prioridade<select name="prioridade">
+            <option value="1">1 · Urgente</option>
+            <option value="2">2 · Alta</option>
+            <option value="3" selected>3 · Média</option>
+            <option value="4">4 · Baixa</option>
+            <option value="5">5 · Algum dia</option>
+          </select></label>
+          <label class="c2">Quero comprar até<input name="quando" type="month"></label>
+          <label class="c2">Já guardado (R$)<input name="guardado" inputmode="decimal" autocomplete="off" placeholder="0,00"></label>
+        </div>
+        <fieldset class="bloco">
+          <legend>Quem compra</legend>
+          <div class="opcoes" id="opcoes-quem"></div>
+          <label class="campo-parcelas" id="campo-parte" hidden>Sua parte na compra (%)<input name="parte" type="number" min="0" max="100" step="5" value="50"></label>
+        </fieldset>
+        <fieldset class="bloco">
+          <legend>Como pagar</legend>
+          <div class="opcoes" id="formas-desejo">
+            <label><input type="radio" name="forma" value="avista" checked> À vista (guardar antes)</label>
+            <label><input type="radio" name="forma" value="parcelado"> Parcelado no cartão</label>
+          </div>
+          <label class="campo-parcelas" id="campo-parcelas-desejo" hidden>Parcelas<select name="parcelas"></select></label>
+        </fieldset>
+        <div class="campos">
+          <label class="c3">Categoria<select name="categoria"></select></label>
+          <label class="c3">Link do produto (opcional)<input name="link" type="url" autocomplete="off" placeholder="https://"></label>
+        </div>
+        <label class="bloco-texto">Observação<input name="observacao" maxlength="300" autocomplete="off"></label>
+        <p class="erro" id="erro-desejo" role="alert" hidden></p>
+      </div>
+      <div class="dlg-rodape">
+        <button class="btn btn-perigo esquerda" type="button" id="btn-apagar-desejo" hidden>Apagar</button>
+        <button class="btn btn-claro" type="button" data-fechar>Cancelar</button>
+        <button class="btn btn-primary" type="submit">Salvar</button>
       </div>
     </form>
   </dialog>

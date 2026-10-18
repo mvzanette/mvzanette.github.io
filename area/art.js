@@ -19,9 +19,27 @@ const descricaoTos = (a) => {
 
 let armazem;
 let arts = [];
+let empresas = []; // empresas cadastradas (os nomes vêm do banco)
 let tratados = new Set();
-const filtro = { busca: "", crea: "", situacao: "" };
+const filtro = { busca: "", crea: "", situacao: "", para: "" };
 const hoje = R.hojeISO();
+
+// Para quem a ART foi tirada: uma empresa (que paga a taxa) ou um cliente particular
+const nomeEmpresa = (id) => (empresas.find((e) => e.id === id) || {}).nome || null;
+const paraDe = (a) => (a.vinculo === "empresa" && a.empresa_id ? `e:${a.empresa_id}` : a.vinculo === "particular" ? "particular" : "");
+const vinculoDe = (para) => ({
+  vinculo: para.startsWith("e:") ? "empresa" : para === "particular" ? "particular" : null,
+  empresa_id: para.startsWith("e:") ? para.slice(2) : null,
+});
+const opcoesPara = (atual, rotuloVazio = "Não informado") =>
+  [["", rotuloVazio], ["particular", "Cliente particular (você paga a taxa)"], ...empresas.map((e) => [`e:${e.id}`, `${e.nome} (a empresa paga a taxa)`])]
+    .map(([v, r]) => `<option value="${esc(v)}"${v === atual ? " selected" : ""}>${esc(r)}</option>`)
+    .join("");
+function chipVinculo(a) {
+  if (a.vinculo === "empresa") return `<span class="vinculo vinculo-empresa">${esc(nomeEmpresa(a.empresa_id) || "Empresa removida")}</span>`;
+  if (a.vinculo === "particular") return '<span class="vinculo">Particular</span>';
+  return '<span class="dica">—</span>';
+}
 
 // ---------------------------------------------------------------- utilidades
 let tempoToast;
@@ -70,7 +88,11 @@ async function iniciar() {
 }
 
 async function recarregar() {
-  [arts, tratados] = await Promise.all([armazem.listar(), armazem.tratados()]);
+  [arts, tratados, empresas] = await Promise.all([armazem.listar(), armazem.tratados(), armazem.empresas.listar().catch(() => [])]);
+  const filtroPara = $("#filtro-para");
+  filtroPara.innerHTML = [["", "Empresas e particulares"], ["empresas", "Todas as empresas"], ...empresas.map((e) => [`e:${e.id}`, e.nome]),
+    ["particular", "Clientes particulares"], ["sem", "Não informado"]]
+    .map(([v, r]) => `<option value="${esc(v)}"${v === filtro.para ? " selected" : ""}>${esc(r)}</option>`).join("");
   renderizar();
 }
 
@@ -104,8 +126,12 @@ function filtradas() {
   return arts.filter((a) => {
     if (filtro.crea && a.crea !== filtro.crea) return false;
     if (filtro.situacao && R.situacao(a, hoje) !== filtro.situacao) return false;
+    if (filtro.para === "empresas" && a.vinculo !== "empresa") return false;
+    if (filtro.para === "particular" && a.vinculo !== "particular") return false;
+    if (filtro.para === "sem" && a.vinculo) return false;
+    if (filtro.para.startsWith("e:") && a.empresa_id !== filtro.para.slice(2)) return false;
     if (!termo) return true;
-    return [a.numero, a.contratante, a.observacao, a.local, (a.tos || []).join(" ")].join(" ").toLowerCase().includes(termo);
+    return [a.numero, a.contratante, a.observacao, a.local, (a.tos || []).join(" "), nomeEmpresa(a.empresa_id) || ""].join(" ").toLowerCase().includes(termo);
   });
 }
 
@@ -117,6 +143,7 @@ function renderTabela() {
         <td class="numero">${esc(a.numero)}</td>
         <td>${esc(a.crea)}</td>
         <td>${esc(a.contratante || "—")}<br><small class="dica">${esc(a.local || "")}</small></td>
+        <td>${chipVinculo(a)}</td>
         <td class="servico">${esc((a.observacao || "").slice(0, 110))}${(a.observacao || "").length > 110 ? "…" : ""}
           ${(a.tos || []).length ? `<br><small>TOS ${esc(a.tos.join(", "))}</small>` : ""}</td>
         <td class="data">${R.dataBR(a.inicio)}</td>
@@ -175,6 +202,7 @@ const CAMPOS = [
   ["numero", "Número da ART", "c2", "text"],
   ["crea", "CREA", "c2", "crea"],
   ["registrada", "Registrada em", "c2", "date"],
+  ["para", "Tirada para", "c6", "para"],
   ["contratante", "Contratante", "c4", "text"],
   ["contratante_doc", "CPF/CNPJ", "c2", "text"],
   ["local", "Cidade/UF", "c2", "text"],
@@ -193,6 +221,7 @@ function campoHtml([nome, rotulo, cls, tipo], art) {
   const v = art[nome] ?? "";
   let input;
   if (tipo === "textarea") input = `<textarea name="${nome}" rows="3">${esc(v)}</textarea>`;
+  else if (tipo === "para") input = `<select name="para">${opcoesPara(paraDe(art))}</select>`;
   else if (tipo === "crea")
     input = `<select name="crea">${["MG", "RJ", "SP", "Outro"].map((c) => `<option${c === v ? " selected" : ""}>${c}</option>`).join("")}</select>`;
   else input = `<input name="${nome}" type="${tipo}"${tipo === "number" ? ' step="0.01" min="0"' : ""} value="${esc(v)}"${nome === "numero" ? " required" : ""}>`;
@@ -225,6 +254,29 @@ function atualizarDecisao(dlg) {
   $("#recomendacao", dlg).innerHTML = rec
     ? `<div class="recomendacao"><strong>${esc(rec.acao)}</strong><ol>${rec.passos.map((p) => `<li>${esc(p)}</li>`).join("")}</ol></div>`
     : "";
+}
+
+// Lançamentos da ART: tirada para uma empresa, vão para a página da empresa (ela paga a taxa: reembolso);
+// para cliente particular, para o controle financeiro da engenharia
+function blocoFinanceiro(art) {
+  const empresa = art.vinculo === "empresa" && empresas.find((e) => e.id === art.empresa_id);
+  const id = encodeURIComponent(art.id);
+  if (empresa) {
+    const pagina = `empresas.html?e=${encodeURIComponent(empresa.id)}`;
+    return `<div class="bloco"><h3>Financeiro</h3>
+        <div class="linha-acoes">
+          <a class="btn btn-claro" href="${pagina}&amp;novo=despesa&amp;art=${id}&amp;categoria=Taxa%20de%20ART">Taxa paga por você (a reembolsar)</a>
+          <a class="btn btn-claro" href="${pagina}&amp;novo=receita&amp;art=${id}">Reembolso da taxa pela empresa</a>
+        </div>
+        <p class="dica">Tirada para ${esc(empresa.nome)}: a empresa paga a taxa. Os lançamentos ficam em Finanças ${esc(empresa.nome)}.</p>
+      </div>`;
+  }
+  return `<div class="bloco"><h3>Financeiro</h3>
+      <div class="linha-acoes">
+        <a class="btn btn-claro" href="financeiro.html?novo=receita&amp;art=${id}">Lançar receita desta ART</a>
+        <a class="btn btn-claro" href="financeiro.html?novo=despesa&amp;art=${id}&amp;categoria=Taxa%20de%20ART">Lançar taxa da ART</a>
+      </div>
+    </div>`;
 }
 
 function abrirArt(id, opcoes = {}) {
@@ -268,12 +320,7 @@ function abrirArt(id, opcoes = {}) {
             <p class="dica">Registre aqui depois de dar a baixa no portal do CREA.</p>`}
       </div>
 
-      <div class="bloco"><h3>Financeiro</h3>
-        <div class="linha-acoes">
-          <a class="btn btn-claro" href="financeiro.html?novo=receita&amp;art=${encodeURIComponent(art.id)}">Lançar receita desta ART</a>
-          <a class="btn btn-claro" href="financeiro.html?novo=despesa&amp;art=${encodeURIComponent(art.id)}&amp;categoria=Taxa%20de%20ART">Lançar taxa da ART</a>
-        </div>
-      </div>
+      ${blocoFinanceiro(art)}
 
       <div class="bloco"><h3>Renovação e histórico</h3>
         ${anterior ? `<p>ART anterior: <button class="btn-link" type="button" data-ver="${esc(anterior.id)}">${esc(anterior.numero)}</button></p>` : ""}
@@ -302,9 +349,11 @@ function abrirArt(id, opcoes = {}) {
     const f = new FormData(form);
     const dados = { ...art };
     for (const [nome, , , tipo] of CAMPOS) {
+      if (tipo === "para") continue;
       const v = (f.get(nome) ?? "").toString().trim();
       dados[nome] = v === "" ? null : tipo === "number" ? Number(v) : v;
     }
+    Object.assign(dados, vinculoDe(String(f.get("para") || "")));
     const tipoServico = f.get("tipo_servico");
     if (tipoServico) dados.tipo_servico = tipoServico;
     return dados;
@@ -416,6 +465,7 @@ function abrirImportacao({ anterior = null } = {}) {
   $("#previa").hidden = true;
   $("#previa-linhas").innerHTML = "";
   $("#marcar-vencidas").checked = false;
+  $("#import-para").innerHTML = opcoesPara("", "Não informar agora");
   $("#btn-confirmar-importacao").disabled = true;
   const dica = $("#dica-vinculo");
   dica.hidden = !anterior;
@@ -486,6 +536,7 @@ async function confirmarImportacao() {
   try {
     const marcadas = new Set($$("[data-baixada]:checked").map((el) => Number(el.dataset.baixada)));
     const escolhidos = $$("[data-incluir]:checked").map((el) => Number(el.dataset.incluir));
+    const para = vinculoDe($("#import-para").value); // vale para as ARTs que ainda não têm essa informação
     const registros = escolhidos.map((i) => {
       const { art } = importacao.candidatos[i];
       const existente = arts.find((a) => a.numero === art.numero);
@@ -493,6 +544,7 @@ async function confirmarImportacao() {
         ? { ...existente, ...art, id: existente.id, baixa_data: existente.baixa_data, baixa_motivo: existente.baixa_motivo,
             tipo_servico: existente.tipo_servico, notas: existente.notas, pdf_path: existente.pdf_path, anterior_id: existente.anterior_id }
         : { ...art, anterior_id: importacao.anterior ? importacao.anterior.id : null };
+      if (para.vinculo && !r.vinculo) Object.assign(r, para);
       if (marcadas.has(i) && !r.baixa_data) {
         r.baixa_data = art.fim;
         r.baixa_motivo = "conclusao";
@@ -518,9 +570,10 @@ async function confirmarImportacao() {
 
 // ---------------------------------------------------------------- exportação
 function exportarCsv() {
-  const cab = ["Número", "CREA", "Contratante", "CPF/CNPJ", "Local", "Serviço", "TOS", "Valor", "Início", "Fim previsto", "Situação", "Dias para o fim", "Baixa", "Motivo da baixa"];
+  const cab = ["Número", "CREA", "Contratante", "Tirada para", "CPF/CNPJ", "Local", "Serviço", "TOS", "Valor", "Início", "Fim previsto", "Situação", "Dias para o fim", "Baixa", "Motivo da baixa"];
+  const tiradaPara = (a) => (a.vinculo === "empresa" ? nomeEmpresa(a.empresa_id) || "Empresa removida" : a.vinculo === "particular" ? "Cliente particular" : "");
   const linhas = ordenar(arts).map((a) => [
-    a.numero, a.crea, a.contratante, a.contratante_doc, a.local, a.observacao, (a.tos || []).join(", "),
+    a.numero, a.crea, a.contratante, tiradaPara(a), a.contratante_doc, a.local, a.observacao, (a.tos || []).join(", "),
     a.valor == null ? "" : String(a.valor).replace(".", ","), R.dataBR(a.inicio), R.dataBR(a.fim),
     R.ROTULO_SITUACAO[R.situacao(a, hoje)], R.diasAte(a.fim, hoje) ?? "", a.baixa_data ? R.dataBR(a.baixa_data) : "",
     a.baixa_motivo === "interrupcao" ? "Interrupção" : a.baixa_motivo ? "Conclusão" : "",
@@ -580,6 +633,10 @@ $("#filtro-crea").addEventListener("change", (e) => {
 $("#filtro-situacao").addEventListener("change", (e) => {
   filtro.situacao = e.target.value;
   renderResumo();
+  renderTabela();
+});
+$("#filtro-para").addEventListener("change", (e) => {
+  filtro.para = e.target.value;
   renderTabela();
 });
 

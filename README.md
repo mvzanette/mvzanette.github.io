@@ -109,7 +109,7 @@ Endereço: `area-restrita.html` (link discreto no rodapé do site; não aparece 
 
 1. **Login** (`area-restrita.html`): usuário (e-mail) e senha. Tem "Esqueci a senha", que envia um link para criar uma senha nova.
 2. **Início** (`area/index.html`): o índice da área, com saudação, data do último acesso e um card para cada módulo liberado ao perfil, em divisões:
-   - **Profissional** (as funções da engenharia): Painel gerencial, Controle de ART, Controle financeiro e Controle de demandas;
+   - **Profissional** (as funções da engenharia e as empresas onde você trabalha): Painel gerencial, Controle de ART, Controle financeiro, Finanças de cada empresa cadastrada e Controle de demandas;
    - **Pessoal**: Finanças pessoais (gastos e investimentos, de cada pessoa);
    - **Administração** (só o administrador): Usuários e permissões;
    - **Sua conta**: Minha conta.
@@ -125,6 +125,7 @@ Módulos:
 | Profissional | Painel gerencial | `area/painel.html` |
 | Profissional | Controle de ART | `area/art.html` |
 | Profissional | Controle financeiro (da engenharia) | `area/financeiro.html` |
+| Profissional | Finanças das empresas (uma entrada por empresa) | `area/empresas.html` |
 | Profissional | Controle de demandas | `area/demandas.html` |
 | Pessoal | Finanças pessoais | `area/financas.html` |
 | Administração | Usuários e permissões | `area/usuarios.html` |
@@ -172,6 +173,34 @@ Separado do Controle financeiro da engenharia: é o **painel do projeto Financei
 - **Faturas de outra pessoa e carteira conjunta:** quando o arquivo traz as faturas de alguém da família, o administrador escolhe na importação o painel dessa pessoa; ela passa a ver só o próprio cartão e as próprias faturas, sem nenhum dado do dono do painel. Com **"Mostrar também a carteira de investimentos"** marcado, a carteira conjunta (com os aportes mensais de cada um) vai junto e aparece na aba Investimentos dessa pessoa.
 - **Abrir no Claude** (opcional): a leitura de faturas novas continua no painel original. Cadastre o link do painel no Claude no cadastro da pessoa, em Usuários e permissões.
 
+**Classificar os lançamentos.** Cada lançamento (gastos do dia a dia, lançamentos das faturas e gastos lançados no site) tem o botão **Classificar**, sempre com a lista de opções:
+
+- **Categoria e subcategoria** (ex.: Saúde › Farmácia), escolhidas na lista da pessoa; "Nova categoria…" e "Nova subcategoria…" acrescentam na hora;
+- **Essencial**, **não essencial** ou o padrão (o que veio do projeto ou, sem isso, o padrão da categoria);
+- **Conta**, de quem é o dinheiro: **pessoal**, **engenharia (autônomo)** ou uma das **empresas** cadastradas;
+- **Complemento**: um texto livre, por exemplo "PlayStation 5 comprado no Mercado Livre" para uma cobrança que aparece na fatura só como MERCADOLIVRE.
+
+A classificação fica no site e continua valendo depois de cada importação (o arquivo do projeto Financeiro não muda). "Voltar ao original" desfaz. As análises usam os valores ajustados: por categoria (com as subcategorias), essencial e não essencial, e o total por conta quando há lançamentos fora da conta pessoal. Na mesma compra parcelada, a classificação vale para todas as parcelas.
+
+**Lista de categorias.** O botão **Categorias** (nas abas Gastos e Cartão) abre a lista de cada pessoa: renomear (os lançamentos já classificados e os que vêm do projeto com o nome antigo passam para o novo), apagar, criar, acrescentar ou tirar subcategorias e marcar o padrão de cada categoria (essencial, não essencial ou depende). A primeira lista junta uma lista padrão às categorias que aparecem nos dados.
+
+**Lista de desejos.** Aba própria, para cada pessoa:
+
+- cada desejo tem valor, prioridade (1 urgente a 5 algum dia), quem compra (você, a outra pessoa ou **em conjunto**, com a sua parte), à vista ou parcelado no cartão, até quando quer comprar, quanto já está guardado, categoria, link e observação;
+- **Quanto guardar por mês**: um valor para os seus desejos, um para os em conjunto (os dois juntos) e um para os da outra pessoa. A sugestão usa a previsão do painel: a sobra de cada mês (receitas menos investimento, cartão e gastos fixos) menos o gasto médio fora do cartão;
+- **Quando dá para comprar**: na ordem de prioridade, guardando o valor do plano; à vista, quando o guardado alcança o valor; parcelado, quando a parcela cabe no plano. Para cada desejo com data, mostra quanto guardar por mês para chegar lá;
+- **Projeção de 12 meses**: o que fica livre em cada mês, as compras previstas e quanto ainda cabe no cartão para ficar na sua previsão, já contando as parcelas das compras planejadas;
+- o desejo em conjunto ou da outra pessoa aparece também para ela (só esses; os seus continuam só seus). "Comprei" tira da lista e guarda em "Comprados".
+
+## Finanças das empresas
+
+Uma página para cada empresa com que você tem movimento financeiro (onde trabalha, ou que paga as ARTs que você tira), com entrada própria no menu e card no início. Os **nomes das empresas ficam só no banco**: o código do site é público e não cita nenhuma empresa. Cadastre, renomeie ou remova pelo botão **Empresas** da página.
+
+- **Lançamentos com a empresa:** receita é o que a empresa paga a você (reembolso, taxa de ART, salário, bônus); despesa é o que você pagou pela empresa ou para ela. Com vencimento, recebido em, situação (a receber, atrasado), resumo mensal e exportação em planilha, como no Controle financeiro, mas separado dele: não entra no lucro da engenharia nem no painel gerencial.
+- **ARTs tiradas para a empresa:** as ARTs marcadas com ela no Controle de ART, com a taxa e um botão para lançar o reembolso.
+- **Pagos com o seu dinheiro:** os lançamentos das Finanças pessoais que você marcou com a conta da empresa (ex.: um hotel pago no seu cartão). "Lançar a receber" cria o valor a cobrar; depois aparece "já lançado".
+- Empresa com lançamentos não pode ser removida (os lançamentos iriam para a engenharia). Remover uma empresa deixa as ARTs dela sem empresa.
+
 ## Painel gerencial
 
 Fica em `area/painel.html`. Cada bloco aparece só para quem tem permissão no módulo correspondente. Escolha o período no alto (este ano, este mês, últimos 12 meses, ano anterior ou todo o período). Cada indicador leva ao recurso correspondente.
@@ -183,7 +212,10 @@ Fica em `area/painel.html`. Cada bloco aparece só para quem tem permissão no m
 
 ## Controle financeiro
 
+O dinheiro da engenharia que você faz por conta própria (autônomo). Os lançamentos com as empresas ficam nas páginas delas.
+
 - **Receitas e despesas** com categoria, cliente ou fornecedor, valor, data do serviço, vencimento, data de recebimento/pagamento e forma de pagamento.
+- **Pagos com o seu dinheiro:** os lançamentos das Finanças pessoais marcados com a conta "engenharia (autônomo)", com o botão para lançar como despesa da engenharia.
 - **Ligação com a ART e com a demanda:** ao escolher a ART, a receita puxa o cliente e o valor do contrato; a despesa "Taxa de ART" puxa a taxa. Dentro de cada ART e de cada demanda há botões para lançar a receita ou a taxa direto.
 - **Situação automática:** recebido/pago, a receber/a pagar e atrasado (vencimento passado sem recebimento).
 - **Resumo mensal** (recebido, gastos e resultado de cada mês) e **exportação em planilha**.
@@ -200,7 +232,8 @@ Fica em `area/painel.html`. Cada bloco aparece só para quem tem permissão no m
 ## Controle de ART
 
 - **Importa PDFs com leitura automática** (só PDF, até 20 MB por arquivo): ART individual do CREA-MG e do CREA-RJ, e o relatório "ARTs (Todas)" do CREA-MG (várias ARTs de uma vez). O CREA-SP ainda não tem leitor (falta um PDF de exemplo); por enquanto, cadastre manualmente.
-- **Quadro de ARTs:** ativas, que vencem em até 30 dias, vencidas sem baixa e baixadas, com busca e filtros por CREA e situação.
+- **Quadro de ARTs:** ativas, que vencem em até 30 dias, vencidas sem baixa e baixadas, com busca e filtros por CREA, situação e para quem foi tirada.
+- **Tirada para:** uma **empresa** cadastrada (ela paga a taxa; os lançamentos da ART vão para a página da empresa) ou um **cliente particular** seu (o serviço e a taxa ficam no Controle financeiro da engenharia). Aparece na coluna "Para", no filtro, na exportação e, na importação de PDFs, dá para marcar todas as ARTs do arquivo de uma vez.
 - **Alertas** na plataforma (sino) e por e-mail, com base no **fim previsto** da ART:
   - 30 dias antes: "Daqui a 30 dias a ART nº … do cliente … vencerá (fim previsto em …)."
   - 7 dias antes e no dia;
@@ -254,7 +287,8 @@ Observações:
 ## Segurança e privacidade
 
 - O código do site é público, mas os dados não: ficam no Supabase, protegidos pelo login e por regras de acesso no banco. Só entra quem tem cadastro ativo, cada módulo só abre para quem tem permissão e clientes nunca acessam os módulos profissionais. Os PDFs ficam em armazenamento privado.
-- As finanças pessoais ficam no banco, um painel por pessoa: só a própria pessoa e o administrador (que faz a importação) acessam. A carteira de investimentos conjunta aparece só nos painéis em que o administrador a incluiu. Os gastos lançados e os PDFs das finanças seguem a mesma regra (cada pessoa só os próprios). Nenhum valor, nome ou cartão fica no código do site.
+- As finanças pessoais ficam no banco, um painel por pessoa: só a própria pessoa e o administrador (que faz a importação) acessam. A carteira de investimentos conjunta aparece só nos painéis em que o administrador a incluiu. Os gastos lançados, a classificação, a lista de categorias e os PDFs das finanças seguem a mesma regra (cada pessoa só os próprios). Um desejo de compra aparece também para a pessoa que vai comprar ou dividir a compra. Nenhum valor, nome ou cartão fica no código do site.
+- Os nomes das empresas e dos clientes ficam só no banco, e as finanças das empresas só abrem para quem tem esse módulo (nunca para clientes).
 - Os espaços de arquivos (PDFs das ARTs e das finanças) só aceitam PDF, até 20 MB.
 - **Nunca** coloque PDFs de ART, relatórios ou planilhas exportadas dentro do repositório (o `.gitignore` já bloqueia `.pdf`, `.csv` e `.xlsx`).
 - A chave Secret (`sb_secret_…` ou `service_role`) dá acesso total ao banco: guarde-a só nos *Secrets* do GitHub, no `SUPABASE_SERVICE_ROLE_KEY`.
