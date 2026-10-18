@@ -168,10 +168,23 @@ Separado do Controle financeiro da engenharia: é o **painel do projeto Financei
   - se o mesmo gasto (mesma data e mesmo valor) já estiver no projeto Financeiro, ele não conta duas vezes.
 
   Os lançados aqui ficam no site e continuam valendo depois de cada importação; o projeto Financeiro no Claude não os recebe sozinho.
-- **PDFs das faturas e relatórios:** na aba Cartão e faturas, **Enviar PDF** guarda o arquivo em armazenamento privado, numa pasta de cada pessoa (só PDF, até 20 MB; o site confere se o arquivo é mesmo um PDF antes de enviar). A lista tem **Abrir** (link temporário, válido por 10 minutos) e **Apagar**. O site guarda o PDF, mas não lê os valores dele: os números das faturas continuam vindo do projeto Financeiro.
-- **Para atualizar os dados:** em Finanças pessoais, **Atualizar dados** e escolha o arquivo HTML do painel gerado pelo projeto Financeiro (o mesmo arquivo do painel; se precisar, peça no chat do projeto). O site lê os dados do arquivo, mostra um resumo e grava. A lista de arquivos do computador e as anotações internas do arquivo não são importadas. Esse botão não recebe PDF (para PDFs, use Enviar PDF).
+- **PDFs das faturas e relatórios:** na aba Cartão e faturas, **Enviar PDF** guarda o arquivo em armazenamento privado, numa pasta de cada pessoa (só PDF, até 20 MB; o site confere se o arquivo é mesmo um PDF antes de enviar). A lista tem **Processar**, **Abrir** (link temporário, válido por 10 minutos) e **Apagar**.
+- **Faturas do Nubank em PDF:** o site lê a fatura no próprio navegador e atualiza o cartão. Ao enviar o PDF, a leitura já abre; depois, o botão **Processar** lê de novo. Antes de gravar, uma prévia mostra:
+  - o mês, o vencimento, o período das compras e o total;
+  - se a soma dos lançamentos confere com o total;
+  - as parcelas a vencer, os pontos de atenção e a lista dos lançamentos com a categoria sugerida.
+
+  O cartão é escolhido pelo nome do titular (o seu ou o da outra pessoa do painel), e o administrador pode atualizar junto o painel dessa pessoa. A leitura monta a análise da fatura igual à do projeto Financeiro:
+  - à vista, parcelas e encargos (o IOF e os juros do Pix ou boleto pagos no crédito);
+  - categorias, sugeridas pelo que a pessoa já classificou no mesmo estabelecimento e, sem isso, por regras genéricas;
+  - postos de combustível;
+  - pontos de atenção: cobrança repetida, várias no mesmo dia, juros no crédito e compra parcelada nova;
+  - compras parceladas a vencer e o quanto já está comprometido em cada fatura seguinte.
+
+  A fatura do mesmo mês é substituída, e a classificação feita no site continua valendo, inclusive nas próximas parcelas da mesma compra. Na lista de PDFs, o arquivo já lido aparece com a fatura que gerou. Faturas de outros bancos continuam vindo do projeto Financeiro (cada banco novo precisa de um PDF de exemplo para ganhar leitor).
+- **Para atualizar os dados:** em Finanças pessoais, **Atualizar dados** e escolha o arquivo HTML do painel gerado pelo projeto Financeiro (o mesmo arquivo do painel; se precisar, peça no chat do projeto). O site lê os dados do arquivo, mostra um resumo e grava. A lista de arquivos do computador e as anotações internas do arquivo não são importadas. As faturas lidas pelo site que o arquivo não traz continuam no painel; se o arquivo trouxer o mesmo mês, vale o do arquivo. Esse botão não recebe PDF (para PDFs, use Enviar PDF).
 - **Faturas de outra pessoa e carteira conjunta:** quando o arquivo traz as faturas de alguém da família, o administrador escolhe na importação o painel dessa pessoa; ela passa a ver só o próprio cartão e as próprias faturas, sem nenhum dado do dono do painel. Com **"Mostrar também a carteira de investimentos"** marcado, a carteira conjunta (com os aportes mensais de cada um) vai junto e aparece na aba Investimentos dessa pessoa.
-- **Abrir no Claude** (opcional): a leitura de faturas novas continua no painel original. Cadastre o link do painel no Claude no cadastro da pessoa, em Usuários e permissões.
+- **Abrir no Claude** (opcional): a leitura das faturas que o site não lê continua no painel original. Cadastre o link do painel no Claude no cadastro da pessoa, em Usuários e permissões.
 
 **Classificar os lançamentos.** Cada lançamento (gastos do dia a dia, lançamentos das faturas e gastos lançados no site) tem o botão **Classificar**, sempre com a lista de opções:
 

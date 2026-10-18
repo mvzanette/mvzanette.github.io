@@ -107,10 +107,12 @@ export function chavesGastos(lancamentos) {
   });
 }
 
+// Nas faturas lidas pelo site, a parcela vem com a data do ciclo; o mês de referência da compra (compra) é o que
+// se repete de uma fatura para a outra.
 export function chavesFatura(lancamentos, prefixo = "c") {
   const vistos = {};
   return lancamentos.map((l) => {
-    const base = `${prefixo}|${l.data || l.mes || ""}|${Number(l.valor).toFixed(2)}|${parte(l.nome)}`;
+    const base = `${prefixo}|${l.compra || l.data || l.mes || ""}|${Number(l.valor).toFixed(2)}|${parte(l.nome)}`;
     const grupo = `${l.mes}|${base}`;
     const n = (vistos[grupo] = (vistos[grupo] ?? -1) + 1);
     return n ? `${base}|${n}` : base;

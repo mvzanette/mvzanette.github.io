@@ -409,6 +409,11 @@ function armazemDemo() {
       async urlPdf(caminho) {
         return (pdfsFinancas.find((a) => a.caminho === caminho) || {}).url || null;
       },
+      async baixarPdf(caminho) {
+        const url = (pdfsFinancas.find((a) => a.caminho === caminho) || {}).url;
+        if (!url) throw new Error("PDF não encontrado.");
+        return (await fetch(url)).blob();
+      },
       async apagarPdf(caminho) {
         const i = pdfsFinancas.findIndex((a) => a.caminho === caminho);
         if (i >= 0) pdfsFinancas.splice(i, 1);
@@ -670,6 +675,11 @@ async function armazemSupabase(url, chave) {
         const { data, error } = await sb.storage.from("financas").createSignedUrl(caminho, 600);
         falhou(error);
         return data.signedUrl;
+      },
+      async baixarPdf(caminho) {
+        const { data, error } = await sb.storage.from("financas").download(caminho);
+        falhou(error);
+        return data;
       },
       async apagarPdf(caminho) {
         const { error } = await sb.storage.from("financas").remove([caminho]);

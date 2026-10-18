@@ -325,3 +325,16 @@
 .fin .plano input { padding: 8px 10px; font: inherit; color: var(--ink); border: 1px solid var(--gray-300); background: var(--surface); }
 .fin .plano .btn { justify-self: start; }
 .fin td.neg { color: var(--bad); }
+
+/* ---------- Faturas em PDF: marca no quadro de PDFs e prévia da leitura ---------- */
+.fin .pdf-lido { color: var(--ok); font-weight: 600; }
+.aviso-fatura { margin: 14px 0 0; padding: 10px 12px; background: #fff6d6; color: #8a5608; font-size: 0.9rem; }
+.lanc-fatura-pdf { margin-top: 14px; }
+.lanc-fatura-pdf summary { cursor: pointer; font-weight: 600; }
+.lanc-fatura-pdf .scroll { max-height: 320px; overflow: auto; margin-top: 8px; background: var(--white); border: 1px solid var(--gray-200); }
+.lanc-fatura-pdf table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.lanc-fatura-pdf td { padding: 6px 8px; border-bottom: 1px solid var(--gray-200); vertical-align: top; }
+.lanc-fatura-pdf td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.lanc-fatura-pdf td:first-child { width: 1%; padding-right: 12px; }
+.lanc-fatura-pdf td.r { text-align: right; }
+.lanc-fatura-pdf .sub { color: #5f646b; font-size: 0.8rem; }

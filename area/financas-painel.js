@@ -796,7 +796,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       ${P.cartaoNome ? `<p class="sub" style="margin:-4px 0 10px">Cartão ${esc(P.cartaoNome)}</p>` : ""}
       ${rels.length ? `<div class="reports">${rels.map(r => `<div class="report"><span>Relatório da fatura ${esc(r.mes)}${fat[r.mes] ? ` <span class="muted">· vence ${dataLonga(fat[r.mes].vencimento)}</span>` : ""}</span><span class="num">${fat[r.mes] ? brl(fat[r.mes].total) : ""}</span></div>`).join("")}</div>`
         : '<p class="muted" style="margin:0">Nenhum relatório ainda.</p>'}
-      <p class="sub" style="margin:10px 0 0">Os PDFs das faturas e dos relatórios podem ser guardados no quadro abaixo. A leitura das faturas novas (valores, categorias e parcelas) continua no projeto Financeiro${linkClaude ? `: <a href="${esc(linkClaude)}" target="_blank" rel="noopener">abrir no Claude</a>` : ""}.</p>`;
+      <p class="sub" style="margin:10px 0 0">Os PDFs das faturas e dos relatórios ficam no quadro abaixo. As faturas do Nubank são lidas pelo próprio site (botão Processar); as dos outros cartões continuam no projeto Financeiro${linkClaude ? `: <a href="${esc(linkClaude)}" target="_blank" rel="noopener">abrir no Claude</a>` : ""}.</p>`;
   }
 
   function rodape() {

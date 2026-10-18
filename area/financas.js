@@ -1,15 +1,18 @@
 // Finanças pessoais (area/financas.html): carrega o painel de quem está logado e desenha com o código do painel
 // do projeto Financeiro. Aqui também se lançam os gastos do dia a dia (somam com os do projeto; os de cartão
 // entram na fatura), se classificam os lançamentos (categoria, subcategoria, essencial, conta e complemento, com a
-// lista de categorias de cada pessoa), se guardam os PDFs das faturas e relatórios, fica a lista de desejos e se
-// importa o arquivo do painel. Na importação, o administrador escolhe de quem é o painel e pode atualizar junto as
-// faturas da outra pessoa que vêm no arquivo, com ou sem a carteira de investimentos conjunta.
+// lista de categorias de cada pessoa), se guardam os PDFs das faturas e relatórios (as faturas que o site sabe ler
+// atualizam o cartão pelo botão Processar), fica a lista de desejos e se importa o arquivo do painel. Na importação,
+// o administrador escolhe de quem é o painel e pode atualizar junto as faturas da outra pessoa que vêm no arquivo,
+// com ou sem a carteira de investimentos conjunta; as faturas lidas pelo site que o arquivo não traz continuam.
 import { abrirPagina } from "./sessao.js";
 import { linkFinancas, pode } from "./modulos.js";
-import { lerArquivoFinancas, soFaturas } from "./financas-importar.js";
+import { lerArquivoFinancas, outrasPessoas, soFaturas } from "./financas-importar.js";
 import { desenharFinancas } from "./financas-painel.js";
 import { desenharDesejos } from "./financas-desejos.js";
 import { categoriaDe, contasDisponiveis, lerCategorias, normalizarCategoria } from "./financas-classificacao.js";
+import { aplicarFatura, historicoDeCategorias, lerFaturaPdf, manterFaturasDoSite, montarFatura } from "./financas-faturas.js";
+import { extrairLinhas } from "./pdf-texto.js";
 import { $, esc, avisar, opcoes, numeroDigitado, prepararDialogos, conferirPdf } from "./ui.js";
 
 let armazem;
@@ -24,6 +27,7 @@ let prefs = null; // lista de categorias e plano da lista de desejos
 let cats = null; // lista de categorias em uso ({ lista, renomeadas })
 let ajustes = []; // classificação feita no site para os lançamentos do projeto
 let contas = []; // pessoal, engenharia e empresas (conforme as permissões)
+let faturaPdf = null; // fatura em PDF sendo processada: { caminho, nome, leitura, quem, montada, destino }
 
 const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
 const brl = (v) => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -43,7 +47,7 @@ const nomeDe = (p) => (p.id === perfil.id ? `${p.nome || p.email} (você)` : p.n
 
 function mostrarStatus() {
   const gerado = registro.dados && registro.dados.gerado_em ? `Dados do projeto Financeiro de ${registro.dados.gerado_em}` : "Dados do projeto Financeiro";
-  $("#fin-status").textContent = `${gerado} · importados em ${dataHora(registro.atualizado_em)}${registro.modo === "faturas" ? " · cartão e faturas" : ""}.`;
+  $("#fin-status").textContent = `${gerado} · atualizados em ${dataHora(registro.atualizado_em)}${registro.modo === "faturas" ? " · cartão e faturas" : ""}.`;
 }
 
 // ---------------------------------------------------------------- categorias e contas nos formulários
@@ -453,6 +457,20 @@ function mensagemPdf(texto, tipo = "") {
   el.textContent = texto || "";
 }
 
+// Faturas já lidas de cada PDF (o caminho do PDF fica guardado na fatura), para marcar na lista
+function faturasDosPdfs() {
+  const mapa = new Map();
+  const d = (registro && registro.dados) || {};
+  const marcar = (cartao, nome) => {
+    for (const f of (cartao && cartao.faturas) || []) {
+      if (f.arquivo_pdf) mapa.set(f.arquivo_pdf, [...(mapa.get(f.arquivo_pdf) || []), nome ? `${f.mes} de ${nome}` : f.mes]);
+    }
+  };
+  marcar(d.cartao, "");
+  for (const o of outrasPessoas(d)) marcar(d[o.chave].cartao, o.nome);
+  return mapa;
+}
+
 async function listarPdfs() {
   let lista = [];
   try {
@@ -460,10 +478,11 @@ async function listarPdfs() {
   } catch (err) {
     mensagemPdf("Não foi possível listar os PDFs: " + err.message, "bad");
   }
+  const lidas = faturasDosPdfs();
   $("#pdfs-lista").innerHTML = lista.length
     ? lista.map((a) => `<div class="file">
-        <div><div class="fn">${esc(a.nome)}</div><div class="sub">${a.criado_em ? dataHora(a.criado_em) : ""}${a.tamanho ? ` · ${tamanho(a.tamanho)}` : ""}</div></div>
-        <div class="acoes"><button type="button" class="btn sec mini" data-abrir-pdf="${esc(a.caminho)}">Abrir</button><button type="button" class="btn sec mini" data-apagar-pdf="${esc(a.caminho)}">Apagar</button></div>
+        <div><div class="fn">${esc(a.nome)}</div><div class="sub">${a.criado_em ? dataHora(a.criado_em) : ""}${a.tamanho ? ` · ${tamanho(a.tamanho)}` : ""}${lidas.has(a.caminho) ? ` · <span class="pdf-lido">fatura ${esc(lidas.get(a.caminho).join(", "))} no painel</span>` : ""}</div></div>
+        <div class="acoes"><button type="button" class="btn sec mini" data-processar-pdf="${esc(a.caminho)}" data-nome="${esc(a.nome)}">Processar</button><button type="button" class="btn sec mini" data-abrir-pdf="${esc(a.caminho)}">Abrir</button><button type="button" class="btn sec mini" data-apagar-pdf="${esc(a.caminho)}">Apagar</button></div>
       </div>`).join("")
     : '<p class="muted" style="margin:0">Nenhum PDF enviado ainda.</p>';
 }
@@ -474,8 +493,9 @@ async function enviarPdf(arquivo) {
   const botao = $("#btn-enviar-pdf");
   botao.disabled = true;
   mensagemPdf(`Enviando ${arquivo.name}…`);
+  let caminho = null;
   try {
-    await armazem.financas.enviarPdf(perfil.id, arquivo);
+    caminho = await armazem.financas.enviarPdf(perfil.id, arquivo);
     mensagemPdf(`${arquivo.name} guardado.`, "ok");
     await listarPdfs();
   } catch (err) {
@@ -483,6 +503,181 @@ async function enviarPdf(arquivo) {
   } finally {
     botao.disabled = false;
   }
+  // Se for uma fatura que o site sabe ler, já mostra a leitura para atualizar o cartão
+  if (caminho) processarPdf({ caminho, nome: arquivo.name, arquivo, automatico: true });
+}
+
+// ---------------------------------------------------------------- faturas em PDF: leitura e atualização do cartão
+let pdfjsLib;
+async function carregarPdfjs() {
+  if (!pdfjsLib) {
+    pdfjsLib = await import("./vendor/pdf.min.mjs");
+    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("./vendor/pdf.worker.min.mjs", import.meta.url).href;
+  }
+  return pdfjsLib;
+}
+
+function erroFatura(texto) {
+  $("#erro-fatura-pdf").textContent = texto;
+  $("#erro-fatura-pdf").hidden = !texto;
+}
+
+// Cartões do painel: o de quem está logado e, no painel completo, o da outra pessoa que vem no arquivo
+function cartoesDoPainel() {
+  const lista = [{ chave: "dono", nome: `${(perfil.nome || perfil.email || "Você").split(/[\s@]/)[0]} (você)`, primeiro: primeiroNome(perfil) }];
+  const outra = registro.modo === "completo" ? outrasPessoas(registro.dados)[0] : null;
+  if (outra) lista.push({ chave: outra.chave, nome: outra.nome, primeiro: semAcento(outra.nome) });
+  return lista;
+}
+
+const cartaoDe = (dados, quem) => (quem === "dono" ? dados.cartao : (dados[quem] || {}).cartao) || null;
+
+// Categorias que a pessoa já usou (com a classificação feita no site), para sugerir nas compras da fatura nova
+function historicoPara(quem) {
+  const d = registro.dados || {};
+  const fontes = registro.modo === "completo" ? [{ meses: d.meses }, { cartao: d.cartao, prefixo: "c" }] : [{ cartao: d.cartao, prefixo: "c" }];
+  if (quem !== "dono" && d[quem]) fontes.push({ cartao: d[quem].cartao, prefixo: "co" });
+  return historicoDeCategorias(fontes, new Map(ajustes.map((a) => [a.chave, a])), cats);
+}
+
+// Lê o PDF (o arquivo recém-enviado ou o guardado no banco) e mostra a prévia. Logo depois do envio, só abre a
+// janela se o PDF for uma fatura que o site sabe ler.
+let leituraAtual = 0;
+async function processarPdf({ caminho, nome, arquivo = null, automatico = false }) {
+  const vez = ++leituraAtual;
+  faturaPdf = null;
+  $("#previa-fatura-pdf").hidden = true;
+  $("#btn-confirmar-fatura-pdf").disabled = true;
+  erroFatura("");
+  $("#fatura-pdf-status").textContent = `Lendo ${nome}…`;
+  if (!automatico) $("#dlg-fatura-pdf").showModal();
+  let leitura;
+  try {
+    const conteudo = arquivo || (await armazem.financas.baixarPdf(caminho));
+    leitura = lerFaturaPdf(await extrairLinhas(await carregarPdfjs(), new Uint8Array(await conteudo.arrayBuffer())));
+  } catch (err) {
+    if (vez !== leituraAtual) return;
+    const msg = err.name === "PasswordException" ? "Este PDF tem senha. Abra no computador, salve uma cópia sem senha e envie de novo."
+      : err.name === "InvalidPDFException" ? "Não foi possível abrir este PDF: o arquivo parece estar danificado." : err.message;
+    if (automatico) {
+      if (/deste banco|senha/.test(msg)) mensagemPdf(`${nome} guardado. ${msg}`, "warn");
+      return;
+    }
+    $("#fatura-pdf-status").textContent = "";
+    erroFatura(msg);
+    return;
+  }
+  if (vez !== leituraAtual) return; // outra leitura começou enquanto esta corria
+  faturaPdf = { caminho, nome, leitura };
+  const cartoes = cartoesDoPainel();
+  const titular = semAcento(leitura.titular);
+  const dela = cartoes.find((c) => c.chave !== "dono" && c.primeiro === titular);
+  $("#fatura-de").innerHTML = opcoes(cartoes.map((c) => [c.chave, c.nome]), dela ? dela.chave : "dono");
+  $("#campo-fatura-de").hidden = cartoes.length < 2;
+  $("#fatura-pdf-status").textContent = `Lido de ${nome}.`;
+  mostrarFaturaPdf();
+  if (automatico) $("#dlg-fatura-pdf").showModal();
+}
+
+function mostrarFaturaPdf() {
+  const quem = $("#fatura-de").value || "dono";
+  const montada = montarFatura(faturaPdf.leitura, { historico: historicoPara(quem), arquivo: faturaPdf.caminho });
+  const f = montada.fatura;
+  const cartao = cartoesDoPainel().find((c) => c.chave === quem);
+  // O administrador atualiza junto o painel da outra pessoa, se ela tiver cadastro
+  const destino = quem !== "dono" && perfil.papel === "adm" ? pessoas.find((p) => p.id !== perfil.id && primeiroNome(p) === cartao.primeiro) : null;
+  Object.assign(faturaPdf, { quem, montada, destino: destino || null });
+
+  const linha = (rotulo, valor) => `<div><dt>${rotulo}</dt><dd>${valor}</dd></div>`;
+  $("#previa-fatura-dados").innerHTML = [
+    linha("Cartão", esc(`${montada.banco}${montada.titular ? ` · ${montada.titular}` : ""}`)),
+    linha("Fatura", `${esc(f.mes)} · vence em ${dataBR(f.vencimento)}`),
+    linha("Período das compras", f.periodo ? `${dataBR(f.periodo.inicio)} a ${dataBR(f.periodo.fim)}` : "—"),
+    linha("Total a pagar", brl(f.total)),
+    linha("Lançamentos", `${f.n_lanc} · ${montada.confere ? "a soma confere com o total" : "a soma não confere"}`),
+    linha("À vista e parcelas", `${brl(f.avista)} + ${brl(f.parcelas)}`),
+    linha("Parceladas a vencer", `${brl(f.parcelado_a_vencer)} (${plural(montada.parcelamentos.length, "compra", "compras")})`),
+    linha("Pontos de atenção", String(montada.alertas.length)),
+  ].join("");
+
+  const avisos = [];
+  if (!montada.confere) avisos.push(`${f.conferencia}. Confira o PDF antes de atualizar.`);
+  const existente = ((cartaoDe(registro.dados, quem) || {}).faturas || []).find((x) => x.mes === f.mes);
+  if (existente) {
+    avisos.push(existente.origem === "pdf" ? `A fatura ${f.mes} deste cartão já foi lida antes e será substituída.`
+      : `A fatura ${f.mes} deste cartão veio do projeto Financeiro e será substituída pela leitura deste PDF.`);
+  }
+  $("#aviso-fatura-pdf").innerHTML = avisos.map(esc).join("<br>");
+  $("#aviso-fatura-pdf").hidden = !avisos.length;
+
+  $("#campo-fatura-outra").hidden = !destino;
+  if (destino) $("#rotulo-fatura-outra").textContent = `Atualizar também o painel de ${destino.nome || destino.email}`;
+
+  const ls = [...montada.lancamentos].sort((a, b) => String(a.data).localeCompare(String(b.data)));
+  $("#resumo-lanc-fatura-pdf").textContent = `Ver os ${plural(ls.length, "lançamento", "lançamentos")}`;
+  $("#lanc-fatura-pdf").innerHTML = ls.map((l) => `<tr><td class="num">${l.data ? esc(dataBR(l.data).slice(0, 5)) : ""}</td>
+    <td>${esc(l.nome)}<div class="sub">${esc(l.cat)}${l.sub ? ` › ${esc(l.sub)}` : ""}${l.parcela ? ` · parcela ${esc(l.parcela)}` : ""}${l.tipo !== "Nacional" ? ` · ${esc(l.tipo)}` : ""}</div></td>
+    <td class="r num">${brl(l.valor)}</td></tr>`).join("");
+  $("#previa-fatura-pdf").hidden = false;
+  $("#btn-confirmar-fatura-pdf").disabled = false;
+}
+
+// Dados do painel com a fatura no cartão de quem (o dono do painel ou a outra pessoa do arquivo)
+function comFatura(dadosAtuais, quem, montada) {
+  const d = structuredClone(dadosAtuais || {});
+  if (quem === "dono") {
+    d.cartao = aplicarFatura(d.cartao, montada);
+    if (!d.cartao_nome) d.cartao_nome = montada.banco;
+  } else {
+    d[quem] = { relatorios: [], ...(d[quem] || {}) };
+    d[quem].cartao = aplicarFatura(d[quem].cartao, montada);
+    if (!d[quem].cartao_nome) d[quem].cartao_nome = montada.banco;
+  }
+  return d;
+}
+
+async function confirmarFaturaPdf() {
+  if (!faturaPdf || !faturaPdf.montada) return;
+  const { quem, montada, destino } = faturaPdf;
+  const botao = $("#btn-confirmar-fatura-pdf");
+  botao.disabled = true;
+  botao.textContent = "Atualizando…";
+  erroFatura("");
+  try {
+    const dados = comFatura(registro.dados, quem, montada);
+    await armazem.financas.salvar({ perfil_id: perfil.id, modo: registro.modo, dados, investimentos: registro.investimentos, arquivo: registro.arquivo });
+    if (destino && $("#fatura-outra").checked) {
+      const atual = await armazem.financas.ler(destino.id);
+      await armazem.financas.salvar(atual
+        ? { perfil_id: destino.id, modo: atual.modo, dados: comFatura(atual.dados, "dono", montada), investimentos: atual.investimentos, arquivo: atual.arquivo }
+        : { perfil_id: destino.id, modo: "faturas", dados: soFaturas(dados, quem), investimentos: null, arquivo: "Faturas em PDF" });
+    }
+    // Volta direto na análise da fatura atualizada
+    try {
+      localStorage.setItem("mz-fin-aba", "cartao");
+      localStorage.setItem("mz-fin-fatura-de", quem === "dono" ? "dono" : "outra");
+    } catch {
+      /* sem armazenamento: abre na aba de sempre */
+    }
+    $("#dlg-fatura-pdf").close();
+    avisar(`Fatura ${montada.fatura.mes} atualizada. Atualizando o painel…`);
+    setTimeout(() => {
+      location.hash = "cartao";
+      location.reload();
+    }, 700);
+  } catch (e) {
+    erroFatura("Não foi possível atualizar: " + e.message);
+    botao.disabled = false;
+  } finally {
+    botao.textContent = "Atualizar fatura";
+  }
+}
+
+function prepararFaturaPdf() {
+  $("#fatura-de").addEventListener("change", () => {
+    if (faturaPdf) mostrarFaturaPdf();
+  });
+  $("#btn-confirmar-fatura-pdf").addEventListener("click", confirmarFaturaPdf);
 }
 
 function prepararPdfs() {
@@ -493,8 +688,10 @@ function prepararPdfs() {
     if (arquivo) enviarPdf(arquivo);
   });
   $("#pdfs-lista").addEventListener("click", async (e) => {
+    const processar = e.target.closest("[data-processar-pdf]");
     const abrir = e.target.closest("[data-abrir-pdf]");
     const apagar = e.target.closest("[data-apagar-pdf]");
+    if (processar) processarPdf({ caminho: processar.dataset.processarPdf, nome: processar.dataset.nome });
     if (abrir) {
       // Abre a aba antes de buscar o link, para o navegador não bloquear a janela
       const janela = window.open("", "_blank");
@@ -539,7 +736,7 @@ async function lerArquivo(arquivo) {
   $("#previa-fin").hidden = true;
   $("#btn-confirmar-fin").disabled = true;
   if (/\.pdf$/i.test(arquivo.name) || arquivo.type === "application/pdf") {
-    erro("Este botão lê o arquivo do painel (HTML) gerado pelo projeto Financeiro. Para guardar PDFs de faturas e relatórios, use “Enviar PDF” na aba Cartão e faturas.");
+    erro("Este botão lê o arquivo do painel (HTML) gerado pelo projeto Financeiro. Para faturas em PDF, use “Enviar PDF” na aba Cartão e faturas: as do Nubank são lidas pelo site e atualizam o cartão.");
     return;
   }
   try {
@@ -581,6 +778,22 @@ async function lerArquivo(arquivo) {
   $("#btn-confirmar-fin").disabled = false;
 }
 
+// As faturas lidas de PDFs pelo site continuam no painel quando o arquivo importado não traz o mesmo mês
+function comFaturasDoSite(novo, antigo) {
+  if (!antigo) return novo;
+  const d = structuredClone(novo);
+  d.cartao = manterFaturasDoSite(d.cartao, antigo.cartao);
+  if (!d.cartao_nome && antigo.cartao_nome) d.cartao_nome = antigo.cartao_nome;
+  for (const o of outrasPessoas(antigo)) {
+    const velho = antigo[o.chave];
+    if (!velho.cartao.faturas.some((f) => f.origem === "pdf")) continue;
+    d[o.chave] = { relatorios: [], ...(d[o.chave] || {}) };
+    d[o.chave].cartao = manterFaturasDoSite(d[o.chave].cartao, velho.cartao);
+    if (!d[o.chave].cartao_nome && velho.cartao_nome) d[o.chave].cartao_nome = velho.cartao_nome;
+  }
+  return d;
+}
+
 async function confirmarImportacao() {
   if (!leitura) return;
   const botao = $("#btn-confirmar-fin");
@@ -588,14 +801,17 @@ async function confirmarImportacao() {
   botao.textContent = "Importando…";
   try {
     const destino = $("#campo-destino").hidden ? perfil.id : $("#destino-fin").value;
+    const anterior = destino === perfil.id ? registro : await armazem.financas.ler(destino);
     await armazem.financas.salvar({
-      perfil_id: destino, modo: leitura.modo, dados: leitura.painel, investimentos: leitura.carteira, arquivo: nomeArquivo,
+      perfil_id: destino, modo: leitura.modo, dados: comFaturasDoSite(leitura.painel, anterior && anterior.dados),
+      investimentos: leitura.carteira, arquivo: nomeArquivo,
     });
     const outraDestino = $("#campo-outra").hidden ? "" : $("#outra-fin").value;
     if (outraDestino && outraDestino !== destino) {
       const comCarteira = !$("#campo-carteira-outra").hidden && $("#carteira-outra").checked;
+      const daOutra = await armazem.financas.ler(outraDestino);
       await armazem.financas.salvar({
-        perfil_id: outraDestino, modo: "faturas", dados: soFaturas(leitura.painel, leitura.outras[0].chave),
+        perfil_id: outraDestino, modo: "faturas", dados: comFaturasDoSite(soFaturas(leitura.painel, leitura.outras[0].chave), daOutra && daOutra.dados),
         investimentos: comCarteira ? leitura.carteira : null, arquivo: nomeArquivo,
       });
     }
@@ -643,6 +859,7 @@ async function iniciar() {
   prepararDialogos();
   prepararImportacao();
   prepararPdfs();
+  prepararFaturaPdf();
   prepararClassificacao();
   prepararEdicaoCategorias();
 
