@@ -355,3 +355,25 @@
 .desconto-linha { display: grid; grid-template-columns: minmax(0, 1fr) 130px auto; gap: 8px; align-items: center; }
 .desconto-linha input { padding: 8px 10px; font: inherit; border: 1px solid var(--gray-300); background: var(--white); min-width: 0; }
 @media (max-width: 480px) { .desconto-linha { grid-template-columns: minmax(0, 1fr) 100px auto; } }
+
+/* ---------- Finanças em casal: escolha do painel e visão do casal ---------- */
+.painel-de { margin: -4px 0 14px; }
+.casal { display: grid; gap: 16px; margin-bottom: 24px; }
+.casal .empresas-abas { margin: 0; }
+.casal .kpis { margin: 0; }
+.casal .kpi-valor { font-size: 1.45rem; white-space: nowrap; overflow-wrap: normal; }
+.casal .kpi-valor.neg { color: #c62828; }
+.casal-tabela tbody th { background: var(--white); color: var(--graphite-900); font: 600 0.92rem var(--font-body); letter-spacing: 0; text-transform: none; white-space: normal; border-top: 1px solid var(--gray-200); }
+.casal-tabela td.r, .casal-tabela th.r { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.casal-tabela td small { display: block; color: #5f646b; font-size: 0.75rem; }
+.casal-tabela .casal-total { font-weight: 700; background: var(--gray-100); }
+.casal-tabela tr.casal-saldo th, .casal-tabela tr.casal-saldo td { border-top: 2px solid var(--graphite-900); font-weight: 700; }
+.casal .neg { color: #c62828; }
+.casal .sem { color: #8a8f96; }
+.casal-pessoas { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 16px; }
+.area-main section.casal-pessoa { padding: 22px; display: grid; gap: 12px; align-content: start; }
+.casal-pessoa h2 { margin: 0; font-size: 1.05rem; }
+.casal-lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.casal-lista li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--gray-200); }
+.casal-lista .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.casal-pessoa .btn { justify-self: start; }

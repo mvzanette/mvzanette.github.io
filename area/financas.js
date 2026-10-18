@@ -5,11 +5,14 @@
 // atualizam o cartão pelo botão Processar), fica a lista de desejos e se importa o arquivo do painel. Na importação,
 // o administrador escolhe de quem é o painel e pode atualizar junto as faturas da outra pessoa que vêm no arquivo,
 // com ou sem a carteira de investimentos conjunta; as faturas lidas pelo site que o arquivo não traz continuam.
+// Em casal nas finanças, a página abre o painel da outra pessoa (?de=<id>), com tudo para alterar, ou a visão do
+// casal (?de=casal); o que se carrega e grava segue o painel aberto (dono).
 import { abrirPagina } from "./sessao.js";
 import { linkFinancas, pode } from "./modulos.js";
 import { lerArquivoFinancas, outrasPessoas, soFaturas } from "./financas-importar.js";
 import { desenharFinancas } from "./financas-painel.js";
 import { desenharDesejos } from "./financas-desejos.js";
+import { mostrarCasal } from "./financas-casal.js";
 import { categoriaDe, contasDisponiveis, lerCategorias, normalizarCategoria } from "./financas-classificacao.js";
 import { aplicarFatura, historicoDeCategorias, lerFaturaPdf, manterFaturasDoSite, montarFatura } from "./financas-faturas.js";
 import { decodificarExtrato, lerExtrato, MOTIVOS, saidasDoExtrato } from "./financas-extrato.js";
@@ -17,7 +20,10 @@ import { extrairLinhas } from "./pdf-texto.js";
 import { $, esc, avisar, opcoes, numeroDigitado, prepararDialogos, conferirPdf } from "./ui.js";
 
 let armazem;
-let perfil;
+let perfil; // quem está usando a página
+let dono = null; // de quem é o painel aberto: o próprio ou o de quem forma casal nas finanças
+let parceiro = null; // { id, nome } de quem forma casal nas finanças com quem está usando
+let acessiveis = []; // painéis que quem está usando pode alterar (para atualizar junto o painel da outra pessoa)
 let registro = null; // painel de quem está logado
 let painel = null; // retorno de desenharFinancas
 let gastos = []; // gastos lançados pelo site
@@ -50,7 +56,7 @@ const nomeDe = (p) => (p.id === perfil.id ? `${p.nome || p.email} (você)` : p.n
 
 function mostrarStatus() {
   const gerado = registro.dados && registro.dados.gerado_em ? `Dados do projeto Financeiro de ${registro.dados.gerado_em}` : "Dados do projeto Financeiro";
-  $("#fin-status").textContent = `${gerado} · atualizados em ${dataHora(registro.atualizado_em)}${registro.modo === "faturas" ? " · cartão e faturas" : ""}.`;
+  $("#fin-status").textContent = `${dono.id !== perfil.id ? `Painel de ${dono.nome} · ` : ""}${gerado} · atualizados em ${dataHora(registro.atualizado_em)}${registro.modo === "faturas" ? " · cartão e faturas" : ""}.`;
 }
 
 // ---------------------------------------------------------------- categorias e contas nos formulários
@@ -102,7 +108,7 @@ function lerCategoria(form) {
 }
 
 async function salvarCategorias() {
-  prefs = await armazem.financas.salvarPreferencias(perfil.id, { categorias: { lista: cats.lista, renomeadas: cats.renomeadas } });
+  prefs = await armazem.financas.salvarPreferencias(dono.id, { categorias: { lista: cats.lista, renomeadas: cats.renomeadas } });
   cats.salva = true;
 }
 
@@ -185,7 +191,7 @@ async function lancarGasto(e) {
   botao.disabled = true;
   try {
     const salvo = await armazem.financas.salvarGasto({
-      perfil_id: perfil.id,
+      perfil_id: dono.id,
       data: form.elements.data.value,
       descricao: form.elements.descricao.value,
       valor,
@@ -307,7 +313,7 @@ async function lancarEntrada(e) {
   botao.disabled = true;
   try {
     const salvo = await armazem.financas.salvarEntrada({
-      perfil_id: perfil.id,
+      perfil_id: dono.id,
       data: form.elements.data.value,
       tipo: salario ? "salario" : "outro",
       descricao: form.elements.descricao.value,
@@ -421,7 +427,7 @@ async function salvarClassificacao(e) {
       painel.atualizarGastos(gastos);
     } else {
       // Só o que muda em relação ao que veio do projeto fica guardado
-      const linha = { perfil_id: perfil.id, chave: item.chave, categoria: categoria && !igual(categoria, item.original.categoria) ? categoria : null,
+      const linha = { perfil_id: dono.id, chave: item.chave, categoria: categoria && !igual(categoria, item.original.categoria) ? categoria : null,
         subcategoria, essencial, complemento, conta };
       const vazio = !linha.categoria && !linha.subcategoria && linha.essencial == null && !linha.complemento && !linha.conta;
       if (vazio) {
@@ -618,7 +624,7 @@ function faturasDosPdfs() {
 async function listarPdfs() {
   let lista = [];
   try {
-    lista = await armazem.financas.pdfs(perfil.id);
+    lista = await armazem.financas.pdfs(dono.id);
   } catch (err) {
     mensagemPdf("Não foi possível listar os PDFs: " + err.message, "bad");
   }
@@ -639,7 +645,7 @@ async function enviarPdf(arquivo) {
   mensagemPdf(`Enviando ${arquivo.name}…`);
   let caminho = null;
   try {
-    caminho = await armazem.financas.enviarPdf(perfil.id, arquivo);
+    caminho = await armazem.financas.enviarPdf(dono.id, arquivo);
     mensagemPdf(`${arquivo.name} guardado.`, "ok");
     await listarPdfs();
   } catch (err) {
@@ -668,7 +674,7 @@ function erroFatura(texto) {
 
 // Cartões do painel: o de quem está logado e, no painel completo, o da outra pessoa que vem no arquivo
 function cartoesDoPainel() {
-  const lista = [{ chave: "dono", nome: `${(perfil.nome || perfil.email || "Você").split(/[\s@]/)[0]} (você)`, primeiro: primeiroNome(perfil) }];
+  const lista = [{ chave: "dono", nome: `${(dono.nome || dono.email || "Você").split(/[\s@]/)[0]}${dono.id === perfil.id ? " (você)" : ""}`, primeiro: primeiroNome(dono) }];
   const outra = registro.modo === "completo" ? outrasPessoas(registro.dados)[0] : null;
   if (outra) lista.push({ chave: outra.chave, nome: outra.nome, primeiro: semAcento(outra.nome) });
   return lista;
@@ -730,8 +736,8 @@ function mostrarFaturaPdf() {
   const montada = montarFatura(faturaPdf.leitura, { historico: historicoPara(quem), arquivo: faturaPdf.caminho });
   const f = montada.fatura;
   const cartao = cartoesDoPainel().find((c) => c.chave === quem);
-  // O administrador atualiza junto o painel da outra pessoa, se ela tiver cadastro
-  const destino = quem !== "dono" && perfil.papel === "adm" ? pessoas.find((p) => p.id !== perfil.id && primeiroNome(p) === cartao.primeiro) : null;
+  // Quem pode alterar o painel da outra pessoa (administrador ou casal nas finanças) atualiza junto o dela
+  const destino = quem !== "dono" ? acessiveis.find((p) => p.id !== dono.id && primeiroNome(p) === cartao.primeiro) : null;
   Object.assign(faturaPdf, { quem, montada, destino: destino || null });
 
   const linha = (rotulo, valor) => `<div><dt>${rotulo}</dt><dd>${valor}</dd></div>`;
@@ -791,7 +797,7 @@ async function confirmarFaturaPdf() {
   erroFatura("");
   try {
     const dados = comFatura(registro.dados, quem, montada);
-    await armazem.financas.salvar({ perfil_id: perfil.id, modo: registro.modo, dados, investimentos: registro.investimentos, arquivo: registro.arquivo });
+    await armazem.financas.salvar({ perfil_id: dono.id, modo: registro.modo, dados, investimentos: registro.investimentos, arquivo: registro.arquivo });
     if (destino && $("#fatura-outra").checked) {
       const atual = await armazem.financas.ler(destino.id);
       await armazem.financas.salvar(atual
@@ -937,7 +943,7 @@ async function confirmarExtrato() {
   erroExtrato("");
   try {
     const salvos = await armazem.financas.salvarGastos(marcadas.map((s) => ({
-      perfil_id: perfil.id, data: s.data, descricao: s.descricao, valor: s.valor, forma: s.forma, parcelas: 1,
+      perfil_id: dono.id, data: s.data, descricao: s.descricao, valor: s.valor, forma: s.forma, parcelas: 1,
       categoria: s.categoria, subcategoria: s.subcategoria, conta: null, essencial: null, observacao: "",
     })));
     gastos.push(...salvos);
@@ -1024,7 +1030,7 @@ async function lerArquivo(arquivo) {
   // Destino: o administrador escolhe de quem é o painel; os demais importam o próprio
   const adm = perfil.papel === "adm" && pessoas.length > 1;
   $("#campo-destino").hidden = !adm;
-  if (adm) $("#destino-fin").innerHTML = opcoes(pessoas.map((p) => [p.id, nomeDe(p)]), perfil.id);
+  if (adm) $("#destino-fin").innerHTML = opcoes(pessoas.map((p) => [p.id, nomeDe(p)]), dono.id);
 
   // Faturas da outra pessoa que vêm no mesmo arquivo (e, se houver, a carteira conjunta)
   const outra = leitura.outras[0];
@@ -1033,8 +1039,8 @@ async function lerArquivo(arquivo) {
   $("#campo-carteira-outra").hidden = !(mostrarOutra && leitura.carteira);
   if (mostrarOutra) {
     $("#rotulo-outra").textContent = `As faturas de ${outra.nome} que vêm neste arquivo (${plural(outra.faturas, "fatura", "faturas")}) vão também para o painel de`;
-    const candidata = pessoas.find((p) => p.id !== perfil.id && primeiroNome(p) === semAcento(outra.nome));
-    $("#outra-fin").innerHTML = opcoes([["", "Não atualizar agora"], ...pessoas.filter((p) => p.id !== perfil.id).map((p) => [p.id, nomeDe(p)])], candidata ? candidata.id : "");
+    const candidata = pessoas.find((p) => p.id !== dono.id && primeiroNome(p) === semAcento(outra.nome));
+    $("#outra-fin").innerHTML = opcoes([["", "Não atualizar agora"], ...pessoas.filter((p) => p.id !== dono.id).map((p) => [p.id, nomeDe(p)])], candidata ? candidata.id : "");
     $("#rotulo-carteira-outra").textContent = `Mostrar também a carteira de investimentos${leitura.carteira && leitura.carteira.titulares ? ` (${leitura.carteira.titulares})` : ""} nesse painel`;
   }
   $("#previa-fin").hidden = false;
@@ -1063,8 +1069,8 @@ async function confirmarImportacao() {
   botao.disabled = true;
   botao.textContent = "Importando…";
   try {
-    const destino = $("#campo-destino").hidden ? perfil.id : $("#destino-fin").value;
-    const anterior = destino === perfil.id ? registro : await armazem.financas.ler(destino);
+    const destino = $("#campo-destino").hidden ? dono.id : $("#destino-fin").value;
+    const anterior = destino === dono.id ? registro : await armazem.financas.ler(destino);
     await armazem.financas.salvar({
       perfil_id: destino, modo: leitura.modo, dados: comFaturasDoSite(leitura.painel, anterior && anterior.dados),
       investimentos: leitura.carteira, arquivo: nomeArquivo,
@@ -1079,7 +1085,7 @@ async function confirmarImportacao() {
       });
     }
     $("#dlg-importar-fin").close();
-    if (destino === perfil.id) {
+    if (destino === dono.id) {
       avisar("Dados importados. Atualizando o painel…");
       setTimeout(() => location.reload(), 700);
     } else {
@@ -1114,6 +1120,13 @@ function prepararImportacao() {
   $("#btn-confirmar-fin").addEventListener("click", confirmarImportacao);
 }
 
+// ---------------------------------------------------------------- finanças em casal: de quem é o painel aberto
+function montarSeletor(aberto, eu) {
+  const itens = [[eu.id, eu.nome, "financas.html"], [parceiro.id, parceiro.nome, `financas.html?de=${encodeURIComponent(parceiro.id)}`], ["casal", "Casal", "financas.html?de=casal"]];
+  $("#painel-de").innerHTML = itens.map(([id, nome, href]) => `<a class="pilula" href="${esc(href)}"${id === aberto ? ' aria-current="page"' : ""}>${esc(nome)}</a>`).join("");
+  $("#painel-de").hidden = false;
+}
+
 // ---------------------------------------------------------------- início
 async function iniciar() {
   const sessao = await abrirPagina("financas.html");
@@ -1135,6 +1148,28 @@ async function iniciar() {
   }
   $("#conteudo").hidden = false;
 
+  // Finanças em casal: quem forma par com quem está usando (vínculo do cadastro) e o painel pedido no endereço
+  // (financas.html?de=<id> para o painel da outra pessoa, ?de=casal para a visão do casal)
+  const familia = await armazem.financas.pessoas().catch(() => []);
+  const par = perfil.casal_com ? familia.find((p) => p.id === perfil.casal_com) : null;
+  parceiro = par ? { id: par.id, nome: par.nome } : null;
+  const eu = { id: perfil.id, nome: (perfil.nome || perfil.email || "Você").split(/[\s@]/)[0] };
+  const pedido = new URLSearchParams(location.search).get("de");
+  const aberto = parceiro && pedido === "casal" ? "casal" : parceiro && pedido === parceiro.id ? parceiro.id : perfil.id;
+  if (parceiro) montarSeletor(aberto, eu);
+  if (aberto === "casal") {
+    $("#btn-importar-fin").hidden = true;
+    $("#casal").hidden = false;
+    $("#fin-status").textContent = `Visão do casal: o mês de ${eu.nome} e de ${parceiro.nome} lado a lado.`;
+    try {
+      await mostrarCasal({ armazem, pessoas: [{ ...eu, link: "financas.html" }, { ...parceiro, link: `financas.html?de=${encodeURIComponent(parceiro.id)}` }] });
+    } catch (e) {
+      $("#fin-status").textContent = "Não foi possível montar a visão do casal: " + e.message;
+    }
+    return;
+  }
+  dono = aberto === perfil.id ? perfil : { ...parceiro };
+
   if (perfil.papel === "adm") {
     try {
       const todos = await armazem.usuarios.listar();
@@ -1145,19 +1180,19 @@ async function iniciar() {
   } else {
     pessoas = [perfil];
   }
+  // Painéis que quem está usando pode alterar: o administrador, todos; os demais, o próprio e o de quem forma casal
+  acessiveis = perfil.papel === "adm" ? pessoas : [perfil, ...(parceiro ? [parceiro] : [])];
 
   let desejos = null;
-  let familia = [];
   try {
-    registro = await armazem.financas.ler(perfil.id);
+    registro = await armazem.financas.ler(dono.id);
     // Gastos e entradas lançados pelo site valem nos dois tipos de painel (no só de faturas, viram os meses)
-    if (registro) gastos = await armazem.financas.gastos(perfil.id);
-    if (registro) entradas = await armazem.financas.entradas(perfil.id).catch(() => []);
+    if (registro) gastos = await armazem.financas.gastos(dono.id);
+    if (registro) entradas = await armazem.financas.entradas(dono.id).catch(() => []);
     // Classificação, lista de categorias e desejos: com o banco ainda sem as tabelas novas, a página funciona sem eles
-    [prefs, ajustes, familia, desejos] = await Promise.all([
-      armazem.financas.preferencias(perfil.id).catch(() => null),
-      armazem.financas.ajustes(perfil.id).catch(() => []),
-      armazem.financas.pessoas().catch(() => []),
+    [prefs, ajustes, desejos] = await Promise.all([
+      armazem.financas.preferencias(dono.id).catch(() => null),
+      armazem.financas.ajustes(dono.id).catch(() => []),
       armazem.financas.desejos().catch(() => null),
     ]);
   } catch (e) {
@@ -1165,7 +1200,9 @@ async function iniciar() {
     return;
   }
   if (!registro) {
-    if (perfil.papel !== "adm") {
+    if (dono.id !== perfil.id) {
+      $("#fin-vazio-texto").textContent = `O painel de ${dono.nome} ainda não foi importado. Quem tiver o arquivo do painel dele(a) pode importar por aqui.`;
+    } else if (perfil.papel !== "adm") {
       $("#fin-vazio-texto").textContent = "O seu painel ainda não foi importado. Se o administrador cuida das suas faturas, ele importa por aqui; se você tiver o arquivo do painel, pode importar também.";
     }
     $("#fin-vazio").hidden = false;
@@ -1184,7 +1221,7 @@ async function iniciar() {
     dados: registro.dados,
     carteira: registro.investimentos,
     modo: registro.modo,
-    nome: perfil.nome || "",
+    nome: dono.nome || "",
     linkClaude: link,
     gastosSite: gastos,
     aoLancarGasto: abrirLancamento,
@@ -1204,15 +1241,16 @@ async function iniciar() {
   if (desejos) {
     desenharDesejos({
       armazem,
-      perfil,
+      perfil: dono,
+      nomeDono: dono.id !== perfil.id ? dono.nome : "",
       pessoas: familia,
-      // O administrador enxerga os desejos de todos: aqui ficam só os dele e os divididos com ele
-      desejos: desejos.filter((d) => d.perfil_id === perfil.id || d.outra_id === perfil.id),
+      // O administrador enxerga os desejos de todos: aqui ficam só os de quem é o painel e os divididos com essa pessoa
+      desejos: desejos.filter((d) => d.perfil_id === dono.id || d.outra_id === dono.id),
       plano: (prefs && prefs.plano) || {},
       painel,
       categorias: () => cats,
       salvarPlano: async (plano) => {
-        prefs = await armazem.financas.salvarPreferencias(perfil.id, { plano });
+        prefs = await armazem.financas.salvarPreferencias(dono.id, { plano });
       },
     });
   }

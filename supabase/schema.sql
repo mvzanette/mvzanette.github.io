@@ -150,6 +150,12 @@ create table if not exists public.perfis (
 
 create unique index if not exists perfis_email_key on public.perfis (email);
 
+-- Finanças em casal: as duas pessoas veem e alteram as finanças pessoais uma da outra. O vínculo vale nos dois
+-- sentidos (perfis_casal) e o administrador liga e desliga em Usuários e permissões.
+alter table public.perfis add column if not exists casal_com uuid references public.perfis (id) on delete set null;
+alter table public.perfis drop constraint if exists perfis_casal_check;
+alter table public.perfis add constraint perfis_casal_check check (casal_com is null or casal_com <> id);
+
 -- Módulos que podem ser liberados (refeito a cada versão, para incluir os módulos novos)
 alter table public.perfis drop constraint if exists perfis_modulos_check;
 alter table public.perfis add constraint perfis_modulos_check
@@ -417,6 +423,45 @@ language sql stable security definer set search_path = '' as $$
   order by 2;
 $$;
 
+-- Mantém o casal nos dois sentidos: ao formar um par, a outra pessoa aponta de volta (e desfaz o par anterior
+-- de cada um); ao desfazer, a outra pessoa também deixa de apontar
+create or replace function public.perfis_casal() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if pg_trigger_depth() > 1 then return null; end if;
+  if tg_op = 'UPDATE' and old.casal_com is not null and old.casal_com is distinct from new.casal_com then
+    update public.perfis set casal_com = null where id = old.casal_com and casal_com = new.id;
+  end if;
+  if new.casal_com is not null then
+    update public.perfis set casal_com = null where casal_com = new.casal_com and id <> new.id;
+    update public.perfis set casal_com = new.id where id = new.casal_com and casal_com is distinct from new.id;
+  end if;
+  return null;
+end $$;
+
+drop trigger if exists perfis_casal on public.perfis;
+create trigger perfis_casal after insert or update of casal_com on public.perfis
+  for each row execute function public.perfis_casal();
+
+-- Quem pode ver e alterar as finanças pessoais de um perfil: o administrador, a própria pessoa (com o módulo)
+-- e quem forma casal com ela nas finanças (as duas ativas, o vínculo nos dois sentidos)
+create or replace function public.financas_acesso(alvo uuid) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select public.eh_adm() or (public.pode('financas') and exists (
+    select 1 from public.perfis eu
+    where eu.user_id = auth.uid() and eu.situacao = 'ativo'
+      and (eu.id = alvo
+        or (eu.papel = 'pessoal' and eu.casal_com = alvo
+          and exists (select 1 from public.perfis par where par.id = alvo and par.casal_com = eu.id and par.situacao = 'ativo')))
+  ));
+$$;
+
+-- O mesmo para a pasta dos PDFs das finanças (o nome da pasta é o id do perfil)
+create or replace function public.financas_acesso_pasta(pasta text) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select case when pasta ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then public.financas_acesso(pasta::uuid) else false end;
+$$;
+
 -- Chamada a cada página aberta: liga a conta ao cadastro, registra o acesso e devolve o perfil.
 -- Na primeira vez (banco sem administrador), quem entra vira o administrador.
 create or replace function public.registrar_acesso(p_pagina text default null, p_dispositivo text default null)
@@ -497,8 +542,10 @@ revoke all on function public.pode(text) from public, anon;
 revoke all on function public.registrar_acesso(text, text) from public, anon;
 revoke all on function public.atualizar_meu_nome(text) from public, anon;
 revoke all on function public.pessoas_financas() from public, anon;
+revoke all on function public.financas_acesso(uuid), public.financas_acesso_pasta(text) from public, anon;
 grant execute on function public.eh_adm(), public.pode(text), public.registrar_acesso(text, text),
-  public.atualizar_meu_nome(text), public.pessoas_financas() to authenticated, service_role;
+  public.atualizar_meu_nome(text), public.pessoas_financas(), public.financas_acesso(uuid), public.financas_acesso_pasta(text)
+  to authenticated, service_role;
 
 -- ------------------------------------------------------------
 -- Segurança: só entra quem tem perfil ativo, e cada módulo só abre para quem tem permissão
@@ -593,81 +640,46 @@ create policy "perfis - excluir" on public.perfis
   using ((select public.eh_adm()));
 
 -- Finanças pessoais: cada pessoa vê e atualiza o próprio painel (com a permissão do módulo);
--- o administrador atualiza o painel de quem ele cuida (ex.: as faturas de alguém da família)
+-- o administrador atualiza o painel de quem ele cuida (ex.: as faturas de alguém da família) e quem forma casal nas
+-- finanças vê e altera o painel do outro. O mesmo vale para gastos, entradas, preferências e classificação.
 drop policy if exists "financas do proprio perfil" on public.financas;
 create policy "financas do proprio perfil" on public.financas
   for all to authenticated
-  using (
-    (select public.eh_adm())
-    or ((select public.pode('financas')) and perfil_id in (select id from public.perfis where user_id = auth.uid()))
-  )
-  with check (
-    (select public.eh_adm())
-    or ((select public.pode('financas')) and perfil_id in (select id from public.perfis where user_id = auth.uid()))
-  );
+  using (public.financas_acesso(perfil_id))
+  with check (public.financas_acesso(perfil_id));
 
 drop policy if exists "gastos do proprio perfil" on public.financas_gastos;
 create policy "gastos do proprio perfil" on public.financas_gastos
   for all to authenticated
-  using (
-    (select public.eh_adm())
-    or ((select public.pode('financas')) and perfil_id in (select id from public.perfis where user_id = auth.uid()))
-  )
-  with check (
-    (select public.eh_adm())
-    or ((select public.pode('financas')) and perfil_id in (select id from public.perfis where user_id = auth.uid()))
-  );
+  using (public.financas_acesso(perfil_id))
+  with check (public.financas_acesso(perfil_id));
 
 drop policy if exists "entradas do proprio perfil" on public.financas_entradas;
 create policy "entradas do proprio perfil" on public.financas_entradas
   for all to authenticated
-  using (
-    (select public.eh_adm())
-    or ((select public.pode('financas')) and perfil_id in (select id from public.perfis where user_id = auth.uid()))
-  )
-  with check (
-    (select public.eh_adm())
-    or ((select public.pode('financas')) and perfil_id in (select id from public.perfis where user_id = auth.uid()))
-  );
+  using (public.financas_acesso(perfil_id))
+  with check (public.financas_acesso(perfil_id));
 
 drop policy if exists "preferencias do proprio perfil" on public.financas_preferencias;
 create policy "preferencias do proprio perfil" on public.financas_preferencias
   for all to authenticated
-  using (
-    (select public.eh_adm())
-    or ((select public.pode('financas')) and perfil_id in (select id from public.perfis where user_id = auth.uid()))
-  )
-  with check (
-    (select public.eh_adm())
-    or ((select public.pode('financas')) and perfil_id in (select id from public.perfis where user_id = auth.uid()))
-  );
+  using (public.financas_acesso(perfil_id))
+  with check (public.financas_acesso(perfil_id));
 
 drop policy if exists "ajustes do proprio perfil" on public.financas_ajustes;
 create policy "ajustes do proprio perfil" on public.financas_ajustes
   for all to authenticated
-  using (
-    (select public.eh_adm())
-    or ((select public.pode('financas')) and perfil_id in (select id from public.perfis where user_id = auth.uid()))
-  )
-  with check (
-    (select public.eh_adm())
-    or ((select public.pode('financas')) and perfil_id in (select id from public.perfis where user_id = auth.uid()))
-  );
+  using (public.financas_acesso(perfil_id))
+  with check (public.financas_acesso(perfil_id));
 
--- Desejos: de quem cadastrou e da outra pessoa do item (compra dela ou em conjunto)
+-- Desejos: de quem cadastrou (e de quem forma casal com ela) e da outra pessoa do item (compra dela ou em conjunto)
 drop policy if exists "desejos do proprio perfil ou compartilhados" on public.financas_desejos;
 create policy "desejos do proprio perfil ou compartilhados" on public.financas_desejos
   for all to authenticated
-  using (
-    (select public.eh_adm())
-    or ((select public.pode('financas')) and (perfil_id in (select id from public.perfis where user_id = auth.uid())
-      or outra_id in (select id from public.perfis where user_id = auth.uid())))
-  )
-  with check (
-    (select public.eh_adm())
-    or ((select public.pode('financas')) and (perfil_id in (select id from public.perfis where user_id = auth.uid())
-      or outra_id in (select id from public.perfis where user_id = auth.uid())))
-  );
+  using (public.financas_acesso(perfil_id)
+    or ((select public.pode('financas')) and outra_id in (select id from public.perfis where user_id = auth.uid())))
+  with check (public.financas_acesso(perfil_id)
+    or ((select public.pode('financas')) and outra_id in (select id from public.perfis where user_id = auth.uid())));
 
 -- Histórico: cada um vê o próprio; o administrador vê todos. Só a função registrar_acesso grava.
 drop policy if exists "acessos - ler" on public.acessos;
@@ -711,27 +723,24 @@ create policy "pdfs das arts - apagar" on storage.objects
   for delete to authenticated
   using (bucket_id = 'arts' and (select public.pode('art')));
 
--- PDFs das finanças: cada pessoa na própria pasta (nome da pasta = id do perfil); o administrador em todas
+-- PDFs das finanças: cada pessoa na própria pasta (nome da pasta = id do perfil); o administrador em todas e quem
+-- forma casal nas finanças também na pasta do outro
 drop policy if exists "pdfs das financas - ler" on storage.objects;
 create policy "pdfs das financas - ler" on storage.objects
   for select to authenticated
-  using (bucket_id = 'financas' and ((select public.eh_adm())
-    or ((select public.pode('financas')) and (storage.foldername(name))[1] in (select id::text from public.perfis where user_id = auth.uid()))));
+  using (bucket_id = 'financas' and public.financas_acesso_pasta((storage.foldername(name))[1]));
 
 drop policy if exists "pdfs das financas - enviar" on storage.objects;
 create policy "pdfs das financas - enviar" on storage.objects
   for insert to authenticated
-  with check (bucket_id = 'financas' and ((select public.eh_adm())
-    or ((select public.pode('financas')) and (storage.foldername(name))[1] in (select id::text from public.perfis where user_id = auth.uid()))));
+  with check (bucket_id = 'financas' and public.financas_acesso_pasta((storage.foldername(name))[1]));
 
 drop policy if exists "pdfs das financas - atualizar" on storage.objects;
 create policy "pdfs das financas - atualizar" on storage.objects
   for update to authenticated
-  using (bucket_id = 'financas' and ((select public.eh_adm())
-    or ((select public.pode('financas')) and (storage.foldername(name))[1] in (select id::text from public.perfis where user_id = auth.uid()))));
+  using (bucket_id = 'financas' and public.financas_acesso_pasta((storage.foldername(name))[1]));
 
 drop policy if exists "pdfs das financas - apagar" on storage.objects;
 create policy "pdfs das financas - apagar" on storage.objects
   for delete to authenticated
-  using (bucket_id = 'financas' and ((select public.eh_adm())
-    or ((select public.pode('financas')) and (storage.foldername(name))[1] in (select id::text from public.perfis where user_id = auth.uid()))));
+  using (bucket_id = 'financas' and public.financas_acesso_pasta((storage.foldername(name))[1]));

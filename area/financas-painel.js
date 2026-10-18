@@ -41,7 +41,8 @@ function completar(dados) {
 export function desenharFinancas({ dados, carteira = null, modo = "completo", nome = "", linkClaude = null,
   gastosSite = [], aoLancarGasto = null, aoApagarGasto = null, aoImportarExtrato = null,
   entradasSite = [], aoLancarEntrada = null, aoApagarEntrada = null,
-  categorias = null, ajustes = [], contas = [], aoClassificar = null, aoEditarCategorias = null, comDesejos = false }) {
+  categorias = null, ajustes = [], contas = [], aoClassificar = null, aoEditarCategorias = null, comDesejos = false,
+  comMeses = false, somenteCalculo = false }) {
   const D = completar(dados);
   let CATS = categorias || lerCategorias(null, dados);
   let AJ = new Map(ajustes.map(a => [a.chave, a]));
@@ -51,7 +52,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   const SO_FATURAS = modo === "faturas";
   // Visão geral e gastos do mês: no painel completo e, no painel só de faturas, quando dá para lançar pelo site
   // (os meses vêm das entradas e dos gastos lançados)
-  const COM_MESES = !SO_FATURAS || !!aoLancarGasto;
+  const COM_MESES = !SO_FATURAS || !!aoLancarGasto || comMeses;
   const CARTEIRA = carteira || null;
   const TEM_NOME = !!String(nome || "").trim();
   const DONO = TEM_NOME ? String(nome).trim().split(/\s+/)[0] : "Você";
@@ -847,6 +848,23 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   function rodape() {
     $id("rodape").textContent = `Dados gerados pelo projeto Financeiro em ${D.gerado_em || "data não informada"}.`;
   }
+
+  // Números de um mês, para a visão do casal: as receitas, cada parte do que sai e o saldo, como no cálculo do painel
+  function resumo(chave) {
+    // Mês sem nada lançado: entram as parcelas do cartão e o investimento previsto
+    let m = D.meses.find(x => x.chave === chave);
+    if (!m) {
+      const [a, mes] = chave.split("-").map(Number), [fa, fm] = nextYM(a, mes);
+      m = {chave, rotulo: lbl(a, mes), ano: a, mes, fatura: lbl(fa, fm), lancamentos: [], receitas: [], compromissos: []};
+    }
+    const c = calc(m);
+    const parte = leg => sum(c.linhas.filter(l => l.leg === leg), l => l.v);
+    return {receitas: c.receitas, entradas: m.receitas.map(r => ({desc: r.desc, liquido: r.liquido, site: r.origem === "site"})),
+      investimento: parte("Investimento"), investimentoNome: INV_NOME || "Investimento", cartao: c.cartao, fatura: m.fatura,
+      fora: c.outros, fixosFora: parte("Fixos fora"), saldo: c.saldo};
+  }
+  // Só os números, sem desenhar nada na página (visão do casal)
+  if (somenteCalculo) return {meses: () => D.meses.map(m => ({chave: m.chave, rotulo: m.rotulo})), resumo, investimentos: D.investimentos || null};
 
   iniciarAbas();
 

@@ -10,6 +10,7 @@ let perfil; // quem está usando a página
 let usuarios = [];
 let acessos = [];
 let editando = null; // cadastro aberto no diálogo (null = novo)
+const parDe = (u) => (u.casal_com && usuarios.find((x) => x.id === u.casal_com && x.casal_com === u.id)) || null;
 const filtro = { busca: "", papel: "", situacao: "" };
 
 const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
@@ -100,7 +101,7 @@ function renderLista() {
           <td><span class="usuario-nome">${esc(u.nome || "Sem nome")}${u.id === perfil.id ? ' <span class="voce">você</span>' : ""}</span>
             <small class="usuario-email">${esc(u.email)}</small></td>
           <td><span class="papel papel-${u.papel}">${PAPEIS[u.papel].titulo}</span></td>
-          <td class="modulos-celula">${u.papel === "adm" ? "Todos" : mods.length ? esc(mods.map(nomeModulo).join(", ")) : '<span class="sem">Nenhum</span>'}</td>
+          <td class="modulos-celula">${u.papel === "adm" ? "Todos" : mods.length ? esc(mods.map(nomeModulo).join(", ")) : '<span class="sem">Nenhum</span>'}${parDe(u) ? `<small>Finanças em casal com ${esc(nomeDe(parDe(u)))}</small>` : ""}</td>
           <td><span class="etiqueta sit-${sit}">${SITUACOES[sit]}</span></td>
           <td class="data">${acesso}</td>
           <td class="num">${u.acessos || 0}</td>
@@ -210,6 +211,12 @@ function abrirCadastro(u = null) {
   $("#opcoes-modulos").innerHTML = PERMISSOES.map((p) => `<label class="permissao"><input type="checkbox" name="modulos" value="${p.id}"${marcados.has(p.id) ? " checked" : ""}>
       <span><strong>${p.titulo}</strong><small>${p.detalhe}</small></span></label>`).join("");
   form.elements.link_financas.value = u ? u.link_financas || "" : "";
+  // Com quem divide as finanças pessoais: quem também usa as finanças (administrador ou pessoal com o módulo)
+  const pares = usuarios.filter((x) => (!u || x.id !== u.id) && x.situacao !== "inativo"
+    && (x.papel === "adm" || (x.papel === "pessoal" && (x.modulos || []).includes("financas"))));
+  form.elements.casal_com.innerHTML = [["", "Ninguém"], ...pares.map((x) => [x.id, nomeDe(x)])]
+    .map(([v, r]) => `<option value="${esc(v)}">${esc(r)}</option>`).join("");
+  form.elements.casal_com.value = u && u.casal_com && pares.some((x) => x.id === u.casal_com) ? u.casal_com : "";
 
   const sit = u ? u.situacao : "ativo";
   const situacoes = [
@@ -252,7 +259,9 @@ function atualizarModulos(aplicarPadrao) {
     papel === "adm" ? "O administrador acessa todos os módulos."
     : papel === "cliente" ? "Clientes nunca acessam os módulos profissionais."
     : "Marque o que esta pessoa pode abrir.";
-  $("#campo-link").hidden = !caixas.find((c) => c.value === "financas").checked;
+  const financas = caixas.find((c) => c.value === "financas").checked;
+  $("#campo-link").hidden = !financas;
+  $("#campo-casal").hidden = !financas || papel === "cliente";
 }
 
 async function salvarCadastro(e) {
@@ -281,6 +290,7 @@ async function salvarCadastro(e) {
     situacao: eu ? editando.situacao : form.elements.situacao.value,
     link_financas: link || null,
     observacao: form.elements.observacao.value.trim() || null,
+    casal_com: $("#campo-casal").hidden ? null : form.elements.casal_com.value || null,
   };
   const botao = form.querySelector("[type=submit]");
   botao.disabled = true;

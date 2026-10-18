@@ -40,7 +40,7 @@ const numeros = (nome, obj) => {
 };
 
 // Cadastro de usuários: o que o administrador grava (o resto o banco preenche a cada acesso)
-const COLUNAS_PERFIL = ["email", "nome", "papel", "modulos", "situacao", "link_financas", "observacao"];
+const COLUNAS_PERFIL = ["email", "nome", "papel", "modulos", "situacao", "link_financas", "observacao", "casal_com"];
 const SEM_ADM = "É preciso manter pelo menos um administrador ativo.";
 export const BANCO_DESATUALIZADO =
   "O banco de dados precisa ser atualizado: rode de novo o arquivo supabase/schema.sql no SQL Editor do Supabase.";
@@ -55,6 +55,8 @@ function regrasPerfil(p) {
     if (linha.link_financas && !/^https:\/\//.test(linha.link_financas)) throw new Error("O link do painel precisa começar com https://");
   }
   if (linha.modulos && linha.papel === "cliente") linha.modulos = linha.modulos.filter((m) => !ENGENHARIA.includes(m));
+  // Finanças em casal: só entre perfis que não são clientes e nunca consigo mesmo
+  if ("casal_com" in linha && (linha.papel === "cliente" || !linha.casal_com || linha.casal_com === p.id)) linha.casal_com = null;
   return linha;
 }
 
@@ -294,13 +296,20 @@ function armazemDemo() {
     return lerPerfis().find((p) => p.email === email) || null;
   };
   // Mesmas regras do banco para as finanças pessoais: a própria pessoa ou o administrador
-  const exigirDono = (perfilId) => {
+  // Mesma regra do banco (financas_acesso): o administrador, a própria pessoa e quem forma casal com ela nas finanças
+  const acessoFinancas = (perfilId) => {
     const p = eu();
-    if (!p || (p.papel !== "adm" && perfilId !== p.id)) throw new Error("Sem permissão para alterar este painel.");
+    if (!p) return false;
+    if (p.papel === "adm" || perfilId === p.id) return true;
+    const par = p.casal_com && lerPerfis().find((x) => x.id === p.casal_com);
+    return !!par && par.id === perfilId && par.casal_com === p.id && par.situacao === "ativo" && p.papel === "pessoal";
+  };
+  const exigirDono = (perfilId) => {
+    if (!acessoFinancas(perfilId)) throw new Error("Sem permissão para alterar este painel.");
   };
   const doDesejo = (d) => {
     const p = eu();
-    return !!p && (p.papel === "adm" || d.perfil_id === p.id || d.outra_id === p.id);
+    return !!p && (acessoFinancas(d.perfil_id) || d.outra_id === p.id);
   };
   const exigirAdm = () => {
     const p = eu();
@@ -376,6 +385,12 @@ function armazemDemo() {
             criado_em: new Date().toISOString(), ...linha };
           perfis.push(p);
         }
+        // Finanças em casal valem nos dois sentidos (no banco, o gatilho perfis_casal faz o mesmo)
+        if ("casal_com" in linha) {
+          perfis.forEach((x) => { if (x.id !== p.id && (x.casal_com === p.id || (linha.casal_com && x.casal_com === linha.casal_com))) x.casal_com = null; });
+          const par = linha.casal_com && perfis.find((x) => x.id === linha.casal_com);
+          if (par) par.casal_com = p.id;
+        }
         gravarJson(PERFIS, perfis);
         return structuredClone(p);
       },
@@ -384,7 +399,7 @@ function armazemDemo() {
         const perfis = lerPerfis();
         const p = perfis.find((x) => x.id === idPerfil);
         if (p && p.papel === "adm" && p.situacao === "ativo" && !algumAdm(perfis, p.id)) throw new Error(SEM_ADM);
-        gravarJson(PERFIS, perfis.filter((x) => x.id !== idPerfil));
+        gravarJson(PERFIS, perfis.filter((x) => x.id !== idPerfil).map((x) => (x.casal_com === idPerfil ? { ...x, casal_com: null } : x)));
         gravarJson(ACESSOS, lerJson(ACESSOS, []).filter((a) => a.perfil_id !== idPerfil));
       },
     },
@@ -406,7 +421,7 @@ function armazemDemo() {
       },
       async salvar(registro) {
         const p = eu();
-        if (!p || (p.papel !== "adm" && registro.perfil_id !== p.id)) throw new Error("Sem permissão para atualizar este painel.");
+        if (!p || !acessoFinancas(registro.perfil_id)) throw new Error("Sem permissão para atualizar este painel.");
         const todos = lerJson(FINANCAS, {});
         todos[registro.perfil_id] = { id: novoId(), ...registro, atualizado_em: new Date().toISOString() };
         gravarJson(FINANCAS, todos);
@@ -417,14 +432,14 @@ function armazemDemo() {
       },
       async salvarGasto(gasto) {
         const p = eu();
-        if (!p || (p.papel !== "adm" && gasto.perfil_id !== p.id)) throw new Error("Sem permissão para lançar neste painel.");
+        if (!p || !acessoFinancas(gasto.perfil_id)) throw new Error("Sem permissão para lançar neste painel.");
         const linha = { id: novoId(), criado_em: new Date().toISOString(), ...limparGasto(gasto) };
         gravarJson(GASTOS, [...lerJson(GASTOS, []), linha]);
         return structuredClone(linha);
       },
       async salvarGastos(lista) {
         const p = eu();
-        if (!p || lista.some((g) => p.papel !== "adm" && g.perfil_id !== p.id)) throw new Error("Sem permissão para lançar neste painel.");
+        if (!p || lista.some((g) => !acessoFinancas(g.perfil_id))) throw new Error("Sem permissão para lançar neste painel.");
         const linhas = lista.map((g) => ({ id: novoId(), criado_em: new Date().toISOString(), ...limparGasto(g) }));
         gravarJson(GASTOS, [...lerJson(GASTOS, []), ...linhas]);
         return structuredClone(linhas);
@@ -437,7 +452,7 @@ function armazemDemo() {
       },
       async salvarEntrada(entrada) {
         const p = eu();
-        if (!p || (p.papel !== "adm" && entrada.perfil_id !== p.id)) throw new Error("Sem permissão para lançar neste painel.");
+        if (!p || !acessoFinancas(entrada.perfil_id)) throw new Error("Sem permissão para lançar neste painel.");
         const linha = { id: novoId(), criado_em: new Date().toISOString(), ...limparEntrada(entrada) };
         gravarJson(ENTRADAS, [...lerJson(ENTRADAS, []), linha]);
         return structuredClone(linha);

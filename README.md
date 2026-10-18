@@ -144,6 +144,7 @@ Perfis de acesso:
 | **Cliente** | clientes da engenharia | Os módulos que você liberar, **nunca** os profissionais (o banco bloqueia) |
 
 - Os módulos profissionais mostram **os mesmos dados** para todos que têm permissão (não existe cópia separada por pessoa). Ex.: liberando o Controle financeiro para alguém, a pessoa vê os lançamentos da engenharia.
+- No cadastro de quem usa as finanças pessoais, **Finanças em casal com** liga duas pessoas: cada uma passa a ver e alterar as finanças pessoais da outra. Vale nos dois sentidos; "Ninguém" desliga para os dois.
 - A página **Usuários e permissões** tem três partes: **Usuários** (lista com perfil, módulos, situação, último acesso e número de visitas, com busca e filtros), **Perfis e permissões** (quadro do que cada perfil acessa) e **Histórico de acessos** (data, hora, página e aparelho de cada acesso, dos últimos 180 dias).
 - **Situações:** ativo; aguardando 1º acesso (cadastrado, ainda não entrou); aguardando liberação (conta criada no Supabase sem cadastro no site); inativo (perde o acesso na hora). Sempre fica pelo menos um administrador ativo.
 - Na primeira vez que o banco é usado, quem entra primeiro vira o administrador.
@@ -160,7 +161,10 @@ Perfis de acesso:
 
 Separado do Controle financeiro da engenharia: é o **painel do projeto Financeiro** dentro da área, com as quatro abas do painel original (**visão geral** do mês, **gastos do dia a dia**, **cartão e faturas** e **investimentos**) e os mesmos cálculos.
 
-- **Cada pessoa vê só o próprio painel.** Os dados ficam no banco, protegidos pelo login e pelas regras de acesso, e nunca no código do site (que é público).
+- **Cada pessoa vê só o próprio painel**, a não ser quem forma casal nas finanças (abaixo). Os dados ficam no banco, protegidos pelo login e pelas regras de acesso, e nunca no código do site (que é público).
+- **Finanças em casal:** com o casal ligado em Usuários e permissões, aparece no topo a escolha do painel: **o seu**, **o da outra pessoa** e **Casal**.
+  - No painel de cada um, os dois veem tudo e podem alterar tudo: lançar gastos, Pix e entradas, importar extrato, processar faturas, classificar, mudar categorias, desejos e PDFs. O que se faz ali vale para o dono do painel.
+  - **Casal** mostra o mês dos dois lado a lado, com os mesmos cálculos dos painéis: entradas, investimento, cartão, gastos fora do cartão, fixos e saldo de cada um e do casal, os totais do casal, a carteira de investimentos e as entradas de cada um. Transferências entre os dois (como o investimento na conta conjunta) contam como saída de quem transfere.
 - **Uso do dinheiro do mês:** a aba Gastos do dia a dia começa pela porcentagem das receitas do mês que já está gasta ou comprometida (investimento, cartão, Pix, débito, dinheiro e fixos que ainda vão cair), com a barra dividida por tipo e a marca de 85%. Logo abaixo vêm os alertas: a partir de **85% usado**, **saldo negativo** e os do cartão (fatura acima ou perto da sua previsão). Os mesmos alertas aparecem na visão geral.
 - **Lançar gasto ou Pix:** pelo botão no topo da página (em qualquer aba) ou na aba Gastos, com valor, descrição, data, categoria, forma de pagamento (cartão, Pix, débito ou dinheiro) e, se quiser, essencial ou não. Na mesma visita, o próximo lançamento já abre na forma de pagamento do anterior. Os gastos lançados pelo site somam com os do projeto Financeiro (aparecem com a marca "lançado no site" e podem ser apagados ali):
   - **no cartão**, o gasto entra na fatura do mês; **parcelado**, cada parcela cai numa fatura e a compra aparece em "Compras parceladas a vencer";
@@ -312,7 +316,7 @@ Observações:
 ## Segurança e privacidade
 
 - O código do site é público, mas os dados não: ficam no Supabase, protegidos pelo login e por regras de acesso no banco. Só entra quem tem cadastro ativo, cada módulo só abre para quem tem permissão e clientes nunca acessam os módulos profissionais. Os PDFs ficam em armazenamento privado.
-- As finanças pessoais ficam no banco, um painel por pessoa: só a própria pessoa e o administrador (que faz a importação) acessam. A carteira de investimentos conjunta aparece só nos painéis em que o administrador a incluiu. Os gastos e as entradas lançados (com os descontos do holerite), a classificação, a lista de categorias e os PDFs das finanças seguem a mesma regra (cada pessoa só os próprios). Um desejo de compra aparece também para a pessoa que vai comprar ou dividir a compra. Nenhum valor, nome ou cartão fica no código do site.
+- As finanças pessoais ficam no banco, um painel por pessoa: só a própria pessoa, quem forma casal com ela nas finanças e o administrador (que faz a importação) acessam. A carteira de investimentos conjunta aparece só nos painéis em que o administrador a incluiu. Os gastos e as entradas lançados (com os descontos do holerite), a classificação, a lista de categorias e os PDFs das finanças seguem a mesma regra (cada pessoa só os próprios). Um desejo de compra aparece também para a pessoa que vai comprar ou dividir a compra. Nenhum valor, nome ou cartão fica no código do site.
 - Os nomes das empresas e dos clientes ficam só no banco, e as finanças das empresas só abrem para quem tem esse módulo (nunca para clientes).
 - Os espaços de arquivos (PDFs das ARTs e das finanças) só aceitam PDF, até 20 MB.
 - **Nunca** coloque PDFs de ART, relatórios ou planilhas exportadas dentro do repositório (o `.gitignore` já bloqueia `.pdf`, `.csv` e `.xlsx`).

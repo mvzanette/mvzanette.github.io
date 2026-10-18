@@ -72,7 +72,9 @@ export function projetar(itens, plano, horizonte = HORIZONTE) {
   return res;
 }
 
-export function desenharDesejos({ armazem, perfil, pessoas = [], desejos = [], plano = {}, painel = null, categorias, salvarPlano }) {
+// nomeDono: no painel de outra pessoa (finanças em casal), os textos falam dela em vez de "você"
+export function desenharDesejos({ armazem, perfil, pessoas = [], desejos = [], plano = {}, painel = null, categorias, salvarPlano, nomeDono = "" }) {
+  const VOCE = nomeDono || "Você";
   const normal = (d) => ({ ...d, valor: Number(d.valor), guardado: Number(d.guardado || 0), parte: Number(d.parte ?? 50), parcelas: Number(d.parcelas || 1) });
   let lista = desejos.map(normal);
   let pl = { eu: Number(plano.eu) || 0, conjunto: Number(plano.conjunto) || 0, outra: Number(plano.outra) || 0 };
@@ -95,9 +97,9 @@ export function desenharDesejos({ armazem, perfil, pessoas = [], desejos = [], p
   const minhaParte = (d) => (dono(d) ? d.parte : 100 - d.parte);
   function rotuloQuem(d) {
     const b = bolsoDe(d);
-    if (b === "eu") return "Você compra";
+    if (b === "eu") return `${VOCE} compra`;
     if (b === "outra") return `${nomePessoa(d.quem === "eu" ? d.perfil_id : d.outra_id)} compra`;
-    return parceiro(d) ? `Em conjunto com ${nomePessoa(parceiro(d))} (sua parte: ${minhaParte(d)}%)` : "Em conjunto";
+    return parceiro(d) ? `Em conjunto com ${nomePessoa(parceiro(d))} (${nomeDono ? `parte de ${nomeDono}` : "sua parte"}: ${minhaParte(d)}%)` : "Em conjunto";
   }
   // Parte de quem está logado no que se guarda em conjunto por mês (média das partes dos desejos em conjunto)
   const parteConjunto = () => {
@@ -272,7 +274,7 @@ export function desenharDesejos({ armazem, perfil, pessoas = [], desejos = [], p
       const comprador = d.quem === "eu" ? d.perfil_id : d.outra_id;
       atual = comprador === perfil.id ? "eu" : `outra:${comprador}`;
     }
-    const escolhas = [["eu", "Você"], ...outras.flatMap((p) => [[`outra:${p.id}`, p.nome], [`conjunto:${p.id}`, `Em conjunto com ${p.nome}`]])];
+    const escolhas = [["eu", VOCE], ...outras.flatMap((p) => [[`outra:${p.id}`, p.nome], [`conjunto:${p.id}`, `Em conjunto com ${p.nome}`]])];
     if (!escolhas.some(([v]) => v === atual)) escolhas.push([atual, rotuloQuem(d)]);
     $("#opcoes-quem").innerHTML = escolhas
       .map(([v, r]) => `<label><input type="radio" name="quem" value="${esc(v)}"${v === atual ? " checked" : ""}${meu ? "" : " disabled"}> ${esc(r)}</label>`)
