@@ -21,6 +21,7 @@ let perfil;
 let registro = null; // painel de quem está logado
 let painel = null; // retorno de desenharFinancas
 let gastos = []; // gastos lançados pelo site
+let entradas = []; // entradas lançadas pelo site (salário e outros recebimentos)
 let pessoas = []; // quem pode ter painel (o administrador escolhe o destino da importação)
 let leitura = null; // resultado do arquivo escolhido
 let nomeArquivo = "";
@@ -233,6 +234,132 @@ function prepararLancamento() {
   $("#formas-gasto").addEventListener("change", atualizarForma);
   prepararCategorias($("#form-gasto"));
   $("#form-gasto").addEventListener("submit", lancarGasto);
+}
+
+// ---------------------------------------------------------------- entradas: salário (holerite) e outros recebimentos
+let liquidoDigitado = false; // com o líquido digitado à mão, ele deixa de ser calculado
+const formEntrada = () => $("#form-entrada");
+const valorBR = (v) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const linhaDesconto = (nome = "") => `<div class="desconto-linha">
+  <input name="desconto_nome" list="nomes-desconto" maxlength="60" autocomplete="off" placeholder="ex.: INSS" aria-label="Nome do desconto" value="${esc(nome)}">
+  <input name="desconto_valor" inputmode="decimal" autocomplete="off" placeholder="0,00" aria-label="Valor do desconto">
+  <button type="button" class="btn-link" data-tirar-desconto aria-label="Tirar este desconto">Tirar</button></div>`;
+
+function descontosDigitados() {
+  return [...$("#descontos-entrada").querySelectorAll(".desconto-linha")]
+    .map((l) => ({ nome: l.querySelector("[name=desconto_nome]").value.trim(), valor: numeroDigitado(l.querySelector("[name=desconto_valor]").value) }))
+    .filter((d) => d.valor);
+}
+
+function calcularLiquido() {
+  const form = formEntrada();
+  if (liquidoDigitado || form.elements.tipo.value !== "salario") return;
+  const bruto = numeroDigitado(form.elements.bruto.value);
+  if (!(bruto > 0)) return;
+  const liquido = Math.round((bruto - descontosDigitados().reduce((t, d) => t + d.valor, 0)) * 100) / 100;
+  form.elements.liquido.value = liquido > 0 ? valorBR(liquido) : "";
+}
+
+function atualizarTipoEntrada() {
+  const form = formEntrada();
+  const salario = form.elements.tipo.value === "salario";
+  form.querySelectorAll("[data-so-salario]").forEach((el) => { el.hidden = !salario; });
+  $("#dica-liquido").hidden = !salario;
+  if (salario && !form.elements.descricao.value.trim()) form.elements.descricao.value = "Salário";
+  if (!salario && form.elements.descricao.value === "Salário") form.elements.descricao.value = "";
+  calcularLiquido();
+}
+
+function abrirEntrada() {
+  const form = formEntrada();
+  form.reset();
+  form.elements.data.value = hojeISO();
+  // Os descontos mais comuns já vêm com o nome; os que ficarem sem valor não entram
+  $("#descontos-entrada").innerHTML = ["INSS", "IRRF", "Plano de saúde"].map(linhaDesconto).join("");
+  preencherConta(form, "pessoal");
+  liquidoDigitado = false;
+  $("#erro-entrada").hidden = true;
+  atualizarTipoEntrada();
+  $("#dlg-entrada").showModal();
+  form.elements.bruto.focus();
+}
+
+async function lancarEntrada(e) {
+  e.preventDefault();
+  const form = e.target;
+  const erroEntrada = $("#erro-entrada");
+  const falha = (texto) => {
+    erroEntrada.textContent = texto;
+    erroEntrada.hidden = false;
+  };
+  erroEntrada.hidden = true;
+  const salario = form.elements.tipo.value === "salario";
+  const liquido = numeroDigitado(form.elements.liquido.value);
+  if (!(liquido > 0)) return falha("Informe o valor líquido (ex.: 6.310,82).");
+  if (!form.elements.descricao.value.trim()) return falha("Informe a descrição.");
+  if (!form.elements.data.value) return falha("Informe a data em que entrou.");
+  const descontos = salario ? descontosDigitados() : [];
+  if (descontos.some((d) => !d.nome)) return falha("Dê um nome a cada desconto com valor (ex.: INSS).");
+  if (descontos.some((d) => !(d.valor > 0))) return falha("Os descontos precisam ter valor maior que zero.");
+  const bruto = salario ? numeroDigitado(form.elements.bruto.value) : null;
+  const botao = form.querySelector("[type=submit]");
+  botao.disabled = true;
+  try {
+    const salvo = await armazem.financas.salvarEntrada({
+      perfil_id: perfil.id,
+      data: form.elements.data.value,
+      tipo: salario ? "salario" : "outro",
+      descricao: form.elements.descricao.value,
+      bruto: bruto > 0 ? bruto : null,
+      descontos,
+      liquido,
+      conta: contaEscolhida(form),
+      observacao: form.elements.observacao.value,
+    });
+    entradas.push(salvo);
+    painel.atualizarEntradas(entradas);
+    $("#dlg-entrada").close();
+    avisar(salario ? "Salário lançado." : "Entrada lançada.");
+  } catch (err) {
+    falha("Não foi possível lançar: " + err.message);
+  } finally {
+    botao.disabled = false;
+  }
+}
+
+async function apagarEntrada(idEntrada) {
+  const ent = entradas.find((x) => x.id === idEntrada);
+  if (!ent || !confirm(`Apagar a entrada "${ent.descricao}" lançada pelo site?`)) return;
+  try {
+    await armazem.financas.apagarEntrada(idEntrada);
+    entradas = entradas.filter((x) => x.id !== idEntrada);
+    painel.atualizarEntradas(entradas);
+    avisar("Entrada apagada.");
+  } catch (err) {
+    avisar("Não foi possível apagar: " + err.message);
+  }
+}
+
+function prepararEntrada() {
+  const form = formEntrada();
+  $("#tipos-entrada").addEventListener("change", atualizarTipoEntrada);
+  form.addEventListener("input", (e) => {
+    if (e.target.name === "liquido") liquidoDigitado = !!e.target.value.trim();
+    else if (e.target.name === "bruto" || e.target.name === "desconto_valor") calcularLiquido();
+  });
+  $("#btn-mais-desconto").addEventListener("click", () => {
+    $("#descontos-entrada").insertAdjacentHTML("beforeend", linhaDesconto());
+    $("#descontos-entrada").lastElementChild.querySelector("input").focus();
+  });
+  $("#descontos-entrada").addEventListener("click", (e) => {
+    const tirar = e.target.closest("[data-tirar-desconto]");
+    if (!tirar) return;
+    tirar.closest(".desconto-linha").remove();
+    calcularLiquido();
+  });
+  form.addEventListener("submit", lancarEntrada);
+  $("#btn-entrada-topo").addEventListener("click", abrirEntrada);
 }
 
 // ---------------------------------------------------------------- classificar um lançamento
@@ -554,7 +681,7 @@ const cartaoDe = (dados, quem) => (quem === "dono" ? dados.cartao : (dados[quem]
 function historicoPara(quem) {
   const d = registro.dados || {};
   const doSite = { meses: [{ lancamentos: gastos.map((g) => ({ data: g.data, desc: g.descricao, valor: g.valor, cat: g.categoria, sub: g.subcategoria, origem: "site", id: g.id })) }] };
-  const fontes = registro.modo === "completo" ? [{ meses: d.meses }, doSite, { cartao: d.cartao, prefixo: "c" }] : [{ cartao: d.cartao, prefixo: "c" }];
+  const fontes = registro.modo === "completo" ? [{ meses: d.meses }, doSite, { cartao: d.cartao, prefixo: "c" }] : [doSite, { cartao: d.cartao, prefixo: "c" }];
   if (quem !== "dono" && d[quem]) fontes.push({ cartao: d[quem].cartao, prefixo: "co" });
   return historicoDeCategorias(fontes, new Map(ajustes.map((a) => [a.chave, a])), cats);
 }
@@ -997,6 +1124,7 @@ async function iniciar() {
   prepararPdfs();
   prepararFaturaPdf();
   prepararExtrato();
+  prepararEntrada();
   prepararClassificacao();
   prepararEdicaoCategorias();
 
@@ -1022,7 +1150,9 @@ async function iniciar() {
   let familia = [];
   try {
     registro = await armazem.financas.ler(perfil.id);
-    if (registro && registro.modo === "completo") gastos = await armazem.financas.gastos(perfil.id);
+    // Gastos e entradas lançados pelo site valem nos dois tipos de painel (no só de faturas, viram os meses)
+    if (registro) gastos = await armazem.financas.gastos(perfil.id);
+    if (registro) entradas = await armazem.financas.entradas(perfil.id).catch(() => []);
     // Classificação, lista de categorias e desejos: com o banco ainda sem as tabelas novas, a página funciona sem eles
     [prefs, ajustes, familia, desejos] = await Promise.all([
       armazem.financas.preferencias(perfil.id).catch(() => null),
@@ -1045,9 +1175,10 @@ async function iniciar() {
   contas = contasDisponiveis(perfil, sessao.empresas);
   mostrarStatus();
   prepararLancamento();
-  // Lançar gasto (ou Pix) e importar o extrato ficam no topo, em qualquer aba
-  $("#btn-lancar-topo").hidden = registro.modo !== "completo";
-  $("#btn-extrato").hidden = registro.modo !== "completo";
+  // Lançar gasto (ou Pix), lançar entrada e importar o extrato ficam no topo, em qualquer aba
+  $("#btn-lancar-topo").hidden = false;
+  $("#btn-entrada-topo").hidden = false;
+  $("#btn-extrato").hidden = false;
   $("#fin-app").hidden = false;
   painel = desenharFinancas({
     dados: registro.dados,
@@ -1056,9 +1187,12 @@ async function iniciar() {
     nome: perfil.nome || "",
     linkClaude: link,
     gastosSite: gastos,
-    aoLancarGasto: registro.modo === "completo" ? abrirLancamento : null,
-    aoApagarGasto: registro.modo === "completo" ? apagarGasto : null,
-    aoImportarExtrato: registro.modo === "completo" ? abrirExtrato : null,
+    aoLancarGasto: abrirLancamento,
+    aoApagarGasto: apagarGasto,
+    aoImportarExtrato: abrirExtrato,
+    entradasSite: entradas,
+    aoLancarEntrada: abrirEntrada,
+    aoApagarEntrada: apagarEntrada,
     categorias: cats,
     ajustes,
     contas,

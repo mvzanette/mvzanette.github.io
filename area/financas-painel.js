@@ -40,6 +40,7 @@ function completar(dados) {
 // do projeto; atualizarClassificacao() redesenha depois de classificar ou de mudar a lista de categorias.
 export function desenharFinancas({ dados, carteira = null, modo = "completo", nome = "", linkClaude = null,
   gastosSite = [], aoLancarGasto = null, aoApagarGasto = null, aoImportarExtrato = null,
+  entradasSite = [], aoLancarEntrada = null, aoApagarEntrada = null,
   categorias = null, ajustes = [], contas = [], aoClassificar = null, aoEditarCategorias = null, comDesejos = false }) {
   const D = completar(dados);
   let CATS = categorias || lerCategorias(null, dados);
@@ -48,6 +49,9 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   const ef = l => efetivo(l, AJ.get(l.chave), CATS);
   const nomeDaConta = c => (CONTAS.find(x => x.id === c) || {}).nome || nomeConta(c);
   const SO_FATURAS = modo === "faturas";
+  // Visão geral e gastos do mês: no painel completo e, no painel só de faturas, quando dá para lançar pelo site
+  // (os meses vêm das entradas e dos gastos lançados)
+  const COM_MESES = !SO_FATURAS || !!aoLancarGasto;
   const CARTEIRA = carteira || null;
   const TEM_NOME = !!String(nome || "").trim();
   const DONO = TEM_NOME ? String(nome).trim().split(/\s+/)[0] : "Você";
@@ -73,10 +77,13 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   const INV_NOME = D.metas ? D.metas.investimento_nome : "";
   // Um print antigo de uma fatura que já foi processada não conta mais como fatura aberta
   const AB = D.aberta && !D.cartao.faturas.some(f => f.mes === D.aberta.fatura) ? D.aberta : null;
-  const SAL_NORMAL = (() => { for (const m of [...D.meses].reverse()) { const s = m.receitas.find(r => r.fonte === "Empresa" && r.liquido != null); if (s) return s.liquido; } return 0; })();
-  // Outras receitas do mês (além do salário), como no último mês em que apareceram
-  const OUTRAS_NORMAL = (() => { for (const m of [...D.meses].reverse()) { const o = m.receitas.filter(r => r.fonte !== "Empresa" && r.liquido != null); if (o.length) return sum(o, r => r.liquido); } return 0; })();
-  const RECEITA_PREVISTA = SAL_NORMAL + OUTRAS_NORMAL;
+  // Salário e outras receitas de um mês normal, como no último mês em que apareceram (refeito ao lançar entradas)
+  let SAL_NORMAL = 0, OUTRAS_NORMAL = 0, RECEITA_PREVISTA = 0;
+  function receitasNormais() {
+    SAL_NORMAL = (() => { for (const m of [...D.meses].reverse()) { const s = m.receitas.find(r => r.fonte === "Empresa" && r.liquido != null); if (s) return s.liquido; } return 0; })();
+    OUTRAS_NORMAL = (() => { for (const m of [...D.meses].reverse()) { const o = m.receitas.filter(r => r.fonte !== "Empresa" && r.liquido != null); if (o.length) return sum(o, r => r.liquido); } return 0; })();
+    RECEITA_PREVISTA = SAL_NORMAL + OUTRAS_NORMAL;
+  }
 
   // ---------- Gastos lançados pelo site: entram nos meses como os do projeto (os de cartão, na fatura) ----------
   const ORIGINAL = {meses: structuredClone(D.meses), comprometido: structuredClone(D.cartao.comprometido)};
@@ -89,23 +96,40 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     return lbl(a, m);
   };
   let duplicados = 0;
+  let entradasRepetidas = 0;
   let parcelasSite = []; // compras parceladas lançadas pelo site, para a lista de parceladas a vencer
   let atual = null;
-  function mesclarGastosSite(lista) {
+  let GASTOS_SITE = gastosSite, ENTRADAS_SITE = entradasSite;
+  const mesDe = chave => {
+    let m = D.meses.find(x => x.chave === chave);
+    if (!m) {
+      const [a, mes] = chave.split("-").map(Number);
+      const [fa, fm] = nextYM(a, mes);
+      m = {chave, rotulo: lbl(a, mes), ano: a, mes, fatura: lbl(fa, fm), lancamentos: [], receitas: [], compromissos: []};
+      D.meses.push(m);
+      D.meses.sort((x, y) => x.chave.localeCompare(y.chave));
+    }
+    return m;
+  };
+  function mesclarSite() {
     D.meses = structuredClone(ORIGINAL.meses);
     D.cartao.comprometido = structuredClone(ORIGINAL.comprometido);
     duplicados = 0;
+    entradasRepetidas = 0;
     parcelasSite = [];
-    for (const g of lista || []) {
-      const chave = String(g.data).slice(0, 7);
-      let m = D.meses.find(x => x.chave === chave);
-      if (!m) {
-        const [a, mes] = chave.split("-").map(Number);
-        const [fa, fm] = nextYM(a, mes);
-        m = {chave, rotulo: lbl(a, mes), ano: a, mes, fatura: lbl(fa, fm), lancamentos: [], receitas: [], compromissos: []};
-        D.meses.push(m);
-        D.meses.sort((x, y) => x.chave.localeCompare(y.chave));
-      }
+    if (COM_MESES) mesDe(hojeKey); // o mês atual sempre aparece, mesmo sem nada lançado
+    // Entradas lançadas pelo site: o salário lançado substitui o do projeto no mesmo mês (que pode ser só uma
+    // estimativa); outro recebimento igual a um do projeto no mesmo mês não conta de novo
+    for (const e of ENTRADAS_SITE || []) {
+      const m = mesDe(String(e.data).slice(0, 7));
+      const salario = e.tipo === "salario";
+      if (salario) m.receitas = m.receitas.filter(r => r.origem === "site" || r.fonte !== "Empresa");
+      else if (m.receitas.some(r => r.origem !== "site" && r.fonte !== "Empresa" && r.liquido != null && Math.abs(r.liquido - e.liquido) < 0.01)) { entradasRepetidas++; continue; }
+      m.receitas.push({desc: e.descricao, fonte: salario ? "Empresa" : "Outros", liquido: e.liquido, obs: e.observacao || "", origem: "site", id: e.id,
+        bruto: e.bruto, descontos: e.descontos || [], data: e.data, conta: e.conta || null});
+    }
+    for (const g of GASTOS_SITE || []) {
+      const m = mesDe(String(g.data).slice(0, 7));
       const parcelas = g.forma === "cartao" ? Math.max(1, g.parcelas || 1) : 1;
       const valor = Math.round(g.valor / parcelas * 100) / 100;
       // O mesmo gasto já anotado no projeto (mesma data e mesmo valor) não conta de novo
@@ -128,8 +152,9 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     // Chave de cada lançamento, para achar a classificação feita no site
     D.meses.forEach(x => chavesGastos(x.lancamentos).forEach((k, i) => { x.lancamentos[i].chave = k; }));
     if (atual) atual = D.meses.find(x => x.chave === atual.chave) || atual;
+    receitasNormais();
   }
-  mesclarGastosSite(gastosSite);
+  mesclarSite();
 
   atual = D.meses.find(m => m.chave === hojeKey) || [...D.meses].reverse().find(m => m.chave <= hojeKey) || D.meses[0];
   { const s = lembrar("mes"); if (s && D.meses.some(m => m.chave === s) && s >= hojeKey) atual = D.meses.find(m => m.chave === s); }
@@ -247,7 +272,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       a.push({c: "info", h: `Nova compra parcelada: ${n.nome}.`, t: `${n.parcelas}x de ${brl(n.valor)} até a fatura de ${lbl(ua, um)}, somando ${brl(n.total != null ? n.total : n.valor * n.parcelas)}.`});
     });
     // O uso do dinheiro do mês vem antes dos outros: saldo negativo, ou 85% ou mais já usados
-    if (c.saldo < 0) a.unshift({c: "bad", h: `O saldo de ${m.rotulo} está negativo.`, t: `Faltam ${brl(-c.saldo)} para fechar o mês com o que já está gasto e previsto.`});
+    if (c.saldo < 0 && c.receitas > 0) a.unshift({c: "bad", h: `O saldo de ${m.rotulo} está negativo.`, t: `Faltam ${brl(-c.saldo)} para fechar o mês com o que já está gasto e previsto.`});
     else if (c.receitas > 0 && (c.receitas - c.saldo) / c.receitas >= 0.85) {
       a.unshift({c: "warn", h: `Você já usou ${porcento((c.receitas - c.saldo) / c.receitas)} do dinheiro de ${m.rotulo}.`,
         t: `Sobram ${brl(c.saldo)} para o resto do mês${c.dias ? `, ${brl(c.saldo / c.dias)} por dia` : ""}.`});
@@ -266,7 +291,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const box = $id("g-termometro");
     const botao = !aoLancarGasto ? "" : `<div class="termometro-acoes"><button type="button" class="btn" id="btn-lancar-gasto">Lançar gasto ou Pix</button>${aoImportarExtrato ? '<button type="button" class="btn btn-claro" id="btn-extrato-gastos">Importar extrato</button>' : ""}</div>`;
     if (!(c.receitas > 0)) {
-      box.innerHTML = `<div class="termometro-topo"><div><div class="label">Uso do dinheiro de ${esc(m.rotulo)}</div><p class="muted" style="margin:6px 0 0">O percentual aparece quando as receitas do mês estiverem lançadas no projeto Financeiro.</p></div>${botao}</div>`;
+      box.innerHTML = `<div class="termometro-topo"><div><div class="label">Uso do dinheiro de ${esc(m.rotulo)}</div><p class="muted" style="margin:6px 0 0">O percentual aparece quando as entradas do mês estiverem lançadas${aoLancarEntrada ? " (botão Lançar entrada, no topo)" : " no projeto Financeiro"}.</p></div>${botao}</div>`;
     } else {
       const usado = c.receitas - c.saldo;
       const uso = usado / c.receitas;
@@ -317,6 +342,17 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     });
   }
 
+  // Linha de uma receita no cálculo do mês; as lançadas pelo site mostram o holerite (bruto e descontos) e Apagar
+  const linhaReceita = r => {
+    const site = r.origem === "site";
+    const chip = r.liquido == null ? ' <span class="chip bad">aguardando holerite</span>' : /estimativa/i.test(r.obs || "") ? ' <span class="chip warn">estimado</span>' : site ? ' <span class="chip info">lançado no site</span>' : "";
+    const holerite = site && (r.bruto != null || r.descontos.length)
+      ? `<div class="sub">${r.bruto != null ? `Bruto ${brl(r.bruto)}` : ""}${r.descontos.map(d => ` − ${esc(d.nome)} ${brl(d.valor)}`).join("")}</div>` : "";
+    const conta = site && r.conta && r.conta !== "pessoal" ? ` <span class="chip conta">${esc(nomeDaConta(r.conta))}</span>` : "";
+    const apagar = site && aoApagarEntrada ? `<div class="acoes-lanc"><button type="button" class="btn sec mini" data-apagar-entrada="${esc(r.id)}">Apagar</button></div>` : "";
+    return `<tr><td>${esc(r.desc)}${chip}${conta}${holerite}</td><td class="r num">${brl(r.liquido)}${apagar}</td></tr>`;
+  };
+
   function renderHero(m, c) {
     const pct = v => (c.receitas > 0 ? Math.max(0, v / c.receitas * 100) : 0);
     const segs = c.linhas.filter(l => l.v > 0);
@@ -327,11 +363,14 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       ${c.receitas > 0 ? `<div class="stack" role="img" aria-label="Como a receita do mês está dividida">${segs.map(l => `<span style="width:${pct(l.v)}%;background:${l.cor}"></span>`).join("")}</div>
       <div class="legend">${segs.map(l => `<span><i style="background:${l.cor}"></i>${l.leg}</span>`).join("")}<span><i style="background:var(--line)"></i>Livre</span></div>` : ""}
       <table class="calc" style="margin-top:14px"><tbody>
-        ${m.receitas.map(r => `<tr><td>${esc(r.desc)} ${r.liquido == null ? '<span class="chip bad">aguardando holerite</span>' : /estimativa/i.test(r.obs || "") ? '<span class="chip warn">estimado</span>' : ""}</td><td class="r num">${brl(r.liquido)}</td></tr>`).join("")}
+        ${m.receitas.map(linhaReceita).join("")}
         ${c.linhas.map(l => `<tr><td>(−) ${esc(l.t)}</td><td class="r num">${l.v ? brl(-l.v) : brl(0)}</td></tr>`).join("")}
         <tr class="total"><td>Saldo disponível</td><td class="r num">${brl(c.saldo)}</td></tr>
       </tbody></table>
-      ${c.semSalario ? `<div class="note"><b>Falta o salário.</b> Ele entra quando o holerite for lançado no projeto Financeiro.</div>` : ""}
+      ${aoLancarEntrada ? '<div class="acoes-lanc" style="margin-top:10px"><button type="button" class="btn sec mini" data-lancar-entrada>Lançar entrada</button></div>' : ""}
+      ${entradasRepetidas ? `<p class="sub" style="margin:8px 0 0">${entradasRepetidas === 1 ? "Uma entrada lançada pelo site já estava" : `${entradasRepetidas} entradas lançadas pelo site já estavam`} no projeto Financeiro e não contou de novo.</p>` : ""}
+      ${!m.receitas.length ? `<div class="note"><b>Nenhuma entrada em ${esc(m.rotulo)}.</b> ${aoLancarEntrada ? "Lance o salário ou outro recebimento pelo botão Lançar entrada." : "As receitas entram pelo projeto Financeiro."}</div>`
+        : c.semSalario && SAL_NORMAL > 0 ? `<div class="note"><b>Falta o salário.</b> ${aoLancarEntrada ? "Lance o holerite pelo botão Lançar entrada (ou no projeto Financeiro)." : "Ele entra quando o holerite for lançado no projeto Financeiro."}</div>` : ""}
       ${c.snap ? `<p class="muted" style="font-size:.85rem;margin:10px 0 0">O cartão deste mês vem do valor da fatura aberta no app do banco em ${dBR(c.snap.data)}, que já inclui as parcelas e as compras até essa data.</p>` : ""}`;
   }
 
@@ -356,6 +395,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   }
 
   function renderRecorrentes(m, c) {
+    $id("recorrentes").hidden = !c.rec.length; // o painel só de faturas não tem gastos fixos do projeto
+    if (!c.rec.length) return;
     const semValor = c.rec.filter(r => r.valor == null).length;
     $id("recorrentes").innerHTML = `
       <h2>Gastos fixos do mês</h2>
@@ -410,6 +451,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   };
 
   function renderPrevisao() {
+    $id("previsao").hidden = SO_FATURAS; // a previsão usa as metas e o salário do projeto
+    if (SO_FATURAS) return;
     const linhas = previsaoMeses(7);
     const cel = v => `<td class="r num" style="color:${v < 0 ? "var(--bad)" : "var(--ok)"};font-weight:600">${n(v)}</td>`;
     $id("previsao").innerHTML = `
@@ -684,7 +727,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
 
   // Parceladas lançadas pelo site: só as parcelas das faturas que ainda não fecharam
   function parceladasDoSite() {
-    if (QUEM !== "dono" || SO_FATURAS) return [];
+    if (QUEM !== "dono" || !COM_MESES) return [];
     const fechadas = new Set(D.cartao.faturas.map(f => f.mes));
     return parcelasSite.map(p => {
       const resta = p.faturas.filter(f => f && !fechadas.has(f));
@@ -741,8 +784,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   // ---------- Abas: visão geral, gastos do dia a dia, cartão e faturas, investimentos, lista de desejos ----------
   const ABAS = ["geral", "gastos", "cartao", "investimentos", "desejos"];
   function irPara(aba, rolar) {
-    if (SO_FATURAS && aba !== "investimentos" && aba !== "desejos") aba = "cartao";
-    if (!ABAS.includes(aba) || (aba === "investimentos" && !CARTEIRA) || (aba === "desejos" && !comDesejos)) aba = SO_FATURAS ? "cartao" : "geral";
+    if (!COM_MESES && aba !== "investimentos" && aba !== "desejos") aba = "cartao";
+    if (!ABAS.includes(aba) || (aba === "investimentos" && !CARTEIRA) || (aba === "desejos" && !comDesejos)) aba = COM_MESES ? "geral" : "cartao";
     document.querySelectorAll("#fin-abas [role=tab]").forEach(t => {
       const sel = t.dataset.aba === aba;
       t.setAttribute("aria-selected", String(sel));
@@ -751,7 +794,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     ["geral", "gastos", "cartao", "desejos"].forEach(k => { $id("view-" + k).hidden = k !== aba; });
     $id("fin-root").hidden = aba === "investimentos";
     $id("view-inv").hidden = aba !== "investimentos";
-    if (!SO_FATURAS || CARTEIRA || comDesejos) {
+    if (COM_MESES || CARTEIRA || comDesejos) {
       guardar("aba", aba);
       try { if (location.hash !== "#" + aba) history.replaceState(null, "", "#" + aba); } catch (e) { /* sem histórico */ }
     }
@@ -768,7 +811,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     $id("tab-inv").hidden = !CARTEIRA;
     $id("tab-desejos").hidden = !comDesejos;
     document.querySelectorAll("[data-dono]").forEach(el => { el.textContent = DONO; });
-    if (SO_FATURAS) {
+    if (!COM_MESES) {
       $id("tab-geral").hidden = true;
       $id("tab-gastos").hidden = true;
       if (!CARTEIRA && !comDesejos) { barra.hidden = true; irPara("cartao", false); return; }
@@ -785,7 +828,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     });
     window.addEventListener("hashchange", () => { const a = location.hash.slice(1); if (ABAS.includes(a)) irPara(a, false); });
     const pedida = location.hash.slice(1);
-    irPara(ABAS.includes(pedida) ? pedida : lembrar("aba") || (SO_FATURAS ? "cartao" : "geral"), false);
+    irPara(ABAS.includes(pedida) ? pedida : lembrar("aba") || (COM_MESES ? "geral" : "cartao"), false);
   }
 
   // ---------- Relatórios das faturas (os PDFs podem ser guardados no quadro de PDFs, logo abaixo) ----------
@@ -863,9 +906,15 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     seguro("recorrentes", () => renderRecorrentes(atual, c));
     seguro("atalhos", () => renderAtalhos(atual, c));
   }
-  if (SO_FATURAS) seguro("rodape", rodape);
+  if (!COM_MESES) seguro("rodape", rodape);
   else seguro(null, render);
   mostrarQuem();
+  // Apagar e lançar entradas pela visão geral
+  $id("hero").addEventListener("click", e => {
+    const apagar = e.target.closest("[data-apagar-entrada]");
+    if (apagar && aoApagarEntrada) aoApagarEntrada(apagar.dataset.apagarEntrada);
+    if (e.target.closest("[data-lancar-entrada]") && aoLancarEntrada) aoLancarEntrada();
+  });
 
   // Filtros das listas e o botão da lista de categorias
   ["g-fcat", "g-fforma", "g-fconta"].forEach(id => $id(id).addEventListener("change", () => seguro("g-itens", () => renderGastosLista(atual))));
@@ -890,17 +939,23 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
 
   return {
     atualizarGastos(lista) {
-      mesclarGastosSite(lista);
-      if (SO_FATURAS) return;
+      GASTOS_SITE = lista;
+      mesclarSite();
+      if (!COM_MESES) return;
       seguro(null, render);
       seguro("parcelas", renderParcelas);
+    },
+    atualizarEntradas(lista) {
+      ENTRADAS_SITE = lista;
+      mesclarSite();
+      if (COM_MESES) seguro(null, render);
     },
     // Depois de classificar um lançamento ou de mudar a lista de categorias
     atualizarClassificacao({ajustes: novos, categorias: c, contas: cs} = {}) {
       if (novos) AJ = new Map(novos.map(a => [a.chave, a]));
       if (c) CATS = c;
       if (cs) CONTAS = cs;
-      if (!SO_FATURAS) seguro(null, render);
+      if (COM_MESES) seguro(null, render);
       mostrarQuem();
     },
     // Para a lista de desejos: previsão dos próximos meses (só no painel completo, que tem as receitas)

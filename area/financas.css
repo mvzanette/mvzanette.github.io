@@ -349,3 +349,9 @@
 .extrato-lista .sub { color: #5f646b; font-size: 0.8rem; }
 .extrato-lista tr.fora td { color: #8a8f96; }
 .extrato-lista .motivo { color: #8a5608; font-weight: 600; }
+
+/* ---------- Lançar entrada: descontos do holerite ---------- */
+.descontos { display: grid; gap: 8px; margin-bottom: 10px; }
+.desconto-linha { display: grid; grid-template-columns: minmax(0, 1fr) 130px auto; gap: 8px; align-items: center; }
+.desconto-linha input { padding: 8px 10px; font: inherit; border: 1px solid var(--gray-300); background: var(--white); min-width: 0; }
+@media (max-width: 480px) { .desconto-linha { grid-template-columns: minmax(0, 1fr) 100px auto; } }

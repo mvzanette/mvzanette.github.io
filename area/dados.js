@@ -92,6 +92,32 @@ function limparGasto(g) {
   };
 }
 
+// Entrada lançada pelo site: salário (holerite com bruto e descontos) ou outro recebimento
+function limparEntrada(e) {
+  const liquido = Math.round(Number(e.liquido) * 100) / 100;
+  if (!(liquido > 0)) throw new Error("Informe o valor líquido (maior que zero).");
+  if (!String(e.descricao || "").trim()) throw new Error("Informe a descrição da entrada.");
+  const salario = e.tipo === "salario";
+  const bruto = salario && e.bruto != null && e.bruto !== "" ? Math.round(Number(e.bruto) * 100) / 100 : null;
+  if (bruto != null && !(bruto >= 0)) throw new Error("Valor bruto inválido.");
+  const descontos = salario ? (Array.isArray(e.descontos) ? e.descontos : [])
+    .map((d) => ({ nome: texto(d && d.nome, 60), valor: Math.round(Number(d && d.valor) * 100) / 100 }))
+    .filter((d) => d.nome && d.valor > 0).slice(0, 20) : [];
+  return {
+    perfil_id: e.perfil_id,
+    data: e.data,
+    tipo: salario ? "salario" : "outro",
+    descricao: String(e.descricao).trim().slice(0, 120),
+    bruto,
+    descontos,
+    liquido,
+    conta: contaValida(e.conta),
+    observacao: texto(e.observacao, 300),
+  };
+}
+const numerosEntrada = (e) => ({ ...e, liquido: Number(e.liquido), bruto: e.bruto == null ? null : Number(e.bruto),
+  descontos: (e.descontos || []).map((d) => ({ nome: d.nome, valor: Number(d.valor) })) });
+
 // Classificação de um gasto lançado pelo site (o que dá para mudar depois de lançado)
 const limparClassificacao = (c) => ({
   categoria: texto(c.categoria, 60),
@@ -256,6 +282,7 @@ function armazemDemo() {
   const ACESSOS = "mz-area-demo-acessos";
   const FINANCAS = "mz-area-demo-financas";
   const GASTOS = "mz-area-demo-financas-gastos";
+  const ENTRADAS = "mz-area-demo-financas-entradas";
   const EMPRESAS = "mz-area-demo-empresas";
   const PREFS = "mz-area-demo-financas-prefs";
   const AJUSTES = "mz-area-demo-financas-ajustes";
@@ -404,6 +431,19 @@ function armazemDemo() {
       },
       async apagarGasto(idGasto) {
         gravarJson(GASTOS, lerJson(GASTOS, []).filter((g) => g.id !== idGasto));
+      },
+      async entradas(perfilId) {
+        return lerJson(ENTRADAS, []).filter((e) => e.perfil_id === perfilId);
+      },
+      async salvarEntrada(entrada) {
+        const p = eu();
+        if (!p || (p.papel !== "adm" && entrada.perfil_id !== p.id)) throw new Error("Sem permissão para lançar neste painel.");
+        const linha = { id: novoId(), criado_em: new Date().toISOString(), ...limparEntrada(entrada) };
+        gravarJson(ENTRADAS, [...lerJson(ENTRADAS, []), linha]);
+        return structuredClone(linha);
+      },
+      async apagarEntrada(idEntrada) {
+        gravarJson(ENTRADAS, lerJson(ENTRADAS, []).filter((e) => e.id !== idEntrada));
       },
       async pdfs(perfilId) {
         return pdfsFinancas.filter((a) => a.caminho.startsWith(`${perfilId}/`)).map(({ url, ...a }) => a);
@@ -557,6 +597,7 @@ function armazemDemo() {
       gravarJson(ACESSOS, []);
       gravarJson(FINANCAS, {});
       gravarJson(GASTOS, []);
+      gravarJson(ENTRADAS, []);
       gravarJson(EMPRESAS, []);
       gravarJson(PREFS, {});
       gravarJson(AJUSTES, []);
@@ -664,6 +705,21 @@ async function armazemSupabase(url, chave) {
       },
       async apagarGasto(idGasto) {
         const { error } = await sb.from("financas_gastos").delete().eq("id", idGasto);
+        falhou(error);
+      },
+      async entradas(perfilId) {
+        const { data, error } = await sb.from("financas_entradas").select("*").eq("perfil_id", perfilId).order("data");
+        if (error) throw new Error(/financas_entradas/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+        return (data || []).map(numerosEntrada);
+      },
+      async salvarEntrada(entrada) {
+        const { data, error } = await sb.from("financas_entradas").insert(limparEntrada(entrada)).select().single();
+        if (error) throw new Error(error.code === "42501" || error.code === "PGRST116" ? "Sem permissão para lançar neste painel."
+          : /financas_entradas/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+        return numerosEntrada(data);
+      },
+      async apagarEntrada(idEntrada) {
+        const { error } = await sb.from("financas_entradas").delete().eq("id", idEntrada);
         falhou(error);
       },
       async pdfs(perfilId) {

@@ -168,6 +168,11 @@ Separado do Controle financeiro da engenharia: é o **painel do projeto Financei
   - se o mesmo gasto (mesma data e mesmo valor) já estiver no projeto Financeiro, ele não conta duas vezes.
 
   Os lançados aqui ficam no site e continuam valendo depois de cada importação; o projeto Financeiro no Claude não os recebe sozinho.
+- **Lançar entrada:** pelo botão no topo ou na visão geral.
+  - **Salário (holerite):** o bruto e cada desconto com o nome e o valor (INSS, IRRF, plano de saúde, coparticipação, previdência etc.; os mais comuns já vêm com o nome). O líquido é calculado e dá para corrigir se o holerite tiver outro valor.
+  - **Outro recebimento:** recebimentos por fora, com a conta (pessoal, engenharia ou empresa) quando houver mais de uma.
+
+  A entrada soma nas receitas do mês em que entrou. O salário lançado substitui o do projeto Financeiro no mesmo mês (que às vezes é só uma estimativa), e outro recebimento igual a um do projeto no mesmo mês não conta duas vezes. Na visão geral, o salário lançado aparece com o bruto e os descontos, e cada entrada lançada pelo site pode ser apagada.
 - **Importar extrato:** traz de uma vez os Pix, débitos, boletos e saques do mês. Use o arquivo **OFX** que o app ou o internet banking do banco exporta (em Extrato, "Exportar" ou "Salvar em OFX") ou o **CSV da conta do Nubank**. O arquivo é lido no navegador e não fica guardado. Antes de gravar, a lista mostra cada saída com a forma de pagamento e a categoria sugerida, e dá para desmarcar o que não for gasto. Já vêm desmarcados:
   - o pagamento da fatura do cartão (as compras já estão na fatura);
   - aplicações e investimentos;
@@ -190,7 +195,7 @@ Separado do Controle financeiro da engenharia: é o **painel do projeto Financei
 
   A fatura do mesmo mês é substituída, e a classificação feita no site continua valendo, inclusive nas próximas parcelas da mesma compra. Na lista de PDFs, o arquivo já lido aparece com a fatura que gerou. Faturas de outros bancos continuam vindo do projeto Financeiro (cada banco novo precisa de um PDF de exemplo para ganhar leitor).
 - **Para atualizar os dados:** em Finanças pessoais, **Atualizar dados** e escolha o arquivo HTML do painel gerado pelo projeto Financeiro (o mesmo arquivo do painel; se precisar, peça no chat do projeto). O site lê os dados do arquivo, mostra um resumo e grava. A lista de arquivos do computador e as anotações internas do arquivo não são importadas. As faturas lidas pelo site que o arquivo não traz continuam no painel; se o arquivo trouxer o mesmo mês, vale o do arquivo. Esse botão não recebe PDF (para PDFs, use Enviar PDF).
-- **Faturas de outra pessoa e carteira conjunta:** quando o arquivo traz as faturas de alguém da família, o administrador escolhe na importação o painel dessa pessoa; ela passa a ver só o próprio cartão e as próprias faturas, sem nenhum dado do dono do painel. Com **"Mostrar também a carteira de investimentos"** marcado, a carteira conjunta (com os aportes mensais de cada um) vai junto e aparece na aba Investimentos dessa pessoa.
+- **Faturas de outra pessoa e carteira conjunta:** quando o arquivo traz as faturas de alguém da família, o administrador escolhe na importação o painel dessa pessoa; ela passa a ver só o próprio cartão e as próprias faturas, sem nenhum dado do dono do painel. Nesse painel, a pessoa também lança os próprios recebimentos (salário e outros), gastos e Pix, e pode importar o extrato da conta dela: com isso aparecem a visão geral do mês e os gastos do dia a dia, calculados só com o que ela lançou e com o cartão dela. Com **"Mostrar também a carteira de investimentos"** marcado, a carteira conjunta (com os aportes mensais de cada um) vai junto e aparece na aba Investimentos dessa pessoa.
 - **Abrir no Claude** (opcional): a leitura das faturas que o site não lê continua no painel original. Cadastre o link do painel no Claude no cadastro da pessoa, em Usuários e permissões.
 
 **Classificar os lançamentos.** Cada lançamento (gastos do dia a dia, lançamentos das faturas e gastos lançados no site) tem o botão **Classificar**, sempre com a lista de opções:
@@ -307,7 +312,7 @@ Observações:
 ## Segurança e privacidade
 
 - O código do site é público, mas os dados não: ficam no Supabase, protegidos pelo login e por regras de acesso no banco. Só entra quem tem cadastro ativo, cada módulo só abre para quem tem permissão e clientes nunca acessam os módulos profissionais. Os PDFs ficam em armazenamento privado.
-- As finanças pessoais ficam no banco, um painel por pessoa: só a própria pessoa e o administrador (que faz a importação) acessam. A carteira de investimentos conjunta aparece só nos painéis em que o administrador a incluiu. Os gastos lançados, a classificação, a lista de categorias e os PDFs das finanças seguem a mesma regra (cada pessoa só os próprios). Um desejo de compra aparece também para a pessoa que vai comprar ou dividir a compra. Nenhum valor, nome ou cartão fica no código do site.
+- As finanças pessoais ficam no banco, um painel por pessoa: só a própria pessoa e o administrador (que faz a importação) acessam. A carteira de investimentos conjunta aparece só nos painéis em que o administrador a incluiu. Os gastos e as entradas lançados (com os descontos do holerite), a classificação, a lista de categorias e os PDFs das finanças seguem a mesma regra (cada pessoa só os próprios). Um desejo de compra aparece também para a pessoa que vai comprar ou dividir a compra. Nenhum valor, nome ou cartão fica no código do site.
 - Os nomes das empresas e dos clientes ficam só no banco, e as finanças das empresas só abrem para quem tem esse módulo (nunca para clientes).
 - Os espaços de arquivos (PDFs das ARTs e das finanças) só aceitam PDF, até 20 MB.
 - **Nunca** coloque PDFs de ART, relatórios ou planilhas exportadas dentro do repositório (o `.gitignore` já bloqueia `.pdf`, `.csv` e `.xlsx`).

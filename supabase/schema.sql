@@ -207,6 +207,26 @@ alter table public.financas_gastos add column if not exists subcategoria text;
 alter table public.financas_gastos add column if not exists conta text
   check (conta is null or conta ~ '^(pessoal|engenharia|empresa:[0-9a-f-]{36})$');
 
+-- Entradas lançadas pelo site em Finanças pessoais: o salário (holerite, com o bruto e os descontos) e outros
+-- recebimentos. Somam com as receitas do projeto Financeiro no mês em que entraram (data).
+create table if not exists public.financas_entradas (
+  id          uuid primary key default gen_random_uuid(),
+  perfil_id   uuid not null references public.perfis (id) on delete cascade,
+  data        date not null default current_date,
+  tipo        text not null check (tipo in ('salario', 'outro')),
+  descricao   text not null check (length(trim(descricao)) > 0),
+  bruto       numeric(12, 2) check (bruto is null or bruto >= 0),
+  -- [{ "nome": "INSS", "valor": 988.07 }, ...]
+  descontos   jsonb not null default '[]'::jsonb check (jsonb_typeof(descontos) = 'array'),
+  liquido     numeric(12, 2) not null check (liquido > 0),
+  conta       text check (conta is null or conta ~ '^(pessoal|engenharia|empresa:[0-9a-f-]{36})$'),
+  observacao  text,
+  criado_em   timestamptz not null default now(),
+  criado_por  uuid default auth.uid() references auth.users (id) on delete set null
+);
+
+create index if not exists financas_entradas_perfil_data_idx on public.financas_entradas (perfil_id, data);
+
 -- Empresas com que há movimento financeiro: onde você trabalha ou que pagam as ARTs que você tira.
 -- Os nomes ficam só aqui no banco (o código do site é público).
 create table if not exists public.empresas (
@@ -491,6 +511,7 @@ alter table public.perfis enable row level security;
 alter table public.acessos enable row level security;
 alter table public.financas enable row level security;
 alter table public.financas_gastos enable row level security;
+alter table public.financas_entradas enable row level security;
 alter table public.empresas enable row level security;
 alter table public.financas_preferencias enable row level security;
 alter table public.financas_ajustes enable row level security;
@@ -501,7 +522,7 @@ alter table public.financas_desejos enable row level security;
 grant usage on schema public to authenticated, service_role;
 grant select, insert, update, delete
   on public.arts, public.alertas, public.demandas, public.lancamentos, public.perfis, public.financas, public.financas_gastos,
-     public.empresas, public.financas_preferencias, public.financas_ajustes, public.financas_desejos
+     public.financas_entradas, public.empresas, public.financas_preferencias, public.financas_ajustes, public.financas_desejos
   to authenticated, service_role;
 grant select on public.acessos to authenticated;
 grant select, insert, update, delete on public.acessos to service_role;
@@ -587,6 +608,18 @@ create policy "financas do proprio perfil" on public.financas
 
 drop policy if exists "gastos do proprio perfil" on public.financas_gastos;
 create policy "gastos do proprio perfil" on public.financas_gastos
+  for all to authenticated
+  using (
+    (select public.eh_adm())
+    or ((select public.pode('financas')) and perfil_id in (select id from public.perfis where user_id = auth.uid()))
+  )
+  with check (
+    (select public.eh_adm())
+    or ((select public.pode('financas')) and perfil_id in (select id from public.perfis where user_id = auth.uid()))
+  );
+
+drop policy if exists "entradas do proprio perfil" on public.financas_entradas;
+create policy "entradas do proprio perfil" on public.financas_entradas
   for all to authenticated
   using (
     (select public.eh_adm())
