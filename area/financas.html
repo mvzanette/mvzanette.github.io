@@ -11,9 +11,9 @@
   <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@500;600;700;800&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../styles.css?v=12bc86b1">
   <link rel="stylesheet" href="area.css?v=827164a0">
-  <link rel="stylesheet" href="financas.css?v=490fa627">
-  <script type="importmap" data-versoes>{"imports": {"./art.js": "./art.js?v=67208bf7", "./config-area.js": "./config-area.js?v=c77553f2", "./conta.js": "./conta.js?v=fdce23ea", "./dados.js": "./dados.js?v=2a097126", "./demandas.js": "./demandas.js?v=19d8f618", "./financas-classificacao.js": "./financas-classificacao.js?v=50873fdd", "./financas-desejos.js": "./financas-desejos.js?v=44514c8a", "./financas-faturas.js": "./financas-faturas.js?v=71ee7f85", "./financas-importar.js": "./financas-importar.js?v=71dfaaa4", "./financas-painel.js": "./financas-painel.js?v=94a5c44f", "./financas.js": "./financas.js?v=13901303", "./financeiro.js": "./financeiro.js?v=c6aaedbd", "./inicio.js": "./inicio.js?v=36840010", "./leitores.js": "./leitores.js?v=2d72bdc2", "./login.js": "./login.js?v=f434d5fc", "./modulos.js": "./modulos.js?v=fac7935d", "./painel.js": "./painel.js?v=f606b3b3", "./pdf-texto.js": "./pdf-texto.js?v=b5de895d", "./regras-gestao.js": "./regras-gestao.js?v=351037e5", "./regras.js": "./regras.js?v=3eaec5e4", "./sessao.js": "./sessao.js?v=c9d6a0d9", "./ui.js": "./ui.js?v=efb69f88", "./usuarios.js": "./usuarios.js?v=d53a64e9", "./vendor/pdf.min.mjs": "./vendor/pdf.min.mjs?v=f548e26b", "./vendor/pdf.worker.min.mjs": "./vendor/pdf.worker.min.mjs?v=8860b503"}}</script>
-  <script type="module" src="financas.js?v=13901303"></script>
+  <link rel="stylesheet" href="financas.css?v=f96132f8">
+  <script type="importmap" data-versoes>{"imports": {"./art.js": "./art.js?v=67208bf7", "./config-area.js": "./config-area.js?v=c77553f2", "./conta.js": "./conta.js?v=fdce23ea", "./dados.js": "./dados.js?v=321d81ca", "./demandas.js": "./demandas.js?v=19d8f618", "./financas-classificacao.js": "./financas-classificacao.js?v=50873fdd", "./financas-desejos.js": "./financas-desejos.js?v=44514c8a", "./financas-extrato.js": "./financas-extrato.js?v=42db7adf", "./financas-faturas.js": "./financas-faturas.js?v=ca828020", "./financas-importar.js": "./financas-importar.js?v=71dfaaa4", "./financas-painel.js": "./financas-painel.js?v=3bd637b8", "./financas.js": "./financas.js?v=d1f0c313", "./financeiro.js": "./financeiro.js?v=c6aaedbd", "./inicio.js": "./inicio.js?v=36840010", "./leitores.js": "./leitores.js?v=2d72bdc2", "./login.js": "./login.js?v=f434d5fc", "./modulos.js": "./modulos.js?v=fac7935d", "./painel.js": "./painel.js?v=f606b3b3", "./pdf-texto.js": "./pdf-texto.js?v=b5de895d", "./regras-gestao.js": "./regras-gestao.js?v=351037e5", "./regras.js": "./regras.js?v=3eaec5e4", "./sessao.js": "./sessao.js?v=c9d6a0d9", "./ui.js": "./ui.js?v=efb69f88", "./usuarios.js": "./usuarios.js?v=d53a64e9", "./vendor/pdf.min.mjs": "./vendor/pdf.min.mjs?v=f548e26b", "./vendor/pdf.worker.min.mjs": "./vendor/pdf.worker.min.mjs?v=8860b503"}}</script>
+  <script type="module" src="financas.js?v=d1f0c313"></script>
 </head>
 <body class="area">
 
@@ -42,6 +42,8 @@
     <div class="area-cabecalho">
       <h1>Finanças pessoais</h1>
       <div class="area-acoes">
+        <button class="btn" id="btn-lancar-topo" type="button" hidden>Lançar gasto ou Pix</button>
+        <button class="btn btn-claro" id="btn-extrato" type="button" title="Importar os Pix, débitos e boletos do extrato da conta" hidden>Importar extrato</button>
         <button class="btn btn-primary" id="btn-importar-fin" type="button" title="Importar o arquivo do painel gerado pelo projeto Financeiro">Atualizar dados</button>
         <a class="btn btn-claro" id="link-claude" href="#" target="_blank" rel="noopener" hidden>Abrir no Claude</a>
       </div>
@@ -228,6 +230,31 @@
     <div class="dlg-rodape">
       <button class="btn btn-claro" type="button" data-fechar>Cancelar</button>
       <button class="btn btn-primary" type="button" id="btn-confirmar-fin" disabled>Importar</button>
+    </div>
+  </dialog>
+
+  <!-- ============ IMPORTAR EXTRATO DA CONTA ============ -->
+  <dialog class="dialogo largo" id="dlg-extrato" aria-labelledby="titulo-extrato">
+    <div class="dlg-cab">
+      <h2 id="titulo-extrato">Importar extrato da conta</h2>
+      <button class="btn-link" type="button" data-fechar>Fechar</button>
+    </div>
+    <div class="dlg-corpo">
+      <label class="soltar" id="soltar-extrato">
+        <input type="file" id="arquivo-extrato" accept=".ofx,.csv,.txt,application/x-ofx,text/csv">
+        <strong>Escolha ou arraste o arquivo do extrato</strong>
+        <span>O arquivo OFX que o app ou o internet banking do banco exporta (em Extrato, "Exportar" ou "Salvar em OFX"), ou o CSV da conta do Nubank.</span>
+      </label>
+      <p class="erro" id="erro-extrato" role="alert" hidden></p>
+      <div class="fin-previa" id="previa-extrato" hidden>
+        <dl id="previa-extrato-dados"></dl>
+        <div class="extrato-lista"><table><tbody id="lista-extrato"></tbody></table></div>
+      </div>
+      <p class="dica">O arquivo é lido aqui no navegador e não fica guardado. Entram só as saídas marcadas, como gastos lançados pelo site (Pix, débito, boletos e saques). Ficam de fora as entradas, o pagamento da fatura do cartão (as compras já estão na fatura), as aplicações e as transferências entre contas próprias. Depois, cada gasto pode ser classificado ou apagado na aba Gastos do dia a dia.</p>
+    </div>
+    <div class="dlg-rodape">
+      <button class="btn btn-claro" type="button" data-fechar>Cancelar</button>
+      <button class="btn btn-primary" type="button" id="btn-confirmar-extrato" disabled>Importar</button>
     </div>
   </dialog>
 

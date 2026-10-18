@@ -162,12 +162,19 @@ Separado do Controle financeiro da engenharia: é o **painel do projeto Financei
 
 - **Cada pessoa vê só o próprio painel.** Os dados ficam no banco, protegidos pelo login e pelas regras de acesso, e nunca no código do site (que é público).
 - **Uso do dinheiro do mês:** a aba Gastos do dia a dia começa pela porcentagem das receitas do mês que já está gasta ou comprometida (investimento, cartão, Pix, débito, dinheiro e fixos que ainda vão cair), com a barra dividida por tipo e a marca de 85%. Logo abaixo vêm os alertas: a partir de **85% usado**, **saldo negativo** e os do cartão (fatura acima ou perto da sua previsão). Os mesmos alertas aparecem na visão geral.
-- **Lançar gasto:** pelo botão da aba Gastos, com valor, descrição, data, categoria, forma de pagamento e, se quiser, essencial ou não. Os gastos lançados pelo site somam com os do projeto Financeiro (aparecem com a marca "lançado no site" e podem ser apagados ali):
+- **Lançar gasto ou Pix:** pelo botão no topo da página (em qualquer aba) ou na aba Gastos, com valor, descrição, data, categoria, forma de pagamento (cartão, Pix, débito ou dinheiro) e, se quiser, essencial ou não. Na mesma visita, o próximo lançamento já abre na forma de pagamento do anterior. Os gastos lançados pelo site somam com os do projeto Financeiro (aparecem com a marca "lançado no site" e podem ser apagados ali):
   - **no cartão**, o gasto entra na fatura do mês; **parcelado**, cada parcela cai numa fatura e a compra aparece em "Compras parceladas a vencer";
   - Pix, débito e dinheiro saem do saldo do mês na hora;
   - se o mesmo gasto (mesma data e mesmo valor) já estiver no projeto Financeiro, ele não conta duas vezes.
 
   Os lançados aqui ficam no site e continuam valendo depois de cada importação; o projeto Financeiro no Claude não os recebe sozinho.
+- **Importar extrato:** traz de uma vez os Pix, débitos, boletos e saques do mês. Use o arquivo **OFX** que o app ou o internet banking do banco exporta (em Extrato, "Exportar" ou "Salvar em OFX") ou o **CSV da conta do Nubank**. O arquivo é lido no navegador e não fica guardado. Antes de gravar, a lista mostra cada saída com a forma de pagamento e a categoria sugerida, e dá para desmarcar o que não for gasto. Já vêm desmarcados:
+  - o pagamento da fatura do cartão (as compras já estão na fatura);
+  - aplicações e investimentos;
+  - transferências entre contas próprias;
+  - o que já está no painel (mesmo valor, com até um dia de diferença), inclusive um Pix lançado à mão, e as saídas de um extrato que já foi importado.
+
+  As entradas do extrato não entram. As saídas marcadas viram gastos lançados pelo site, que podem ser classificados ou apagados depois. O extrato em PDF ainda não é lido.
 - **PDFs das faturas e relatórios:** na aba Cartão e faturas, **Enviar PDF** guarda o arquivo em armazenamento privado, numa pasta de cada pessoa (só PDF, até 20 MB; o site confere se o arquivo é mesmo um PDF antes de enviar). A lista tem **Processar**, **Abrir** (link temporário, válido por 10 minutos) e **Apagar**.
 - **Faturas do Nubank em PDF:** o site lê a fatura no próprio navegador e atualiza o cartão. Ao enviar o PDF, a leitura já abre; depois, o botão **Processar** lê de novo. Antes de gravar, uma prévia mostra:
   - o mês, o vencimento, o período das compras e o total;

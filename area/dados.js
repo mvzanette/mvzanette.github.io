@@ -395,6 +395,13 @@ function armazemDemo() {
         gravarJson(GASTOS, [...lerJson(GASTOS, []), linha]);
         return structuredClone(linha);
       },
+      async salvarGastos(lista) {
+        const p = eu();
+        if (!p || lista.some((g) => p.papel !== "adm" && g.perfil_id !== p.id)) throw new Error("Sem permissão para lançar neste painel.");
+        const linhas = lista.map((g) => ({ id: novoId(), criado_em: new Date().toISOString(), ...limparGasto(g) }));
+        gravarJson(GASTOS, [...lerJson(GASTOS, []), ...linhas]);
+        return structuredClone(linhas);
+      },
       async apagarGasto(idGasto) {
         gravarJson(GASTOS, lerJson(GASTOS, []).filter((g) => g.id !== idGasto));
       },
@@ -649,6 +656,11 @@ async function armazemSupabase(url, chave) {
         const { data, error } = await sb.from("financas_gastos").insert(limparGasto(gasto)).select().single();
         if (error) throw new Error(error.code === "42501" || error.code === "PGRST116" ? "Sem permissão para lançar neste painel." : error.message);
         return { ...data, valor: Number(data.valor) };
+      },
+      async salvarGastos(lista) {
+        const { data, error } = await sb.from("financas_gastos").insert(lista.map(limparGasto)).select();
+        if (error) throw new Error(error.code === "42501" ? "Sem permissão para lançar neste painel." : error.message);
+        return (data || []).map((g) => ({ ...g, valor: Number(g.valor) }));
       },
       async apagarGasto(idGasto) {
         const { error } = await sb.from("financas_gastos").delete().eq("id", idGasto);

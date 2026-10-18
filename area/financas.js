@@ -1,6 +1,6 @@
 // Finanças pessoais (area/financas.html): carrega o painel de quem está logado e desenha com o código do painel
 // do projeto Financeiro. Aqui também se lançam os gastos do dia a dia (somam com os do projeto; os de cartão
-// entram na fatura), se classificam os lançamentos (categoria, subcategoria, essencial, conta e complemento, com a
+// entram na fatura; o extrato da conta traz os Pix, débitos e boletos de uma vez), se classificam os lançamentos (categoria, subcategoria, essencial, conta e complemento, com a
 // lista de categorias de cada pessoa), se guardam os PDFs das faturas e relatórios (as faturas que o site sabe ler
 // atualizam o cartão pelo botão Processar), fica a lista de desejos e se importa o arquivo do painel. Na importação,
 // o administrador escolhe de quem é o painel e pode atualizar junto as faturas da outra pessoa que vêm no arquivo,
@@ -12,6 +12,7 @@ import { desenharFinancas } from "./financas-painel.js";
 import { desenharDesejos } from "./financas-desejos.js";
 import { categoriaDe, contasDisponiveis, lerCategorias, normalizarCategoria } from "./financas-classificacao.js";
 import { aplicarFatura, historicoDeCategorias, lerFaturaPdf, manterFaturasDoSite, montarFatura } from "./financas-faturas.js";
+import { decodificarExtrato, lerExtrato, MOTIVOS, saidasDoExtrato } from "./financas-extrato.js";
 import { extrairLinhas } from "./pdf-texto.js";
 import { $, esc, avisar, opcoes, numeroDigitado, prepararDialogos, conferirPdf } from "./ui.js";
 
@@ -28,6 +29,7 @@ let cats = null; // lista de categorias em uso ({ lista, renomeadas })
 let ajustes = []; // classificação feita no site para os lançamentos do projeto
 let contas = []; // pessoal, engenharia e empresas (conforme as permissões)
 let faturaPdf = null; // fatura em PDF sendo processada: { caminho, nome, leitura, quem, montada, destino }
+let extrato = null; // extrato da conta sendo importado: { leitura, saidas, entradas }
 
 const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
 const brl = (v) => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -132,10 +134,20 @@ function preencherConta(form, atual) {
 const contaEscolhida = (form) => (contas.length > 1 && form.elements.conta.value !== "pessoal" ? form.elements.conta.value : null);
 
 // ---------------------------------------------------------------- gastos lançados pelo site
+// Forma de pagamento do último gasto lançado nesta visita: quem lança vários Pix seguidos não troca toda vez
+const FORMA_DA_VISITA = "mz-fin-forma";
+
 function abrirLancamento() {
   const form = $("#form-gasto");
   form.reset();
   form.elements.data.value = hojeISO();
+  try {
+    const forma = sessionStorage.getItem(FORMA_DA_VISITA);
+    const opcao = forma && form.querySelector(`[name=forma][value="${CSS.escape(forma)}"]`);
+    if (opcao) opcao.checked = true;
+  } catch {
+    /* sem armazenamento: começa no cartão */
+  }
   preencherCategorias(form, "", "");
   preencherConta(form, "pessoal");
   $("#erro-gasto").hidden = true;
@@ -185,6 +197,11 @@ async function lancarGasto(e) {
       observacao: form.elements.observacao.value,
     });
     gastos.push(salvo);
+    try {
+      sessionStorage.setItem(FORMA_DA_VISITA, salvo.forma);
+    } catch {
+      /* sem armazenamento: só não lembra */
+    }
     await guardarNaLista(categoria, subcategoria).catch(() => {});
     painel.atualizarGastos(gastos);
     painel.atualizarClassificacao({ categorias: cats });
@@ -532,10 +549,12 @@ function cartoesDoPainel() {
 
 const cartaoDe = (dados, quem) => (quem === "dono" ? dados.cartao : (dados[quem] || {}).cartao) || null;
 
-// Categorias que a pessoa já usou (com a classificação feita no site), para sugerir nas compras da fatura nova
+// Categorias que a pessoa já usou (com a classificação feita no site), para sugerir nas compras da fatura nova e
+// nas saídas do extrato
 function historicoPara(quem) {
   const d = registro.dados || {};
-  const fontes = registro.modo === "completo" ? [{ meses: d.meses }, { cartao: d.cartao, prefixo: "c" }] : [{ cartao: d.cartao, prefixo: "c" }];
+  const doSite = { meses: [{ lancamentos: gastos.map((g) => ({ data: g.data, desc: g.descricao, valor: g.valor, cat: g.categoria, sub: g.subcategoria, origem: "site", id: g.id })) }] };
+  const fontes = registro.modo === "completo" ? [{ meses: d.meses }, doSite, { cartao: d.cartao, prefixo: "c" }] : [{ cartao: d.cartao, prefixo: "c" }];
   if (quem !== "dono" && d[quem]) fontes.push({ cartao: d[quem].cartao, prefixo: "co" });
   return historicoDeCategorias(fontes, new Map(ajustes.map((a) => [a.chave, a])), cats);
 }
@@ -716,6 +735,123 @@ function prepararPdfs() {
   });
 }
 
+// ---------------------------------------------------------------- extrato da conta: Pix, débitos, boletos e saques
+const FORMA_NOME = { pix: "Pix", debito: "Débito", dinheiro: "Saque (dinheiro)" };
+
+function erroExtrato(texto) {
+  $("#erro-extrato").textContent = texto;
+  $("#erro-extrato").hidden = !texto;
+}
+
+function abrirExtrato() {
+  extrato = null;
+  $("#arquivo-extrato").value = "";
+  $("#previa-extrato").hidden = true;
+  $("#btn-confirmar-extrato").disabled = true;
+  $("#btn-confirmar-extrato").textContent = "Importar";
+  erroExtrato("");
+  $("#dlg-extrato").showModal();
+}
+
+// O que já está no painel fora do cartão (do projeto e lançado pelo site), para não importar duas vezes
+function lancadosForaDoCartao() {
+  const doProjeto = ((registro.dados && registro.dados.meses) || []).flatMap((m) => m.lancamentos || [])
+    .filter((l) => l.data && !/cart/i.test(l.forma || "")).map((l) => ({ data: l.data, valor: Number(l.valor) }));
+  return [...doProjeto, ...gastos.filter((g) => g.forma !== "cartao").map((g) => ({ data: g.data, valor: Number(g.valor) }))];
+}
+
+async function lerArquivoExtrato(arquivo) {
+  extrato = null;
+  erroExtrato("");
+  $("#previa-extrato").hidden = true;
+  $("#btn-confirmar-extrato").disabled = true;
+  try {
+    if (arquivo.size > 5 * 1024 * 1024) throw new Error("Arquivo grande demais para um extrato (até 5 MB).");
+    const leitura = lerExtrato(decodificarExtrato(new Uint8Array(await arquivo.arrayBuffer())), arquivo.name);
+    extrato = { leitura, ...saidasDoExtrato(leitura, { historico: historicoPara("dono"), jaNoPainel: lancadosForaDoCartao() }) };
+  } catch (e) {
+    erroExtrato(e.message);
+    return;
+  }
+  $("#lista-extrato").innerHTML = extrato.saidas.map((s, i) => `<tr class="${s.marcado ? "" : "fora"}">
+    <td><input type="checkbox" data-saida="${i}" ${s.marcado ? "checked" : ""} aria-label="Importar ${esc(s.descricao)}"></td>
+    <td class="num">${esc(dataBR(s.data).slice(0, 5))}</td>
+    <td>${esc(s.descricao)}<div class="sub">${FORMA_NOME[s.forma]} · ${esc(s.categoria)}${s.subcategoria ? ` › ${esc(s.subcategoria)}` : ""}${s.motivo ? ` · <span class="motivo">${esc(MOTIVOS[s.motivo])}</span>` : ""}</div></td>
+    <td class="r num">${brl(s.valor)}</td></tr>`).join("") || '<tr><td colspan="4">Nenhuma saída neste extrato.</td></tr>';
+  resumoExtrato();
+  $("#previa-extrato").hidden = false;
+}
+
+// Resumo e botão: mudam a cada saída marcada ou desmarcada
+function resumoExtrato() {
+  const { leitura, saidas, entradas } = extrato;
+  const marcadas = saidas.filter((s) => s.marcado);
+  const soma = (lista) => lista.reduce((t, s) => t + s.valor, 0);
+  const linha = (rotulo, valor) => `<div><dt>${rotulo}</dt><dd>${valor}</dd></div>`;
+  $("#previa-extrato-dados").innerHTML = [
+    linha("Extrato", esc(`${leitura.banco || "Banco não informado"} · ${leitura.formato}`)),
+    linha("Período", leitura.inicio && leitura.fim ? `${dataBR(leitura.inicio)} a ${dataBR(leitura.fim)}` : "—"),
+    linha("Saídas", `${plural(saidas.length, "saída", "saídas")} · ${brl(soma(saidas))}`),
+    linha("Entradas (não entram)", `${plural(entradas.quantidade, "entrada", "entradas")} · ${brl(entradas.total)}`),
+    linha("A importar", `${plural(marcadas.length, "gasto", "gastos")} · ${brl(soma(marcadas))}`),
+    linha("Ficam de fora", `${saidas.length - marcadas.length} (desmarcadas)`),
+  ].join("");
+  const botao = $("#btn-confirmar-extrato");
+  botao.disabled = !marcadas.length;
+  botao.textContent = marcadas.length ? `Importar ${plural(marcadas.length, "gasto", "gastos")}` : "Importar";
+}
+
+async function confirmarExtrato() {
+  const marcadas = extrato ? extrato.saidas.filter((s) => s.marcado) : [];
+  if (!marcadas.length) return;
+  const botao = $("#btn-confirmar-extrato");
+  botao.disabled = true;
+  botao.textContent = "Importando…";
+  erroExtrato("");
+  try {
+    const salvos = await armazem.financas.salvarGastos(marcadas.map((s) => ({
+      perfil_id: perfil.id, data: s.data, descricao: s.descricao, valor: s.valor, forma: s.forma, parcelas: 1,
+      categoria: s.categoria, subcategoria: s.subcategoria, conta: null, essencial: null, observacao: "",
+    })));
+    gastos.push(...salvos);
+    painel.atualizarGastos(gastos);
+    $("#dlg-extrato").close();
+    avisar(`${plural(salvos.length, "gasto importado", "gastos importados")} do extrato.`);
+    location.hash = "gastos";
+  } catch (e) {
+    erroExtrato("Não foi possível importar: " + e.message);
+    resumoExtrato();
+  }
+}
+
+function prepararExtrato() {
+  const zona = $("#soltar-extrato");
+  ["dragenter", "dragover"].forEach((ev) => zona.addEventListener(ev, (e) => {
+    e.preventDefault();
+    zona.classList.add("arrastando");
+  }));
+  ["dragleave", "drop"].forEach((ev) => zona.addEventListener(ev, () => zona.classList.remove("arrastando")));
+  zona.addEventListener("drop", (e) => {
+    e.preventDefault();
+    const arquivo = e.dataTransfer.files[0];
+    if (arquivo) lerArquivoExtrato(arquivo);
+  });
+  $("#arquivo-extrato").addEventListener("change", (e) => {
+    const arquivo = e.target.files[0];
+    if (arquivo) lerArquivoExtrato(arquivo);
+  });
+  $("#lista-extrato").addEventListener("change", (e) => {
+    const caixa = e.target.closest("[data-saida]");
+    if (!caixa || !extrato) return;
+    extrato.saidas[Number(caixa.dataset.saida)].marcado = caixa.checked;
+    caixa.closest("tr").classList.toggle("fora", !caixa.checked);
+    resumoExtrato();
+  });
+  $("#btn-confirmar-extrato").addEventListener("click", confirmarExtrato);
+  $("#btn-extrato").addEventListener("click", abrirExtrato);
+  $("#btn-lancar-topo").addEventListener("click", abrirLancamento);
+}
+
 // ---------------------------------------------------------------- importação do arquivo do painel
 function erro(texto) {
   $("#erro-fin").textContent = texto;
@@ -860,6 +996,7 @@ async function iniciar() {
   prepararImportacao();
   prepararPdfs();
   prepararFaturaPdf();
+  prepararExtrato();
   prepararClassificacao();
   prepararEdicaoCategorias();
 
@@ -908,6 +1045,9 @@ async function iniciar() {
   contas = contasDisponiveis(perfil, sessao.empresas);
   mostrarStatus();
   prepararLancamento();
+  // Lançar gasto (ou Pix) e importar o extrato ficam no topo, em qualquer aba
+  $("#btn-lancar-topo").hidden = registro.modo !== "completo";
+  $("#btn-extrato").hidden = registro.modo !== "completo";
   $("#fin-app").hidden = false;
   painel = desenharFinancas({
     dados: registro.dados,
@@ -918,6 +1058,7 @@ async function iniciar() {
     gastosSite: gastos,
     aoLancarGasto: registro.modo === "completo" ? abrirLancamento : null,
     aoApagarGasto: registro.modo === "completo" ? apagarGasto : null,
+    aoImportarExtrato: registro.modo === "completo" ? abrirExtrato : null,
     categorias: cats,
     ajustes,
     contas,

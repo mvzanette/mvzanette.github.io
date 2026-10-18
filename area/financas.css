@@ -338,3 +338,14 @@
 .lanc-fatura-pdf td:first-child { width: 1%; padding-right: 12px; }
 .lanc-fatura-pdf td.r { text-align: right; }
 .lanc-fatura-pdf .sub { color: #5f646b; font-size: 0.8rem; }
+
+/* ---------- Lançar gasto ou Pix e importar o extrato da conta ---------- */
+.fin .termometro-acoes { display: flex; flex-wrap: wrap; gap: 8px; }
+.extrato-lista { max-height: 380px; overflow: auto; margin-top: 14px; background: var(--white); border: 1px solid var(--gray-200); }
+.extrato-lista table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.extrato-lista td { padding: 6px 8px; border-bottom: 1px solid var(--gray-200); vertical-align: top; }
+.extrato-lista td:first-child, .extrato-lista td.num { width: 1%; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.extrato-lista td.r { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.extrato-lista .sub { color: #5f646b; font-size: 0.8rem; }
+.extrato-lista tr.fora td { color: #8a8f96; }
+.extrato-lista .motivo { color: #8a5608; font-weight: 600; }

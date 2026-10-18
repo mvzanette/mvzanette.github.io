@@ -39,7 +39,7 @@ function completar(dados) {
 // A classificação feita no site (categoria, subcategoria, essencial, conta e complemento) vale por cima do que veio
 // do projeto; atualizarClassificacao() redesenha depois de classificar ou de mudar a lista de categorias.
 export function desenharFinancas({ dados, carteira = null, modo = "completo", nome = "", linkClaude = null,
-  gastosSite = [], aoLancarGasto = null, aoApagarGasto = null,
+  gastosSite = [], aoLancarGasto = null, aoApagarGasto = null, aoImportarExtrato = null,
   categorias = null, ajustes = [], contas = [], aoClassificar = null, aoEditarCategorias = null, comDesejos = false }) {
   const D = completar(dados);
   let CATS = categorias || lerCategorias(null, dados);
@@ -264,7 +264,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   // ---------- Termômetro do mês: quanto do dinheiro do mês já está gasto ou comprometido ----------
   function renderTermometro(m, c) {
     const box = $id("g-termometro");
-    const botao = aoLancarGasto ? '<button type="button" class="btn" id="btn-lancar-gasto">Lançar gasto</button>' : "";
+    const botao = !aoLancarGasto ? "" : `<div class="termometro-acoes"><button type="button" class="btn" id="btn-lancar-gasto">Lançar gasto ou Pix</button>${aoImportarExtrato ? '<button type="button" class="btn btn-claro" id="btn-extrato-gastos">Importar extrato</button>' : ""}</div>`;
     if (!(c.receitas > 0)) {
       box.innerHTML = `<div class="termometro-topo"><div><div class="label">Uso do dinheiro de ${esc(m.rotulo)}</div><p class="muted" style="margin:6px 0 0">O percentual aparece quando as receitas do mês estiverem lançadas no projeto Financeiro.</p></div>${botao}</div>`;
     } else {
@@ -298,6 +298,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     }
     const b = $id("btn-lancar-gasto");
     if (b) b.onclick = aoLancarGasto;
+    const x = $id("btn-extrato-gastos");
+    if (x) x.onclick = aoImportarExtrato;
   }
 
   function renderMonths() {

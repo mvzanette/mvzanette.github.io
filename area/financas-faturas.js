@@ -48,6 +48,7 @@ const REGRAS = [
   [/\bIOF\b/, "Tarifas e encargos", "IOF"],
   [/JUROS|MULTA|ENCARGO|MORA\b/, "Tarifas e encargos", "Juros e multas"],
   [/ANUIDADE|ULTRAVIOLETA/, "Tarifas e encargos", "Anuidade"],
+  [/TARIFA|\bTAR\b|PACOTE (DE )?SERVI|CESTA (DE )?SERVI/, "Tarifas e encargos", "Tarifas bancárias"],
   [/POSTO|COMBUST|SHELL|IPIRANGA|PETROBRAS|\bBR MANIA\b/, "Transporte", "Combustível"],
   [/NUTAG|SEM PARAR|CONECTCAR|VELOE|PEDAGIO|\bTAG\b/, "Transporte", "Pedágio"],
   [/ESTACION|PARKING|PAYMOV|ESTAPAR|ZONA AZUL|\bPARK\b/, "Transporte", "Estacionamento"],
