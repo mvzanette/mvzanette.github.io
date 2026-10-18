@@ -57,6 +57,36 @@ function regrasPerfil(p) {
   return linha;
 }
 
+// Gasto lançado pelo site em Finanças pessoais: só as colunas da tabela, com tipos certos
+const FORMAS_GASTO = ["cartao", "pix", "debito", "dinheiro", "outro"];
+function limparGasto(g) {
+  const forma = FORMAS_GASTO.includes(g.forma) ? g.forma : "outro";
+  const valor = Math.round(Number(g.valor) * 100) / 100;
+  if (!(valor > 0)) throw new Error("Informe um valor maior que zero.");
+  if (!String(g.descricao || "").trim()) throw new Error("Informe a descrição do gasto.");
+  return {
+    perfil_id: g.perfil_id,
+    data: g.data,
+    descricao: String(g.descricao).trim().slice(0, 120),
+    valor,
+    forma,
+    parcelas: forma === "cartao" ? Math.min(48, Math.max(1, parseInt(g.parcelas, 10) || 1)) : 1,
+    categoria: String(g.categoria || "").trim().slice(0, 60) || null,
+    essencial: g.essencial === true || g.essencial === false ? g.essencial : null,
+    observacao: String(g.observacao || "").trim().slice(0, 300) || null,
+  };
+}
+
+// Nome guardado do PDF: data de envio na frente (evita sobrescrever) e só letras, números, ponto e hífen
+const nomeArquivoPdf = (nome) => {
+  const base = String(nome || "arquivo").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\.pdf$/i, "").replace(/[^\w.-]+/g, "_").slice(0, 80) || "arquivo";
+  return `${Date.now()}-${base}.pdf`;
+};
+const nomeOriginalPdf = (guardado) => guardado.replace(/^\d{10,}-/, "");
+// O cliente do Supabase envia o arquivo com o tipo que o navegador deu a ele (às vezes vazio) e os espaços
+// de arquivos só aceitam PDF: o arquivo, já conferido como PDF, vai sempre marcado como application/pdf
+const comoPdf = (arquivo) => arquivo.slice(0, arquivo.size, "application/pdf");
+
 const mensagemPerfil = (error) =>
   error.code === "23505" ? "Já existe um cadastro com este e-mail."
   : error.code === "23514" ? "Dados inválidos: confira o e-mail e o link do painel (precisa começar com https://)."
@@ -148,6 +178,8 @@ function armazemDemo() {
   const PERFIS = "mz-area-demo-perfis";
   const ACESSOS = "mz-area-demo-acessos";
   const FINANCAS = "mz-area-demo-financas";
+  const GASTOS = "mz-area-demo-financas-gastos";
+  const pdfsFinancas = []; // PDFs só durante a sessão
   const lerPerfis = () => lerJson(PERFIS, []);
   const eu = () => {
     const email = (sessao.ler() || "").toLowerCase();
@@ -263,6 +295,34 @@ function armazemDemo() {
         gravarJson(FINANCAS, todos);
         return structuredClone(todos[registro.perfil_id]);
       },
+      async gastos(perfilId) {
+        return lerJson(GASTOS, []).filter((g) => g.perfil_id === perfilId);
+      },
+      async salvarGasto(gasto) {
+        const p = eu();
+        if (!p || (p.papel !== "adm" && gasto.perfil_id !== p.id)) throw new Error("Sem permissão para lançar neste painel.");
+        const linha = { id: novoId(), criado_em: new Date().toISOString(), ...limparGasto(gasto) };
+        gravarJson(GASTOS, [...lerJson(GASTOS, []), linha]);
+        return structuredClone(linha);
+      },
+      async apagarGasto(idGasto) {
+        gravarJson(GASTOS, lerJson(GASTOS, []).filter((g) => g.id !== idGasto));
+      },
+      async pdfs(perfilId) {
+        return pdfsFinancas.filter((a) => a.caminho.startsWith(`${perfilId}/`)).map(({ url, ...a }) => a);
+      },
+      async enviarPdf(perfilId, arquivo) {
+        const guardado = nomeArquivoPdf(arquivo.name);
+        pdfsFinancas.unshift({ caminho: `${perfilId}/${guardado}`, nome: nomeOriginalPdf(guardado), tamanho: arquivo.size, criado_em: new Date().toISOString(), url: URL.createObjectURL(arquivo) });
+        return pdfsFinancas[0].caminho;
+      },
+      async urlPdf(caminho) {
+        return (pdfsFinancas.find((a) => a.caminho === caminho) || {}).url || null;
+      },
+      async apagarPdf(caminho) {
+        const i = pdfsFinancas.findIndex((a) => a.caminho === caminho);
+        if (i >= 0) pdfsFinancas.splice(i, 1);
+      },
     },
     async listar() {
       return structuredClone(estado.arts);
@@ -306,6 +366,7 @@ function armazemDemo() {
       gravarJson(PERFIS, []);
       gravarJson(ACESSOS, []);
       gravarJson(FINANCAS, {});
+      gravarJson(GASTOS, []);
     },
   };
 }
@@ -392,6 +453,46 @@ async function armazemSupabase(url, chave) {
         if (error) throw new Error(error.code === "42501" || error.code === "PGRST116" ? "Sem permissão para atualizar este painel." : error.message);
         return data;
       },
+      async gastos(perfilId) {
+        const { data, error } = await sb.from("financas_gastos").select("*").eq("perfil_id", perfilId).order("data");
+        if (error) throw new Error(/financas_gastos/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+        return (data || []).map((g) => ({ ...g, valor: Number(g.valor) }));
+      },
+      async salvarGasto(gasto) {
+        const { data, error } = await sb.from("financas_gastos").insert(limparGasto(gasto)).select().single();
+        if (error) throw new Error(error.code === "42501" || error.code === "PGRST116" ? "Sem permissão para lançar neste painel." : error.message);
+        return { ...data, valor: Number(data.valor) };
+      },
+      async apagarGasto(idGasto) {
+        const { error } = await sb.from("financas_gastos").delete().eq("id", idGasto);
+        falhou(error);
+      },
+      async pdfs(perfilId) {
+        const { data, error } = await sb.storage.from("financas").list(perfilId, { limit: 200, sortBy: { column: "created_at", order: "desc" } });
+        falhou(error);
+        return (data || [])
+          .filter((o) => o.id && /\.pdf$/i.test(o.name))
+          .map((o) => ({ caminho: `${perfilId}/${o.name}`, nome: nomeOriginalPdf(o.name), tamanho: o.metadata ? o.metadata.size : null, criado_em: o.created_at }));
+      },
+      async enviarPdf(perfilId, arquivo) {
+        const caminho = `${perfilId}/${nomeArquivoPdf(arquivo.name)}`;
+        const { error } = await sb.storage.from("financas").upload(caminho, comoPdf(arquivo), { contentType: "application/pdf", upsert: false });
+        if (error) {
+          const m = String(error.message || "");
+          throw new Error(/size|exceed|large/i.test(m) ? "O PDF passa de 20 MB." : /mime|type/i.test(m) ? "Só arquivos PDF são aceitos."
+            : /row-level|policy|unauthorized/i.test(m) ? "Sem permissão para guardar PDFs neste painel." : /bucket/i.test(m) ? BANCO_DESATUALIZADO : m);
+        }
+        return caminho;
+      },
+      async urlPdf(caminho) {
+        const { data, error } = await sb.storage.from("financas").createSignedUrl(caminho, 600);
+        falhou(error);
+        return data.signedUrl;
+      },
+      async apagarPdf(caminho) {
+        const { error } = await sb.storage.from("financas").remove([caminho]);
+        falhou(error);
+      },
     },
     async listar() {
       const { data, error } = await sb.from("arts").select("*").order("fim", { ascending: true, nullsFirst: false });
@@ -415,7 +516,7 @@ async function armazemSupabase(url, chave) {
     },
     async enviarPdf(art, arquivo) {
       const caminho = `pdf/${art.numero.replace(/[^\w.-]/g, "_")}.pdf`;
-      const { error } = await sb.storage.from("arts").upload(caminho, arquivo, { upsert: true, contentType: "application/pdf" });
+      const { error } = await sb.storage.from("arts").upload(caminho, comoPdf(arquivo), { upsert: true, contentType: "application/pdf" });
       falhou(error);
       return caminho;
     },

@@ -3,6 +3,7 @@ import { abrirPagina } from "./sessao.js";
 import * as R from "./regras.js";
 import { extrairLinhas } from "./pdf-texto.js";
 import { lerPdf } from "./leitores.js";
+import { conferirPdf } from "./ui.js";
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -320,8 +321,13 @@ function abrirArt(id, opcoes = {}) {
       avisar(`Já existe uma ART com o número ${dados.numero}.`);
       return null;
     }
-    let salvo = await armazem.salvar(dados);
     const arquivo = form.elements.pdf && form.elements.pdf.files[0];
+    const problema = arquivo && (await conferirPdf(arquivo));
+    if (problema) {
+      avisar(problema);
+      return null;
+    }
+    let salvo = await armazem.salvar(dados);
     if (arquivo) salvo = await armazem.salvar({ ...salvo, pdf_path: await armazem.enviarPdf(salvo, arquivo) });
     await recarregar();
     return salvo;
@@ -423,6 +429,11 @@ async function processarArquivos(arquivos) {
   const pdfjs = await carregarPdfjs();
   const mensagens = [];
   for (const arquivo of arquivos) {
+    const problema = await conferirPdf(arquivo);
+    if (problema) {
+      mensagens.push(`<p class="erro">${esc(problema)}</p>`);
+      continue;
+    }
     try {
       const linhas = await extrairLinhas(pdfjs, new Uint8Array(await arquivo.arrayBuffer()));
       const { formato, arts: lidas } = lerPdf(linhas);

@@ -259,3 +259,21 @@
   .fin-previa dl { grid-template-columns: 1fr; }
   .fin h1 { font-size: 1.2rem; }
 }
+
+/* ---------- Termômetro do mês (topo dos gastos do dia a dia) ---------- */
+.fin .termometro { margin-bottom: 18px; border-top-color: var(--yellow); }
+.fin .termometro-topo { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 12px 20px; }
+.fin .termometro-pct { font: 700 clamp(2.6rem, 9vw, 3.6rem)/1.05 var(--font-head); font-variant-numeric: tabular-nums; margin: 4px 0 2px; }
+.fin .termometro-pct.ok { color: var(--ok); }
+.fin .termometro-pct.warn { color: var(--warn); }
+.fin .termometro-pct.bad { color: var(--bad); }
+.fin .termometro-barra { margin-top: 18px; }
+.fin #g-alertas { display: grid; gap: 8px; margin: 0 0 18px; }
+.fin #g-alertas:empty { display: none; }
+
+/* ---------- PDFs das finanças e lançamento de gasto ---------- */
+.fin #pdfs-lista .file .acoes { margin: 0; }
+.opcao-linha { display: flex !important; align-items: flex-start; gap: 10px; text-transform: none !important; letter-spacing: 0 !important; font: 400 0.92rem var(--font-body) !important; }
+.opcao-linha input { margin-top: 3px; }
+.dialogo-gasto { width: min(640px, calc(100% - 24px)); }
+.campo-parcelas { margin-top: 12px; max-width: 220px; }

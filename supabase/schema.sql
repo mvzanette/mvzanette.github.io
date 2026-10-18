@@ -176,6 +176,25 @@ create table if not exists public.financas (
   atualizado_por uuid default auth.uid() references auth.users (id) on delete set null
 );
 
+-- Gastos lançados pelo site em Finanças pessoais. Somam com os do projeto Financeiro no painel;
+-- os de cartão entram na fatura (parcelados, uma parcela por fatura).
+create table if not exists public.financas_gastos (
+  id          uuid primary key default gen_random_uuid(),
+  perfil_id   uuid not null references public.perfis (id) on delete cascade,
+  data        date not null default current_date,
+  descricao   text not null check (length(trim(descricao)) > 0),
+  valor       numeric(12, 2) not null check (valor > 0),
+  forma       text not null check (forma in ('cartao', 'pix', 'debito', 'dinheiro', 'outro')),
+  parcelas    integer not null default 1 check (parcelas between 1 and 48),
+  categoria   text,
+  essencial   boolean,
+  observacao  text,
+  criado_em   timestamptz not null default now(),
+  criado_por  uuid default auth.uid() references auth.users (id) on delete set null
+);
+
+create index if not exists financas_gastos_perfil_data_idx on public.financas_gastos (perfil_id, data);
+
 -- ------------------------------------------------------------
 -- Funções e gatilhos
 -- ------------------------------------------------------------
@@ -354,12 +373,13 @@ alter table public.lancamentos enable row level security;
 alter table public.perfis enable row level security;
 alter table public.acessos enable row level security;
 alter table public.financas enable row level security;
+alter table public.financas_gastos enable row level security;
 
 -- Acesso pela API, mesmo em projetos criados sem expor tabelas novas
 -- automaticamente. As políticas abaixo continuam decidindo quais linhas cada um vê.
 grant usage on schema public to authenticated, service_role;
 grant select, insert, update, delete
-  on public.arts, public.alertas, public.demandas, public.lancamentos, public.perfis, public.financas
+  on public.arts, public.alertas, public.demandas, public.lancamentos, public.perfis, public.financas, public.financas_gastos
   to authenticated, service_role;
 grant select on public.acessos to authenticated;
 grant select, insert, update, delete on public.acessos to service_role;
@@ -430,6 +450,18 @@ create policy "financas do proprio perfil" on public.financas
     or ((select public.pode('financas')) and perfil_id in (select id from public.perfis where user_id = auth.uid()))
   );
 
+drop policy if exists "gastos do proprio perfil" on public.financas_gastos;
+create policy "gastos do proprio perfil" on public.financas_gastos
+  for all to authenticated
+  using (
+    (select public.eh_adm())
+    or ((select public.pode('financas')) and perfil_id in (select id from public.perfis where user_id = auth.uid()))
+  )
+  with check (
+    (select public.eh_adm())
+    or ((select public.pode('financas')) and perfil_id in (select id from public.perfis where user_id = auth.uid()))
+  );
+
 -- Histórico: cada um vê o próprio; o administrador vê todos. Só a função registrar_acesso grava.
 drop policy if exists "acessos - ler" on public.acessos;
 create policy "acessos - ler" on public.acessos
@@ -437,11 +469,15 @@ create policy "acessos - ler" on public.acessos
   using (user_id = auth.uid() or (select public.eh_adm()));
 
 -- ------------------------------------------------------------
--- PDFs das ARTs: armazenamento privado, aberto a quem tem o módulo de ART
+-- Arquivos: só PDF, até 20 MB, em espaços privados
+--   arts:     PDFs das ARTs, abertos a quem tem o módulo de ART
+--   financas: faturas, relatórios e outros PDFs das finanças pessoais, uma pasta por pessoa
 -- ------------------------------------------------------------
-insert into storage.buckets (id, name, public)
-values ('arts', 'arts', false)
-on conflict (id) do nothing;
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('arts', 'arts', false, 20971520, '{application/pdf}'),
+       ('financas', 'financas', false, 20971520, '{application/pdf}')
+on conflict (id) do update
+  set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
 
 drop policy if exists "pdfs do proprio usuario - ler" on storage.objects;
 drop policy if exists "pdfs do proprio usuario - enviar" on storage.objects;
@@ -467,3 +503,28 @@ drop policy if exists "pdfs das arts - apagar" on storage.objects;
 create policy "pdfs das arts - apagar" on storage.objects
   for delete to authenticated
   using (bucket_id = 'arts' and (select public.pode('art')));
+
+-- PDFs das finanças: cada pessoa na própria pasta (nome da pasta = id do perfil); o administrador em todas
+drop policy if exists "pdfs das financas - ler" on storage.objects;
+create policy "pdfs das financas - ler" on storage.objects
+  for select to authenticated
+  using (bucket_id = 'financas' and ((select public.eh_adm())
+    or ((select public.pode('financas')) and (storage.foldername(name))[1] in (select id::text from public.perfis where user_id = auth.uid()))));
+
+drop policy if exists "pdfs das financas - enviar" on storage.objects;
+create policy "pdfs das financas - enviar" on storage.objects
+  for insert to authenticated
+  with check (bucket_id = 'financas' and ((select public.eh_adm())
+    or ((select public.pode('financas')) and (storage.foldername(name))[1] in (select id::text from public.perfis where user_id = auth.uid()))));
+
+drop policy if exists "pdfs das financas - atualizar" on storage.objects;
+create policy "pdfs das financas - atualizar" on storage.objects
+  for update to authenticated
+  using (bucket_id = 'financas' and ((select public.eh_adm())
+    or ((select public.pode('financas')) and (storage.foldername(name))[1] in (select id::text from public.perfis where user_id = auth.uid()))));
+
+drop policy if exists "pdfs das financas - apagar" on storage.objects;
+create policy "pdfs das financas - apagar" on storage.objects
+  for delete to authenticated
+  using (bucket_id = 'financas' and ((select public.eh_adm())
+    or ((select public.pode('financas')) and (storage.foldername(name))[1] in (select id::text from public.perfis where user_id = auth.uid()))));

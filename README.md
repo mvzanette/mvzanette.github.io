@@ -160,9 +160,17 @@ Perfis de acesso:
 Separado do Controle financeiro da engenharia: é o **painel do projeto Financeiro** dentro da área, com as quatro abas do painel original (**visão geral** do mês, **gastos do dia a dia**, **cartão e faturas** e **investimentos**) e os mesmos cálculos.
 
 - **Cada pessoa vê só o próprio painel.** Os dados ficam no banco, protegidos pelo login e pelas regras de acesso, e nunca no código do site (que é público).
-- **Para atualizar:** em Finanças pessoais, **Atualizar dados** e escolha o arquivo HTML do painel gerado pelo projeto Financeiro (o mesmo arquivo do painel; se precisar, peça no chat do projeto). O site lê os dados do arquivo, mostra um resumo e grava. A lista de arquivos do computador e as anotações internas do arquivo não são importadas.
-- **Faturas de outra pessoa:** quando o arquivo traz as faturas de alguém da família, o administrador escolhe na importação o painel dessa pessoa; ela passa a ver só o próprio cartão e as próprias faturas, sem nenhum dado do dono do painel.
-- **Abrir no Claude** (opcional): o envio de faturas novas e os PDFs dos relatórios continuam no painel original. Cadastre o link do painel no Claude no cadastro da pessoa, em Usuários e permissões.
+- **Uso do dinheiro do mês:** a aba Gastos do dia a dia começa pela porcentagem das receitas do mês que já está gasta ou comprometida (investimento, cartão, Pix, débito, dinheiro e fixos que ainda vão cair), com a barra dividida por tipo e a marca de 85%. Logo abaixo vêm os alertas: a partir de **85% usado**, **saldo negativo** e os do cartão (fatura acima ou perto da sua previsão). Os mesmos alertas aparecem na visão geral.
+- **Lançar gasto:** pelo botão da aba Gastos, com valor, descrição, data, categoria, forma de pagamento e, se quiser, essencial ou não. Os gastos lançados pelo site somam com os do projeto Financeiro (aparecem com a marca "lançado no site" e podem ser apagados ali):
+  - **no cartão**, o gasto entra na fatura do mês; **parcelado**, cada parcela cai numa fatura e a compra aparece em "Compras parceladas a vencer";
+  - Pix, débito e dinheiro saem do saldo do mês na hora;
+  - se o mesmo gasto (mesma data e mesmo valor) já estiver no projeto Financeiro, ele não conta duas vezes.
+
+  Os lançados aqui ficam no site e continuam valendo depois de cada importação; o projeto Financeiro no Claude não os recebe sozinho.
+- **PDFs das faturas e relatórios:** na aba Cartão e faturas, **Enviar PDF** guarda o arquivo em armazenamento privado, numa pasta de cada pessoa (só PDF, até 20 MB; o site confere se o arquivo é mesmo um PDF antes de enviar). A lista tem **Abrir** (link temporário, válido por 10 minutos) e **Apagar**. O site guarda o PDF, mas não lê os valores dele: os números das faturas continuam vindo do projeto Financeiro.
+- **Para atualizar os dados:** em Finanças pessoais, **Atualizar dados** e escolha o arquivo HTML do painel gerado pelo projeto Financeiro (o mesmo arquivo do painel; se precisar, peça no chat do projeto). O site lê os dados do arquivo, mostra um resumo e grava. A lista de arquivos do computador e as anotações internas do arquivo não são importadas. Esse botão não recebe PDF (para PDFs, use Enviar PDF).
+- **Faturas de outra pessoa e carteira conjunta:** quando o arquivo traz as faturas de alguém da família, o administrador escolhe na importação o painel dessa pessoa; ela passa a ver só o próprio cartão e as próprias faturas, sem nenhum dado do dono do painel. Com **"Mostrar também a carteira de investimentos"** marcado, a carteira conjunta (com os aportes mensais de cada um) vai junto e aparece na aba Investimentos dessa pessoa.
+- **Abrir no Claude** (opcional): a leitura de faturas novas continua no painel original. Cadastre o link do painel no Claude no cadastro da pessoa, em Usuários e permissões.
 
 ## Painel gerencial
 
@@ -191,7 +199,7 @@ Fica em `area/painel.html`. Cada bloco aparece só para quem tem permissão no m
 
 ## Controle de ART
 
-- **Importa PDFs com leitura automática:** ART individual do CREA-MG e do CREA-RJ, e o relatório "ARTs (Todas)" do CREA-MG (várias ARTs de uma vez). O CREA-SP ainda não tem leitor (falta um PDF de exemplo); por enquanto, cadastre manualmente.
+- **Importa PDFs com leitura automática** (só PDF, até 20 MB por arquivo): ART individual do CREA-MG e do CREA-RJ, e o relatório "ARTs (Todas)" do CREA-MG (várias ARTs de uma vez). O CREA-SP ainda não tem leitor (falta um PDF de exemplo); por enquanto, cadastre manualmente.
 - **Quadro de ARTs:** ativas, que vencem em até 30 dias, vencidas sem baixa e baixadas, com busca e filtros por CREA e situação.
 - **Alertas** na plataforma (sino) e por e-mail, com base no **fim previsto** da ART:
   - 30 dias antes: "Daqui a 30 dias a ART nº … do cliente … vencerá (fim previsto em …)."
@@ -246,7 +254,8 @@ Observações:
 ## Segurança e privacidade
 
 - O código do site é público, mas os dados não: ficam no Supabase, protegidos pelo login e por regras de acesso no banco. Só entra quem tem cadastro ativo, cada módulo só abre para quem tem permissão e clientes nunca acessam os módulos profissionais. Os PDFs ficam em armazenamento privado.
-- As finanças pessoais ficam no banco, um painel por pessoa: só a própria pessoa e o administrador (que faz a importação) acessam. Nenhum valor, nome ou cartão fica no código do site.
+- As finanças pessoais ficam no banco, um painel por pessoa: só a própria pessoa e o administrador (que faz a importação) acessam. A carteira de investimentos conjunta aparece só nos painéis em que o administrador a incluiu. Os gastos lançados e os PDFs das finanças seguem a mesma regra (cada pessoa só os próprios). Nenhum valor, nome ou cartão fica no código do site.
+- Os espaços de arquivos (PDFs das ARTs e das finanças) só aceitam PDF, até 20 MB.
 - **Nunca** coloque PDFs de ART, relatórios ou planilhas exportadas dentro do repositório (o `.gitignore` já bloqueia `.pdf`, `.csv` e `.xlsx`).
 - A chave Secret (`sb_secret_…` ou `service_role`) dá acesso total ao banco: guarde-a só nos *Secrets* do GitHub, no `SUPABASE_SERVICE_ROLE_KEY`.
 

@@ -33,11 +33,13 @@ function completar(dados) {
   return d;
 }
 
-// Desenha o painel uma vez por página (depois de importar dados novos, a página é recarregada)
-export function desenharFinancas({ dados, carteira = null, modo = "completo", nome = "", linkClaude = null }) {
+// Desenha o painel uma vez por página (depois de importar dados novos, a página é recarregada).
+// Os gastos lançados pelo site entram junto com os do projeto; atualizarGastos() redesenha depois de lançar ou apagar.
+export function desenharFinancas({ dados, carteira = null, modo = "completo", nome = "", linkClaude = null,
+  gastosSite = [], aoLancarGasto = null, aoApagarGasto = null }) {
   const D = completar(dados);
   const SO_FATURAS = modo === "faturas";
-  const CARTEIRA = SO_FATURAS ? null : carteira;
+  const CARTEIRA = carteira || null;
   const TEM_NOME = !!String(nome || "").trim();
   const DONO = TEM_NOME ? String(nome).trim().split(/\s+/)[0] : "Você";
   const OUTRA = SO_FATURAS ? null : outrasPessoas(D)[0] || null;
@@ -67,7 +69,57 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   const OUTRAS_NORMAL = (() => { for (const m of [...D.meses].reverse()) { const o = m.receitas.filter(r => r.fonte !== "Empresa" && r.liquido != null); if (o.length) return sum(o, r => r.liquido); } return 0; })();
   const RECEITA_PREVISTA = SAL_NORMAL + OUTRAS_NORMAL;
 
-  let atual = D.meses.find(m => m.chave === hojeKey) || [...D.meses].reverse().find(m => m.chave <= hojeKey) || D.meses[0];
+  // ---------- Gastos lançados pelo site: entram nos meses como os do projeto (os de cartão, na fatura) ----------
+  const ORIGINAL = {meses: structuredClone(D.meses), comprometido: structuredClone(D.cartao.comprometido)};
+  const FORMAS_SITE = {cartao: "Cartão de crédito", pix: "Pix", debito: "Débito", dinheiro: "Dinheiro", outro: "Outro"};
+  const faturaSeguinte = (rotulo, k) => {
+    const [mm, yy] = String(rotulo || "").split("/");
+    const i = MES.indexOf(mm);
+    if (i < 0 || !yy) return null;
+    const [a, m] = nextYM(2000 + Number(yy), i + 1, k);
+    return lbl(a, m);
+  };
+  let duplicados = 0;
+  let parcelasSite = []; // compras parceladas lançadas pelo site, para a lista de parceladas a vencer
+  let atual = null;
+  function mesclarGastosSite(lista) {
+    D.meses = structuredClone(ORIGINAL.meses);
+    D.cartao.comprometido = structuredClone(ORIGINAL.comprometido);
+    duplicados = 0;
+    parcelasSite = [];
+    for (const g of lista || []) {
+      const chave = String(g.data).slice(0, 7);
+      let m = D.meses.find(x => x.chave === chave);
+      if (!m) {
+        const [a, mes] = chave.split("-").map(Number);
+        const [fa, fm] = nextYM(a, mes);
+        m = {chave, rotulo: lbl(a, mes), ano: a, mes, fatura: lbl(fa, fm), lancamentos: [], receitas: [], compromissos: []};
+        D.meses.push(m);
+        D.meses.sort((x, y) => x.chave.localeCompare(y.chave));
+      }
+      const parcelas = g.forma === "cartao" ? Math.max(1, g.parcelas || 1) : 1;
+      const valor = Math.round(g.valor / parcelas * 100) / 100;
+      // O mesmo gasto já anotado no projeto (mesma data e mesmo valor) não conta de novo
+      if (m.lancamentos.some(l => l.origem !== "site" && l.data === g.data && Math.abs(l.valor - valor) < 0.01)) { duplicados++; continue; }
+      m.lancamentos.push({data: g.data, desc: g.descricao, valor, forma: FORMAS_SITE[g.forma] || "Outro", cat: g.categoria || "Outros",
+        parcelas: parcelas > 1 ? `1/${parcelas}` : null, obs: g.observacao || "",
+        essencial: g.essencial === true ? "Essencial" : g.essencial === false ? "Não essencial" : null, origem: "site", id: g.id});
+      // Parcelado no cartão: as próximas parcelas entram nas faturas seguintes, a não ser que a compra já
+      // apareça numa fatura processada pelo projeto (aí as parcelas já estão contadas)
+      if (parcelas > 1 && !D.cartao.lancamentos.some(l => l.data === g.data && Math.abs(l.valor - valor) < 0.01)) {
+        for (let k = 1; k < parcelas; k++) {
+          const fat = faturaSeguinte(m.fatura, k);
+          if (fat) D.cartao.comprometido[fat] = Math.round(((D.cartao.comprometido[fat] || 0) + valor) * 100) / 100;
+        }
+        parcelasSite.push({nome: g.descricao, valor, faturas: Array.from({length: parcelas}, (_, k) => faturaSeguinte(m.fatura, k))});
+      }
+    }
+    D.meses.forEach(x => x.lancamentos.sort((p, q) => String(p.data).localeCompare(String(q.data))));
+    if (atual) atual = D.meses.find(x => x.chave === atual.chave) || atual;
+  }
+  mesclarGastosSite(gastosSite);
+
+  atual = D.meses.find(m => m.chave === hojeKey) || [...D.meses].reverse().find(m => m.chave <= hojeKey) || D.meses[0];
   { const s = lembrar("mes"); if (s && D.meses.some(m => m.chave === s) && s >= hojeKey) atual = D.meses.find(m => m.chave === s); }
 
   const snapDe = m => (AB && AB.mes_compras === m.chave ? AB : null);
@@ -158,7 +210,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     return {faltam, porDia, fecha, projecao: c.cartao - depois + Math.max(depois, porDia * decorridos) + porDia * faltam};
   }
 
-  function alertas(m, c) {
+  const porcento = v => `${Math.round(v * 100).toLocaleString("pt-BR")}%`;
+  function listaAlertas(m, c) {
     const a = [];
     if (META != null) {
       if (c.snap) {
@@ -169,20 +222,70 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       } else {
         const base = c.parcelas + c.fixosCartao;
         if (c.cartao > META) a.push({c: "bad", h: `A fatura de ${m.fatura} vai passar da sua previsão.`, t: `Já soma ${brl(c.cartao)}, ${brl(c.cartao - META)} acima dos ${brl(META)}.`});
-        else a.push({c: "info", h: `A fatura de ${m.fatura} começa com ${brl(base)} comprometidos.`, t: `São ${brl(c.parcelas)} de parcelas e ${brl(c.fixosCartao)} de fixos. Para ficar nos ${brl(META)}, cabem mais ${brl(META - c.cartao)} em compras no cartão em ${esc(m.rotulo)}.`});
+        else a.push({c: "info", h: `A fatura de ${m.fatura} começa com ${brl(base)} comprometidos.`, t: `São ${brl(c.parcelas)} de parcelas e ${brl(c.fixosCartao)} de fixos. Para ficar nos ${brl(META)}, cabem mais ${brl(META - c.cartao)} em compras no cartão em ${m.rotulo}.`});
       }
       if (m.chave === hojeKey) {
         const ult = D.cartao.faturas.at(-1);
         if (ult && ult.total > META) a.push({c: "warn", h: `A última fatura fechada (${ult.mes}) foi de ${brl(ult.total)}.`, t: `Ficou ${brl(ult.total - META)} acima da previsão de ${brl(META)}.`});
       }
     }
-    if (c.saldo < 0) a.push({c: "bad", h: `O saldo de ${esc(m.rotulo)} está negativo.`, t: `Faltam ${brl(-c.saldo)} para fechar o mês com o que já está gasto e previsto.`});
     if (AB && m.chave === hojeKey) (AB.novas_parcelas || []).forEach(n => {
       const [pa, pm] = (() => { const [mm, yy] = n.primeira_fatura.split("/"); return [2000 + Number(yy), MES.indexOf(mm) + 1]; })();
       const [ua, um] = nextYM(pa, pm, n.parcelas - 1);
       a.push({c: "info", h: `Nova compra parcelada: ${n.nome}.`, t: `${n.parcelas}x de ${brl(n.valor)} até a fatura de ${lbl(ua, um)}, somando ${brl(n.total != null ? n.total : n.valor * n.parcelas)}.`});
     });
-    $id("alertas").innerHTML = a.map(x => `<div class="alert ${x.c}" role="${x.c === "bad" ? "alert" : "status"}"><span class="sev"></span><div><b>${esc(x.h)}</b> ${esc(x.t)}</div></div>`).join("");
+    // O uso do dinheiro do mês vem antes dos outros: saldo negativo, ou 85% ou mais já usados
+    if (c.saldo < 0) a.unshift({c: "bad", h: `O saldo de ${m.rotulo} está negativo.`, t: `Faltam ${brl(-c.saldo)} para fechar o mês com o que já está gasto e previsto.`});
+    else if (c.receitas > 0 && (c.receitas - c.saldo) / c.receitas >= 0.85) {
+      a.unshift({c: "warn", h: `Você já usou ${porcento((c.receitas - c.saldo) / c.receitas)} do dinheiro de ${m.rotulo}.`,
+        t: `Sobram ${brl(c.saldo)} para o resto do mês${c.dias ? `, ${brl(c.saldo / c.dias)} por dia` : ""}.`});
+    }
+    return a;
+  }
+  const htmlAlertas = a => a.map(x => `<div class="alert ${x.c}" role="${x.c === "bad" ? "alert" : "status"}"><span class="sev"></span><div><b>${esc(x.h)}</b> ${esc(x.t)}</div></div>`).join("");
+  function alertas(m, c) {
+    const html = htmlAlertas(listaAlertas(m, c));
+    $id("alertas").innerHTML = html;
+    $id("g-alertas").innerHTML = html;
+  }
+
+  // ---------- Termômetro do mês: quanto do dinheiro do mês já está gasto ou comprometido ----------
+  function renderTermometro(m, c) {
+    const box = $id("g-termometro");
+    const botao = aoLancarGasto ? '<button type="button" class="btn" id="btn-lancar-gasto">Lançar gasto</button>' : "";
+    if (!(c.receitas > 0)) {
+      box.innerHTML = `<div class="termometro-topo"><div><div class="label">Uso do dinheiro de ${esc(m.rotulo)}</div><p class="muted" style="margin:6px 0 0">O percentual aparece quando as receitas do mês estiverem lançadas no projeto Financeiro.</p></div>${botao}</div>`;
+    } else {
+      const usado = c.receitas - c.saldo;
+      const uso = usado / c.receitas;
+      const nivel = uso >= 1 ? "bad" : uso >= 0.85 ? "warn" : "ok";
+      const escala = Math.max(c.receitas, usado);
+      const w = v => `${(Math.max(0, v) / escala * 100).toFixed(2)}%`;
+      const segs = c.linhas.filter(l => l.v > 0);
+      const gastosDia = sum(m.lancamentos, l => l.valor);
+      const doSite = m.lancamentos.filter(l => l.origem === "site").length;
+      box.innerHTML = `
+        <div class="termometro-topo">
+          <div>
+            <div class="label">Uso do dinheiro de ${esc(m.rotulo)}</div>
+            <div class="termometro-pct ${nivel}">${porcento(uso)}</div>
+            <div class="sub">${brl(usado)} de ${brl(c.receitas)} já gastos ou comprometidos · ${c.saldo >= 0 ? `sobram ${brl(c.saldo)}${c.dias ? ` (${brl(c.saldo / c.dias)} por dia)` : ""}` : `faltam ${brl(-c.saldo)}`}</div>
+          </div>
+          ${botao}
+        </div>
+        <div class="meter termometro-barra" role="img" aria-label="${porcento(uso)} do dinheiro do mês usado">
+          <div class="bar">${segs.map(l => `<span style="width:${w(l.v)};background:${l.cor}"></span>`).join("")}</div>
+          <span class="metaline" style="left:${w(c.receitas * 0.85)}"></span><span class="metalbl" style="left:${w(c.receitas * 0.85)}">85%</span>
+        </div>
+        <div class="legend">${segs.map(l => `<span><i style="background:${l.cor}"></i>${l.leg} ${porcento(l.v / c.receitas)}</span>`).join("")}<span><i style="background:var(--line)"></i>Livre ${porcento(Math.max(0, c.saldo) / c.receitas)}</span></div>
+        <div class="kv" style="margin-top:14px">
+          <div><span class="label">Gastos do dia a dia</span><b>${brl(gastosDia)} · ${porcento(gastosDia / c.receitas)} do mês</b></div>
+          <div><span class="label">Cartão (fatura ${esc(m.fatura)})</span><b>${brl(c.cartao)}${META != null ? ` · ${porcento(c.cartao / META)} da previsão` : ""}</b></div>
+        </div>
+        ${doSite ? `<p class="sub" style="margin:10px 0 0">${doSite} ${doSite === 1 ? "gasto lançado" : "gastos lançados"} pelo site neste mês.${duplicados ? ` ${duplicados === 1 ? "Um já estava" : `${duplicados} já estavam`} no projeto Financeiro e não contou de novo.` : ""}</p>` : ""}`;
+    }
+    const b = $id("btn-lancar-gasto");
+    if (b) b.onclick = aoLancarGasto;
   }
 
   function renderMonths() {
@@ -366,11 +469,12 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     L.forEach(l => (porData[l.data] ||= []).push(l));
     const datas = Object.keys(porData).sort().reverse();
     $id("g-itens").innerHTML = L.length ? datas.map(d => `<div class="dgroup"><div class="dhead"><span>${dBR(d)} · ${diaSemana(d)}</span><span class="num">${brl(sum(porData[d], l => l.valor))}</span></div>
-      <table><tbody>${porData[d].map(l => `<tr><td>${esc(l.desc)}${ehAjuste(l) ? ' <span class="chip neutral">ajuste</span>' : ""}
+      <table><tbody>${porData[d].map(l => `<tr><td>${esc(l.desc)}${ehAjuste(l) ? ' <span class="chip neutral">ajuste</span>' : ""}${l.origem === "site" ? ' <span class="chip info">lançado no site</span>' : ""}
         <div class="sub">${esc(catDe(l))} · ${esc(l.forma || "")}${l.parcelas ? ` · parcela ${esc(l.parcelas)}` : ""}${l.essencial ? ` · ${esc(l.essencial.toLowerCase())}` : ""}${l.obs && !ehAjuste(l) ? ` · ${esc(l.obs)}` : ""}</div></td>
-        <td class="r num">${n(l.valor)}</td></tr>`).join("")}</tbody></table></div>`).join("")
+        <td class="r num">${n(l.valor)}${l.origem === "site" && aoApagarGasto ? `<div><button type="button" class="btn sec mini" data-apagar-gasto="${esc(l.id)}">Apagar</button></div>` : ""}</td></tr>`).join("")}</tbody></table></div>`).join("")
       + `<p class="sub" style="margin:10px 0 0">${L.length} ${L.length === 1 ? "lançamento" : "lançamentos"} · total ${brl(sum(L, l => l.valor))}</p>`
       : `<p class="muted" style="margin:6px 0 0">${m.lancamentos.length ? "Nenhum lançamento com esses filtros." : `Nenhum gasto lançado em ${esc(m.rotulo)}.`}</p>`;
+    $id("g-itens").querySelectorAll("[data-apagar-gasto]").forEach(b => { b.onclick = () => aoApagarGasto(b.dataset.apagarGasto); });
   }
 
   // ---------- Cartão e faturas ----------
@@ -486,13 +590,23 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       ${ult ? `<p class="muted" style="font-size:.85rem;margin:10px 0 0">Limite usado na última fatura fechada: <span class="num">${brl(ult.limite_usado)}</span> de <span class="num">${brl(ult.limite)}</span>.${AB && Object.keys(AB.proximas || {}).length ? ` As faturas de ${Object.keys(AB.proximas).map(esc).join(" e ")} vêm do app; as seguintes somam as parcelas conhecidas.` : ""}</p>` : ""}`;
   }
 
+  // Parceladas lançadas pelo site: só as parcelas das faturas que ainda não fecharam
+  function parceladasDoSite() {
+    if (QUEM !== "dono" || SO_FATURAS) return [];
+    const fechadas = new Set(D.cartao.faturas.map(f => f.mes));
+    return parcelasSite.map(p => {
+      const resta = p.faturas.filter(f => f && !fechadas.has(f));
+      return resta.length ? {nome: p.nome, prox: resta[0], valor: p.valor, saldo: Math.round(p.valor * resta.length * 100) / 100, ultima: p.faturas.at(-1), site: true} : null;
+    }).filter(Boolean);
+  }
+
   function renderParcelas() {
-    const p = FC().parcelamentos;
+    const p = [...FC().parcelamentos, ...parceladasDoSite()];
     if (!p.length) { $id("parcelas").innerHTML = `<h2>Compras parceladas a vencer</h2><p class="muted" style="margin:0">${FC().faturas.length ? "Nenhuma compra parcelada a vencer." : "Aparecem aqui depois da primeira fatura processada."}</p>`; return; }
     $id("parcelas").innerHTML = `
       <h2>Compras parceladas a vencer</h2>
       <div class="scroll"><table><thead><tr><th>Compra</th><th class="hide-sm">Próx.</th><th class="r">Parcela</th><th class="r">Falta pagar</th><th class="r">Última</th></tr></thead><tbody>
-      ${p.map(x => `<tr><td>${esc(x.nome)}</td><td class="num hide-sm">${esc(x.prox)}</td><td class="r num">${n(x.valor)}</td><td class="r num">${n(x.saldo)}</td><td class="r">${esc(x.ultima)}</td></tr>`).join("")}
+      ${p.map(x => `<tr><td>${esc(x.nome)}${x.site ? ' <span class="chip info">lançado no site</span>' : ""}</td><td class="num hide-sm">${esc(x.prox)}</td><td class="r num">${n(x.valor)}</td><td class="r num">${n(x.saldo)}</td><td class="r">${esc(x.ultima)}</td></tr>`).join("")}
       <tr class="total"><td>Total</td><td class="hide-sm"></td><td class="r num">${n(sum(p, x => x.valor))}</td><td class="r num">${n(sum(p, x => x.saldo))}</td><td></td></tr>
       </tbody></table></div>
       <p class="muted" style="font-size:.85rem;margin:10px 0 0">${QUEM === "dono" && !SO_FATURAS ? "Posição da última fatura fechada mais as parceladas novas vistas no app." : "Posição da última fatura fechada."}</p>`;
@@ -528,7 +642,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   // ---------- Abas: visão geral, gastos do dia a dia, cartão e faturas, investimentos ----------
   const ABAS = ["geral", "gastos", "cartao", "investimentos"];
   function irPara(aba, rolar) {
-    if (SO_FATURAS) aba = "cartao";
+    if (SO_FATURAS && aba !== "investimentos") aba = "cartao";
     if (!ABAS.includes(aba) || (aba === "investimentos" && !CARTEIRA)) aba = "geral";
     document.querySelectorAll("#fin-abas [role=tab]").forEach(t => {
       const sel = t.dataset.aba === aba;
@@ -538,7 +652,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     ["geral", "gastos", "cartao"].forEach(k => { $id("view-" + k).hidden = k !== aba; });
     $id("fin-root").hidden = aba === "investimentos";
     $id("view-inv").hidden = aba !== "investimentos";
-    if (!SO_FATURAS) {
+    if (!SO_FATURAS || CARTEIRA) {
       guardar("aba", aba);
       try { if (location.hash !== "#" + aba) history.replaceState(null, "", "#" + aba); } catch (e) { /* sem histórico */ }
     }
@@ -554,7 +668,11 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     tabs.forEach(t => { const s = t.querySelector("small"); if (s) s.textContent = quem[t.dataset.aba]; });
     $id("tab-inv").hidden = !CARTEIRA;
     document.querySelectorAll("[data-dono]").forEach(el => { el.textContent = DONO; });
-    if (SO_FATURAS) { barra.hidden = true; irPara("cartao", false); return; }
+    if (SO_FATURAS) {
+      $id("tab-geral").hidden = true;
+      $id("tab-gastos").hidden = true;
+      if (!CARTEIRA) { barra.hidden = true; irPara("cartao", false); return; }
+    }
     const visiveis = () => tabs.filter(t => !t.hidden);
     tabs.forEach(t => t.addEventListener("click", () => irPara(t.dataset.aba, true)));
     barra.addEventListener("keydown", e => {
@@ -567,10 +685,10 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     });
     window.addEventListener("hashchange", () => { const a = location.hash.slice(1); if (ABAS.includes(a)) irPara(a, false); });
     const pedida = location.hash.slice(1);
-    irPara(ABAS.includes(pedida) ? pedida : lembrar("aba") || "geral", false);
+    irPara(ABAS.includes(pedida) ? pedida : lembrar("aba") || (SO_FATURAS ? "cartao" : "geral"), false);
   }
 
-  // ---------- Relatórios das faturas (os PDFs ficam no painel original, no Claude) ----------
+  // ---------- Relatórios das faturas (os PDFs podem ser guardados no quadro de PDFs, logo abaixo) ----------
   function renderRelatorios() {
     const P = PESSOAS[QUEM];
     const fat = Object.fromEntries(P.cartao.faturas.map(f => [f.mes, f]));
@@ -580,7 +698,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       ${P.cartaoNome ? `<p class="sub" style="margin:-4px 0 10px">Cartão ${esc(P.cartaoNome)}</p>` : ""}
       ${rels.length ? `<div class="reports">${rels.map(r => `<div class="report"><span>Relatório da fatura ${esc(r.mes)}${fat[r.mes] ? ` <span class="muted">· vence ${dataLonga(fat[r.mes].vencimento)}</span>` : ""}</span><span class="num">${fat[r.mes] ? brl(fat[r.mes].total) : ""}</span></div>`).join("")}</div>`
         : '<p class="muted" style="margin:0">Nenhum relatório ainda.</p>'}
-      <p class="sub" style="margin:10px 0 0">Os PDFs dos relatórios e o envio de faturas novas ficam no painel do projeto Financeiro${linkClaude ? `: <a href="${esc(linkClaude)}" target="_blank" rel="noopener">abrir no Claude</a>` : ""}.</p>`;
+      <p class="sub" style="margin:10px 0 0">Os PDFs das faturas e dos relatórios podem ser guardados no quadro abaixo. A leitura das faturas novas (valores, categorias e parcelas) continua no projeto Financeiro${linkClaude ? `: <a href="${esc(linkClaude)}" target="_blank" rel="noopener">abrir no Claude</a>` : ""}.</p>`;
   }
 
   function rodape() {
@@ -639,6 +757,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     let c;
     try { c = calc(atual); } catch (e) { seguro("hero", () => { throw e; }); return; }
     seguro("alertas", () => alertas(atual, c));
+    seguro("g-termometro", () => renderTermometro(atual, c));
     seguro("hero", () => renderHero(atual, c));
     seguro("comparativo", () => renderComparativo(atual, c));
     seguro("recorrentes", () => renderRecorrentes(atual, c));
@@ -664,6 +783,15 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       $id("cj-app").innerHTML = `<p class="muted">A carteira de investimentos não carregou (${esc(e.message)}).</p>`;
     }
   }
+
+  return {
+    atualizarGastos(lista) {
+      mesclarGastosSite(lista);
+      if (SO_FATURAS) return;
+      seguro(null, render);
+      seguro("parcelas", renderParcelas);
+    },
+  };
 }
 
 // Carteira de investimentos: posição, distribuição, projeção interativa e análise (adaptado do painel da carteira)

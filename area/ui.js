@@ -1,4 +1,4 @@
-// Funções de tela usadas pelas páginas do financeiro, das demandas e do painel.
+// Funções de tela usadas pelas páginas da área restrita.
 
 export const $ = (sel, el = document) => el.querySelector(sel);
 export const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -29,6 +29,18 @@ export const numeroDigitado = (texto) => {
   else n = Number(limpo);
   return Number.isFinite(n) ? n : null;
 };
+
+// Só PDF de verdade antes de enviar: extensão ou tipo de PDF, até 20 MB (o limite do banco) e "%PDF-" no
+// começo do arquivo. Devolve o problema encontrado ou null.
+export async function conferirPdf(arquivo) {
+  if (!/\.pdf$/i.test(arquivo.name) && arquivo.type !== "application/pdf") return `${arquivo.name}: só arquivos PDF são aceitos.`;
+  if (arquivo.size > 20 * 1024 * 1024) return `${arquivo.name}: o PDF passa de 20 MB.`;
+  try {
+    return (await arquivo.slice(0, 1024).text()).includes("%PDF-") ? null : `${arquivo.name} não é um PDF válido.`;
+  } catch {
+    return `Não foi possível ler ${arquivo.name}.`;
+  }
+}
 
 let tempoToast;
 export function avisar(texto) {
