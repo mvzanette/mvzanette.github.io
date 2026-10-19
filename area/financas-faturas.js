@@ -365,6 +365,7 @@ export function aplicarFatura(cartao, montada) {
   if (montada.postos.length) c.postos[mes] = montada.postos;
   else delete c.postos[mes];
   c.alertas = [...c.alertas.filter((a) => a.mes !== mes), ...montada.alertas];
+  if (c.previas) c.previas = c.previas.filter((p) => p.mes !== mes); // a fatura fechou: a prévia dela sai
   if (c.faturas.at(-1).mes === mes) {
     c.parcelamentos = montada.parcelamentos;
     c.comprometido = montada.comprometido;
@@ -389,5 +390,8 @@ export function manterFaturasDoSite(novo, antigo) {
       comprometido: antigo.comprometido || {},
     });
   }
+  // As prévias importadas (CSV ou OFX) das faturas que o arquivo ainda não traz fechadas também continuam
+  const previas = ((antigo && antigo.previas) || []).filter((p) => !((c && c.faturas) || []).some((f) => f.mes === p.mes));
+  if (previas.length) c = { ...c, previas };
   return c;
 }

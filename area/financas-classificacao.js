@@ -101,6 +101,7 @@ export function chavesGastos(lancamentos) {
   const vistos = {};
   return lancamentos.map((l) => {
     if (l.origem === "site") return `s|${l.id}`;
+    if (l.origem === "fatura" && l.chave) return l.chave; // compra da fatura que entrou nos gastos: a chave da fatura
     const base = `d|${l.data}|${Number(l.valor).toFixed(2)}|${parte(l.desc)}`;
     const n = (vistos[base] = (vistos[base] ?? -1) + 1);
     return n ? `${base}|${n}` : base;

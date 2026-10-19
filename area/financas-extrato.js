@@ -25,14 +25,14 @@ export function decodificarExtrato(bytes) {
 const ENTIDADES = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&apos;": "'", "&nbsp;": " " };
 const semEntidades = (s) => String(s || "").replace(/&(amp|lt|gt|quot|apos|nbsp);/g, (e) => ENTIDADES[e]);
 const dataOfx = (v) => { const m = String(v || "").match(/^(\d{4})(\d{2})(\d{2})/); return m ? `${m[1]}-${m[2]}-${m[3]}` : null; };
-const numero = (v) => {
+export const numero = (v) => {
   const s = String(v || "").trim().replace(/\s/g, "");
   if (!s) return NaN;
   // "1.234,56" ou "-150,00" (vírgula decimal) e "-150.00" (ponto decimal)
   return Number(/,\d{1,2}$/.test(s) ? s.replace(/\./g, "").replace(",", ".") : s.replace(/,/g, ""));
 };
 
-function lerOfx(texto) {
+export function lerOfx(texto) {
   const tag = (bloco, nome) => { const m = bloco.match(new RegExp(`<${nome}>([^<\\r\\n]*)`, "i")); return m ? semEntidades(m[1]).trim() : ""; };
   const blocos = texto.split(/<STMTTRN>/i).slice(1).map((b) => b.split(/<\/STMTTRN>/i)[0]);
   const movimentos = blocos.map((b) => {
@@ -45,7 +45,7 @@ function lerOfx(texto) {
 }
 
 // Linhas de um CSV simples (aspas duplas, vírgula ou ponto e vírgula)
-function linhasCsv(texto, sep) {
+export function linhasCsv(texto, sep) {
   return texto.split(/\r?\n/).filter((l) => l.trim()).map((l) => {
     const campos = [];
     let atual = "", aspas = false;
@@ -61,14 +61,15 @@ function linhasCsv(texto, sep) {
   });
 }
 
-const cabecalho = (l) => l.map((c) => c.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase());
+const CSV_CARTAO = "Este CSV é da fatura do cartão, não do extrato da conta. Use Importar fatura parcial, no quadro de PDFs da aba Cartão e faturas.";
+export const cabecalho = (l) => l.map((c) => c.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase());
 
 function lerCsv(texto) {
   const primeira = texto.replace(/^﻿/, "").split(/\r?\n/)[0] || "";
   const sep = (primeira.match(/;/g) || []).length > (primeira.match(/,/g) || []).length ? ";" : ",";
   const linhas = linhasCsv(texto.replace(/^﻿/, ""), sep);
   const c = cabecalho(linhas[0] || []);
-  if (c.join(",") === "date,title,amount") throw new Error("Este CSV é da fatura do cartão. Para o cartão, envie o PDF da fatura no quadro de PDFs da aba Cartão e faturas.");
+  if (c.join(",") === "date,title,amount" || c.join(",") === "date,category,title,amount") throw new Error(CSV_CARTAO);
   const iData = c.indexOf("data"), iValor = c.indexOf("valor"), iDesc = c.findIndex((x) => x === "descricao" || x === "historico");
   if (iData < 0 || iValor < 0 || iDesc < 0) throw new Error("Formato de extrato não reconhecido. Use o arquivo OFX do extrato (ou o CSV da conta do Nubank).");
   const iId = c.indexOf("identificador");
@@ -84,6 +85,7 @@ function lerCsv(texto) {
 export function lerExtrato(texto, nomeArquivo = "") {
   const t = String(texto || "");
   if (/^%PDF-/.test(t) || /\.pdf$/i.test(nomeArquivo)) throw new Error("O extrato em PDF ainda não é lido. No app ou no internet banking do banco, exporte o extrato em OFX e escolha esse arquivo.");
+  if (/<CCSTMTRS>|<CREDITCARDMSGSRSV1>/i.test(t)) throw new Error(CSV_CARTAO.replace("Este CSV", "Este OFX"));
   const leitura = /<OFX>|OFXHEADER/i.test(t) ? lerOfx(t) : lerCsv(t);
   if (!leitura.movimentos.length) throw new Error("Não encontrei movimentos neste extrato.");
   return leitura;

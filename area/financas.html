@@ -11,9 +11,9 @@
   <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@500;600;700;800&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../styles.css?v=12bc86b1">
   <link rel="stylesheet" href="area.css?v=827164a0">
-  <link rel="stylesheet" href="financas.css?v=5937e804">
-  <script type="importmap" data-versoes>{"imports": {"./art.js": "./art.js?v=67208bf7", "./config-area.js": "./config-area.js?v=c77553f2", "./conta.js": "./conta.js?v=fdce23ea", "./dados.js": "./dados.js?v=45c0de2c", "./demandas.js": "./demandas.js?v=19d8f618", "./financas-casal.js": "./financas-casal.js?v=3cab7b4e", "./financas-classificacao.js": "./financas-classificacao.js?v=50873fdd", "./financas-desejos.js": "./financas-desejos.js?v=7175e284", "./financas-extrato.js": "./financas-extrato.js?v=42db7adf", "./financas-faturas.js": "./financas-faturas.js?v=ca828020", "./financas-importar.js": "./financas-importar.js?v=71dfaaa4", "./financas-painel.js": "./financas-painel.js?v=46517067", "./financas.js": "./financas.js?v=f43e8520", "./financeiro.js": "./financeiro.js?v=c6aaedbd", "./inicio.js": "./inicio.js?v=36840010", "./leitores.js": "./leitores.js?v=2d72bdc2", "./login.js": "./login.js?v=f434d5fc", "./modulos.js": "./modulos.js?v=fac7935d", "./painel.js": "./painel.js?v=f606b3b3", "./pdf-texto.js": "./pdf-texto.js?v=b5de895d", "./regras-gestao.js": "./regras-gestao.js?v=351037e5", "./regras.js": "./regras.js?v=3eaec5e4", "./sessao.js": "./sessao.js?v=c9d6a0d9", "./ui.js": "./ui.js?v=efb69f88", "./usuarios.js": "./usuarios.js?v=6966c106", "./vendor/pdf.min.mjs": "./vendor/pdf.min.mjs?v=f548e26b", "./vendor/pdf.worker.min.mjs": "./vendor/pdf.worker.min.mjs?v=8860b503"}}</script>
-  <script type="module" src="financas.js?v=f43e8520"></script>
+  <link rel="stylesheet" href="financas.css?v=f933ea0f">
+  <script type="importmap" data-versoes>{"imports": {"./art.js": "./art.js?v=67208bf7", "./config-area.js": "./config-area.js?v=c77553f2", "./conta.js": "./conta.js?v=fdce23ea", "./dados.js": "./dados.js?v=45c0de2c", "./demandas.js": "./demandas.js?v=19d8f618", "./financas-casal.js": "./financas-casal.js?v=3cab7b4e", "./financas-classificacao.js": "./financas-classificacao.js?v=23a17fbf", "./financas-desejos.js": "./financas-desejos.js?v=7175e284", "./financas-extrato.js": "./financas-extrato.js?v=6a8ecce9", "./financas-faturas.js": "./financas-faturas.js?v=49a291b7", "./financas-importar.js": "./financas-importar.js?v=71dfaaa4", "./financas-painel.js": "./financas-painel.js?v=cf77d58f", "./financas-previa.js": "./financas-previa.js?v=bfb16e3d", "./financas.js": "./financas.js?v=37c9b182", "./financeiro.js": "./financeiro.js?v=c6aaedbd", "./inicio.js": "./inicio.js?v=36840010", "./leitores.js": "./leitores.js?v=2d72bdc2", "./login.js": "./login.js?v=f434d5fc", "./modulos.js": "./modulos.js?v=fac7935d", "./painel.js": "./painel.js?v=f606b3b3", "./pdf-texto.js": "./pdf-texto.js?v=b5de895d", "./regras-gestao.js": "./regras-gestao.js?v=351037e5", "./regras.js": "./regras.js?v=3eaec5e4", "./sessao.js": "./sessao.js?v=c9d6a0d9", "./ui.js": "./ui.js?v=efb69f88", "./usuarios.js": "./usuarios.js?v=6966c106", "./vendor/pdf.min.mjs": "./vendor/pdf.min.mjs?v=f548e26b", "./vendor/pdf.worker.min.mjs": "./vendor/pdf.worker.min.mjs?v=8860b503"}}</script>
+  <script type="module" src="financas.js?v=37c9b182"></script>
 </head>
 <body class="area">
 
@@ -123,6 +123,7 @@
               <section class="panel" id="g-cats"></section>
             </div>
             <div class="col">
+              <section class="panel" id="g-conciliacao" hidden></section>
               <section class="panel" id="g-dias"></section>
               <section class="panel" id="g-lista">
                 <div class="panel-topo"><h2>Lançamentos</h2><button type="button" class="btn sec mini" data-editar-categorias hidden>Categorias</button></div>
@@ -130,6 +131,7 @@
                   <label for="g-fcat">Categoria<select id="g-fcat"></select></label>
                   <label for="g-fforma">Forma<select id="g-fforma"></select></label>
                   <label for="g-fconta" hidden>Conta<select id="g-fconta"></select></label>
+                  <label for="g-fconf" hidden>Conferência<select id="g-fconf"></select></label>
                   <label for="g-busca" class="grow">Buscar<input id="g-busca" type="search" placeholder="ex.: almoço" autocomplete="off"></label>
                 </div>
                 <div id="g-itens"></div>
@@ -157,10 +159,12 @@
               <section class="panel" id="relatorios"></section>
               <section class="panel" id="pdfs-fin">
                 <h2>PDFs das faturas e relatórios</h2>
-                <p class="sub" style="margin:-4px 0 10px">Guardados no banco, visíveis só para você. Somente PDF, até 20 MB. As faturas do Nubank são lidas pelo site: ao enviar ou com o botão Processar, o cartão é atualizado.</p>
+                <p class="sub" style="margin:-4px 0 10px">Guardados no banco, visíveis só para você. Somente PDF, até 20 MB. As faturas do Nubank são lidas pelo site: ao enviar ou com o botão Processar, o cartão é atualizado. A fatura que ainda não fechou (e as próximas) entra pelo CSV ou OFX que o app exporta, em Importar fatura parcial.</p>
                 <div class="acoes">
                   <button type="button" class="btn" id="btn-enviar-pdf">Enviar PDF</button>
                   <input type="file" id="arquivo-pdf" accept="application/pdf,.pdf" hidden>
+                  <button type="button" class="btn sec" id="btn-fatura-parcial">Importar fatura parcial</button>
+                  <input type="file" id="arquivo-fatura-parcial" accept=".csv,.ofx,text/csv,application/x-ofx" hidden>
                 </div>
                 <div id="pdfs-msg" class="msg" role="status" aria-live="polite" hidden></div>
                 <div id="pdfs-lista"></div>
@@ -345,6 +349,43 @@
     <div class="dlg-rodape">
       <button class="btn btn-claro" type="button" data-fechar>Cancelar</button>
       <button class="btn btn-primary" type="button" id="btn-confirmar-fatura-pdf" disabled>Atualizar fatura</button>
+    </div>
+  </dialog>
+
+  <!-- ============ FATURA PARCIAL (CSV OU OFX) ============ -->
+  <dialog class="dialogo largo" id="dlg-fatura-parcial" aria-labelledby="titulo-fatura-parcial">
+    <div class="dlg-cab">
+      <h2 id="titulo-fatura-parcial">Importar fatura parcial</h2>
+      <button class="btn-link" type="button" data-fechar>Fechar</button>
+    </div>
+    <div class="dlg-corpo">
+      <p class="dica" id="parcial-status" role="status" aria-live="polite"></p>
+      <p class="erro" id="erro-parcial" role="alert" hidden></p>
+      <div class="fin-previa" id="previa-parcial" hidden>
+        <dl id="previa-parcial-dados"></dl>
+        <div class="fin-destinos">
+          <label>Fatura de
+            <select id="parcial-mes"></select>
+          </label>
+          <label id="campo-parcial-de">Cartão de
+            <select id="parcial-de"></select>
+          </label>
+          <label class="opcao-linha" id="campo-parcial-outra" hidden>
+            <input type="checkbox" id="parcial-outra" checked>
+            <span id="rotulo-parcial-outra"></span>
+          </label>
+        </div>
+        <p class="aviso-fatura" id="aviso-parcial" hidden></p>
+        <details class="lanc-fatura-pdf">
+          <summary id="resumo-lanc-parcial">Ver os lançamentos</summary>
+          <div class="scroll"><table><tbody id="lanc-parcial"></tbody></table></div>
+        </details>
+      </div>
+      <p class="dica">No app do Nubank, abra a fatura (a aberta ou uma das próximas) e exporte em CSV ou OFX. O arquivo é lido aqui no navegador e não fica guardado. A prévia vale até a fatura fechar; aí o PDF da fatura fechada toma o lugar dela.</p>
+    </div>
+    <div class="dlg-rodape">
+      <button class="btn btn-claro" type="button" data-fechar>Cancelar</button>
+      <button class="btn btn-primary" type="button" id="btn-confirmar-parcial" disabled>Importar prévia</button>
     </div>
   </dialog>
 

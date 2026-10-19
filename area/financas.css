@@ -412,3 +412,7 @@
 .casal-lista li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--gray-200); }
 .casal-lista .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .casal-pessoa .btn { justify-self: start; }
+
+/* ---------- Conferência dos gastos do dia a dia com as faturas do cartão ---------- */
+.fin .conf-avisos { display: grid; gap: 8px; margin-top: 12px; }
+.fin .conf-avisos .btn-link { font: inherit; font-weight: 600; padding: 0; white-space: nowrap; }

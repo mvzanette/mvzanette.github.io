@@ -16,6 +16,7 @@ import { mostrarCasal } from "./financas-casal.js";
 import { categoriaDe, contasDisponiveis, lerCategorias, normalizarCategoria } from "./financas-classificacao.js";
 import { aplicarFatura, historicoDeCategorias, lerFaturaPdf, manterFaturasDoSite, montarFatura } from "./financas-faturas.js";
 import { decodificarExtrato, lerExtrato, MOTIVOS, saidasDoExtrato } from "./financas-extrato.js";
+import { aplicarPrevia, bancoDoCartao, faturaProvavel, lerFaturaParcial, montarPrevia, ordemFatura, rotuloFatura } from "./financas-previa.js";
 import { extrairLinhas } from "./pdf-texto.js";
 import { $, esc, avisar, opcoes, numeroDigitado, prepararDialogos, conferirPdf } from "./ui.js";
 
@@ -832,6 +833,147 @@ function prepararFaturaPdf() {
   $("#btn-confirmar-fatura-pdf").addEventListener("click", confirmarFaturaPdf);
 }
 
+// ---------------------------------------------------------------- fatura parcial (CSV ou OFX do app)
+let parcial = null; // { nome, leitura, quem, mes, previa, destino }
+
+function erroParcial(texto) {
+  $("#erro-parcial").textContent = texto;
+  $("#erro-parcial").hidden = !texto;
+}
+
+async function lerArquivoParcial(arquivo) {
+  parcial = null;
+  erroParcial("");
+  $("#previa-parcial").hidden = true;
+  $("#btn-confirmar-parcial").disabled = true;
+  $("#parcial-status").textContent = `Lendo ${arquivo.name}…`;
+  $("#dlg-fatura-parcial").showModal();
+  let leitura;
+  try {
+    leitura = lerFaturaParcial(decodificarExtrato(new Uint8Array(await arquivo.arrayBuffer())), arquivo.name);
+  } catch (err) {
+    $("#parcial-status").textContent = "";
+    erroParcial(err.message);
+    return;
+  }
+  parcial = { nome: arquivo.name, leitura };
+  // Fatura: a do vencimento no nome do arquivo (ou a provável), com os meses em volta para corrigir
+  const provavel = faturaProvavel(leitura), base = ordemFatura(provavel);
+  const meses = [-2, -1, 0, 1, 2, 3].map((k) => rotuloFatura(Math.floor((base + k) / 12), ((base + k) % 12) + 1));
+  $("#parcial-mes").innerHTML = opcoes(meses.map((m) => [m, m]), provavel);
+  // Cartão: o do mesmo banco do arquivo, se houver
+  const cartoes = cartoesDoPainel();
+  const doBanco = leitura.banco ? cartoes.find((c) => bancoDoCartao(registro.dados, c.chave) === leitura.banco) : null;
+  $("#parcial-de").innerHTML = opcoes(cartoes.map((c) => [c.chave, c.nome]), (doBanco || cartoes[0]).chave);
+  $("#campo-parcial-de").hidden = cartoes.length < 2;
+  $("#parcial-status").textContent = `Lido de ${arquivo.name}.`;
+  mostrarParcial();
+}
+
+function mostrarParcial() {
+  if (!parcial) return;
+  const { leitura } = parcial;
+  const quem = $("#parcial-de").value || "dono", mes = $("#parcial-mes").value;
+  const previa = montarPrevia(leitura, { mes, historico: historicoPara(quem), arquivo: parcial.nome });
+  const cartao = cartoesDoPainel().find((c) => c.chave === quem);
+  const destino = quem !== "dono" ? acessiveis.find((p) => p.id !== dono.id && primeiroNome(p) === cartao.primeiro) : null;
+  Object.assign(parcial, { quem, mes, previa, destino: destino || null });
+
+  const linha = (rotulo, valor) => `<div><dt>${rotulo}</dt><dd>${valor}</dd></div>`;
+  $("#previa-parcial-dados").innerHTML = [
+    linha("Arquivo", esc(`${leitura.formato}${leitura.banco ? ` do ${leitura.banco}` : ""}`)),
+    linha("Lançamentos de", `${dataBR(leitura.inicio)} a ${dataBR(leitura.fim)}`),
+    linha("Total até agora", brl(previa.total)),
+    linha("Lançamentos", String(previa.n_lanc)),
+    linha("À vista e primeiras parcelas", brl(previa.compras)),
+    linha("Parcelas de compras anteriores", brl(previa.parcelas_anteriores)),
+  ].join("");
+
+  const avisos = [];
+  let bloqueia = false;
+  const banco = bancoDoCartao(registro.dados, quem);
+  if (leitura.banco && banco && banco !== leitura.banco) {
+    avisos.push(`O cartão de ${cartao.nome} neste painel é do ${banco} e este arquivo é do ${leitura.banco}. O painel guarda um cartão por pessoa: escolha o cartão certo em "Cartão de".`);
+    bloqueia = true;
+  }
+  const atual = cartaoDe(registro.dados, quem) || {};
+  if ((atual.faturas || []).some((f) => f.mes === mes)) {
+    avisos.push(`A fatura ${mes} deste cartão já fechou e está no painel. A prévia serve para a fatura aberta e as próximas.`);
+    bloqueia = true;
+  }
+  const antiga = (atual.previas || []).find((p) => p.mes === mes);
+  if (antiga && !bloqueia) avisos.push(`A prévia de ${mes} importada em ${dataBR(String(antiga.importada_em).slice(0, 10))} será substituída por esta.`);
+  $("#aviso-parcial").innerHTML = avisos.map(esc).join("<br>");
+  $("#aviso-parcial").hidden = !avisos.length;
+  $("#campo-parcial-outra").hidden = !destino;
+  if (destino) $("#rotulo-parcial-outra").textContent = `Atualizar também o painel de ${destino.nome || destino.email}`;
+
+  const ls = previa.lancamentos;
+  $("#resumo-lanc-parcial").textContent = `Ver os ${plural(ls.length, "lançamento", "lançamentos")}`;
+  $("#lanc-parcial").innerHTML = ls.map((l) => `<tr><td class="num">${esc(dataBR(l.data).slice(0, 5))}</td>
+    <td>${esc(l.nome)}<div class="sub">${esc(l.cat)}${l.sub ? ` › ${esc(l.sub)}` : ""}${l.parcela ? ` · parcela ${esc(l.parcela)}` : ""}${l.tipo !== "Nacional" ? ` · ${esc(l.tipo)}` : ""}</div></td>
+    <td class="r num">${brl(l.valor)}</td></tr>`).join("");
+  $("#previa-parcial").hidden = false;
+  $("#btn-confirmar-parcial").disabled = bloqueia;
+}
+
+// Dados do painel com a prévia no cartão de quem (o dono do painel ou a outra pessoa do arquivo)
+function comPrevia(dadosAtuais, quem, previa) {
+  const d = structuredClone(dadosAtuais || {});
+  const p = quem === "dono" ? d : (d[quem] = { relatorios: [], ...(d[quem] || {}) });
+  p.cartao = aplicarPrevia(p.cartao, previa);
+  if (!p.cartao_nome && previa.banco) p.cartao_nome = previa.banco;
+  return d;
+}
+
+async function confirmarParcial() {
+  if (!parcial || !parcial.previa) return;
+  const { quem, previa, destino } = parcial;
+  const botao = $("#btn-confirmar-parcial");
+  botao.disabled = true;
+  botao.textContent = "Importando…";
+  erroParcial("");
+  try {
+    const dados = comPrevia(registro.dados, quem, previa);
+    await armazem.financas.salvar({ perfil_id: dono.id, modo: registro.modo, dados, investimentos: registro.investimentos, arquivo: registro.arquivo });
+    if (destino && $("#parcial-outra").checked) {
+      const daOutra = await armazem.financas.ler(destino.id);
+      await armazem.financas.salvar(daOutra
+        ? { perfil_id: destino.id, modo: daOutra.modo, dados: comPrevia(daOutra.dados, "dono", previa), investimentos: daOutra.investimentos, arquivo: daOutra.arquivo }
+        : { perfil_id: destino.id, modo: "faturas", dados: soFaturas(dados, quem), investimentos: null, arquivo: "Faturas em PDF" });
+    }
+    try {
+      localStorage.setItem("mz-fin-aba", "cartao");
+      localStorage.setItem("mz-fin-fatura-de", quem === "dono" ? "dono" : "outra");
+    } catch {
+      /* sem armazenamento: abre na aba de sempre */
+    }
+    $("#dlg-fatura-parcial").close();
+    avisar(`Prévia da fatura ${previa.mes} importada. Atualizando o painel…`);
+    setTimeout(() => {
+      location.hash = "cartao";
+      location.reload();
+    }, 700);
+  } catch (e) {
+    erroParcial("Não foi possível importar: " + e.message);
+    botao.disabled = false;
+  } finally {
+    botao.textContent = "Importar prévia";
+  }
+}
+
+function prepararParcial() {
+  $("#btn-fatura-parcial").addEventListener("click", () => $("#arquivo-fatura-parcial").click());
+  $("#arquivo-fatura-parcial").addEventListener("change", (e) => {
+    const arquivo = e.target.files[0];
+    e.target.value = "";
+    if (arquivo) lerArquivoParcial(arquivo);
+  });
+  $("#parcial-de").addEventListener("change", mostrarParcial);
+  $("#parcial-mes").addEventListener("change", mostrarParcial);
+  $("#btn-confirmar-parcial").addEventListener("click", confirmarParcial);
+}
+
 function prepararPdfs() {
   $("#btn-enviar-pdf").addEventListener("click", () => $("#arquivo-pdf").click());
   $("#arquivo-pdf").addEventListener("change", (e) => {
@@ -1055,7 +1197,7 @@ function comFaturasDoSite(novo, antigo) {
   if (!d.cartao_nome && antigo.cartao_nome) d.cartao_nome = antigo.cartao_nome;
   for (const o of outrasPessoas(antigo)) {
     const velho = antigo[o.chave];
-    if (!velho.cartao.faturas.some((f) => f.origem === "pdf")) continue;
+    if (!velho.cartao.faturas.some((f) => f.origem === "pdf") && !(velho.cartao.previas || []).length) continue;
     d[o.chave] = { relatorios: [], ...(d[o.chave] || {}) };
     d[o.chave].cartao = manterFaturasDoSite(d[o.chave].cartao, velho.cartao);
     if (!d[o.chave].cartao_nome && velho.cartao_nome) d[o.chave].cartao_nome = velho.cartao_nome;
@@ -1135,6 +1277,7 @@ async function iniciar() {
   prepararDialogos();
   prepararImportacao();
   prepararPdfs();
+  prepararParcial();
   prepararFaturaPdf();
   prepararExtrato();
   prepararEntrada();

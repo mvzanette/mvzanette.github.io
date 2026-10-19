@@ -5,6 +5,7 @@
 // Nenhum dado pessoal fica neste código: nomes, valores e cartões vêm todos dos dados importados.
 import { outrasPessoas } from "./financas-importar.js";
 import { chavesFatura, chavesGastos, efetivo, lerCategorias, nomeConta } from "./financas-classificacao.js";
+import { ordemFatura } from "./financas-previa.js";
 
 const MESES_PADRAO = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 const VAZIO = {arquivo: "", faturas: [], parcelamentos: [], comprometido: {}, categorias: {}, postos: {}, lancamentos: [], alertas: []};
@@ -76,8 +77,35 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   const META = D.metas ? D.metas.cartao_mensal : null;
   const INV = D.metas ? D.metas.investimento_mensal || 0 : 0;
   const INV_NOME = D.metas ? D.metas.investimento_nome : "";
-  // Um print antigo de uma fatura que já foi processada não conta mais como fatura aberta
-  const AB = D.aberta && !D.cartao.faturas.some(f => f.mes === D.aberta.fatura) ? D.aberta : null;
+  // Prévias das faturas que ainda não fecharam, importadas do CSV ou do OFX do app do banco
+  const PREVIAS = (D.cartao.previas || []).filter(p => p && Array.isArray(p.lancamentos) && !D.cartao.faturas.some(f => f.mes === p.mes));
+  // Um print antigo de uma fatura que já foi processada (ou que tem prévia mais nova) não conta mais como fatura aberta
+  const AB = D.aberta && !D.cartao.faturas.some(f => f.mes === D.aberta.fatura)
+    && !PREVIAS.some(p => p.mes === D.aberta.fatura && String(p.ate) >= String(D.aberta.data)) ? D.aberta : null;
+  // Faturas conhecidas do cartão: as fechadas (PDF ou projeto) e as prévias. Com elas os gastos do dia a dia são
+  // conferidos e as parcelas de compras antigas de cada fatura são conhecidas.
+  const parcelaDe = l => { const x = String(l.parcela || "").match(/(\d+)\s*\/\s*(\d+)/); return x ? {k: Number(x[1]), n: Number(x[2])} : null; };
+  const FATURAS = new Map();
+  {
+    const chaves = chavesFatura(D.cartao.lancamentos, "c");
+    D.cartao.faturas.forEach(f => FATURAS.set(f.mes, {mes: f.mes, fechada: true, periodo: f.periodo || null, itens: []}));
+    D.cartao.lancamentos.forEach((l, i) => { const f = FATURAS.get(l.mes); if (f) f.itens.push({...l, chave: chaves[i]}); });
+    PREVIAS.forEach(p => {
+      const ls = p.lancamentos.map(l => ({...l, mes: p.mes}));
+      const ch = chavesFatura(ls, "c");
+      FATURAS.set(p.mes, {mes: p.mes, fechada: false, previa: p, periodo: null, itens: ls.map((l, i) => ({...l, chave: ch[i]}))});
+    });
+    for (const f of FATURAS.values()) {
+      f.itens.forEach(l => { l.parc = parcelaDe(l); l.valor = Number(l.valor) || 0; });
+      const antiga = l => l.parc && l.parc.k >= 2;
+      f.parcelasAnteriores = Math.round(sum(f.itens.filter(antiga), l => l.valor) * 100) / 100;
+      f.compras = f.itens.filter(l => !antiga(l) && l.valor && /^\d{4}-\d{2}-\d{2}/.test(l.data || ""));
+      const datas = f.compras.filter(l => l.tipo !== "Encargo").map(l => l.data).sort();
+      f.periodo = {inicio: (f.periodo && f.periodo.inicio) || datas[0] || null, fim: (f.periodo && f.periodo.fim) || datas.at(-1) || null};
+    }
+  }
+  // Parcelas de compras antigas que caem numa fatura: as da fatura conhecida ou as agendadas pelo projeto
+  const parcelasDaFatura = fat => (FATURAS.has(fat) ? FATURAS.get(fat).parcelasAnteriores : D.cartao.comprometido[fat] ?? null);
   // Salário e outras receitas de um mês normal, como no último mês em que apareceram (refeito ao lançar entradas)
   let SAL_NORMAL = 0, OUTRAS_NORMAL = 0, RECEITA_PREVISTA = 0;
   function receitasNormais() {
@@ -112,6 +140,68 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     }
     return m;
   };
+  // ---------- Conferência dos gastos do dia a dia com as faturas do cartão ----------
+  // Cada compra das faturas conhecidas procura o mesmo gasto nos gastos do dia a dia (mesmo valor, até 3 dias de
+  // diferença; lançado em outra forma, só no mesmo dia e com nome parecido). A que não está lá entra nos gastos,
+  // marcada "da fatura". O gasto no cartão que não aparece na fatura do período fica marcado para conferir, e o
+  // lançado depois da última compra conhecida vai entrar na próxima fatura. O ajuste de "gastos no cartão não
+  // anotados" de um período que a fatura detalha sai, porque ela traz cada compra.
+  let CONC = null;
+  const palavras = s => new Set(semAcento(s).replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(t => t.length > 2));
+  function conciliar() {
+    CONC = {faturas: [], daFatura: 0, conferidos: 0, fimConhecido: null, ajustes: 0};
+    if (!COM_MESES || !FATURAS.size) return;
+    const periodos = [...FATURAS.values()].map(f => f.periodo).filter(p => p.inicio && p.fim);
+    const coberto = d => periodos.some(p => d >= p.inicio && d <= p.fim);
+    CONC.fimConhecido = periodos.reduce((x, p) => (p.fim > x ? p.fim : x), "") || null;
+    const ajuste = l => /^ajuste/i.test(l.desc || "");
+    D.meses.forEach(m => {
+      const antes = m.lancamentos.length;
+      m.lancamentos = m.lancamentos.filter(l => !(ajuste(l) && card(l.forma) && l.data && coberto(l.data)));
+      CONC.ajustes += antes - m.lancamentos.length;
+    });
+    const doDia = D.meses.flatMap(m => m.lancamentos).filter(l => /^\d{4}-\d{2}-\d{2}/.test(l.data || "") && !ajuste(l));
+    const nomes = new Map(doDia.map(l => [l, palavras(l.desc)]));
+    const dia = iso => Date.parse(iso.slice(0, 10) + "T12:00:00Z") / 864e5;
+    const usados = new Set();
+    const formaCartao = D.cartao_nome ? `Cartão ${D.cartao_nome}` : (doDia.find(l => card(l.forma)) || {}).forma || "Cartão de crédito";
+    for (const f of [...FATURAS.values()].sort((a, b) => ordemFatura(a.mes) - ordemFatura(b.mes))) {
+      const r = {mes: f.mes, fechada: f.fechada, previa: f.previa || null, compras: f.compras.length, conferidos: 0, entraram: 0};
+      for (const it of f.compras) {
+        const doItem = palavras(it.nome);
+        let melhor = null, nota = Infinity;
+        for (const l of doDia) {
+          if (usados.has(l) || Math.abs(l.valor - it.valor) >= 0.01) continue;
+          const dd = Math.abs(dia(l.data) - dia(it.data));
+          if (dd > 3) continue;
+          let comum = 0;
+          nomes.get(l).forEach(p => { if (doItem.has(p)) comum++; });
+          if (!card(l.forma) && (dd > 1 || !comum)) continue;
+          const pts = (card(l.forma) ? 0 : 10) + dd - Math.min(comum, 2) * 0.6;
+          if (pts < nota) { nota = pts; melhor = l; }
+        }
+        if (melhor) {
+          usados.add(melhor);
+          melhor.naFatura = f.mes;
+          if (!card(melhor.forma)) melhor.outraForma = true;
+          r.conferidos++;
+        } else {
+          mesDe(it.data.slice(0, 7)).lancamentos.push({data: it.data.slice(0, 10), desc: it.nome, valor: it.valor, forma: formaCartao, cat: it.cat || "Outros",
+            sub: it.sub || null, parcelas: it.parc && it.parc.n > 1 ? `${it.parc.k}/${it.parc.n}` : null, obs: "", origem: "fatura", fatura: f.mes, chave: it.chave});
+          r.entraram++;
+        }
+      }
+      CONC.daFatura += r.entraram;
+      CONC.conferidos += r.conferidos;
+      CONC.faturas.push(r);
+    }
+    for (const l of doDia) {
+      if (usados.has(l) || !card(l.forma)) continue;
+      if (coberto(l.data)) l.foraDaFatura = true;
+      else if (CONC.fimConhecido && l.data > CONC.fimConhecido) l.aEntrar = true;
+    }
+  }
+
   function mesclarSite() {
     D.meses = structuredClone(ORIGINAL.meses);
     D.cartao.comprometido = structuredClone(ORIGINAL.comprometido);
@@ -149,6 +239,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
         parcelasSite.push({nome: g.descricao, valor, faturas: Array.from({length: parcelas}, (_, k) => faturaSeguinte(m.fatura, k))});
       }
     }
+    conciliar();
     D.meses.forEach(x => x.lancamentos.sort((p, q) => String(p.data).localeCompare(String(q.data))));
     // Chave de cada lançamento, para achar a classificação feita no site
     D.meses.forEach(x => chavesGastos(x.lancamentos).forEach((k, i) => { x.lancamentos[i].chave = k; }));
@@ -204,7 +295,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const outros = sum(m.lancamentos.filter(l => !card(l.forma)), l => l.valor);
     const linhas = [];
     if (INV) linhas.push({t: INV_NOME || "Investimento", v: INV, cor: "var(--inv)", leg: "Investimento"});
-    let cartao, parcelas = D.cartao.comprometido[m.fatura];
+    let cartao, parcelas = parcelasDaFatura(m.fatura);
     if (parcelas == null) parcelas = sum(m.compromissos, c => c.valor);
     if (snap) {
       const depois = sum(lancCartao.filter(l => l.data > snap.data), l => l.valor);
@@ -319,7 +410,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
         ${kpi("Gastos do dia a dia", brl(gastosDia), `${nL} ${nL === 1 ? "lançamento" : "lançamentos"} · já contam nas saídas`)}
       </div>`;
     const doSite = m.lancamentos.filter(l => l.origem === "site").length;
-    const rodape = doSite ? `<p class="sub" style="margin:0">${doSite} ${doSite === 1 ? "gasto lançado" : "gastos lançados"} pelo site neste mês.${duplicados ? ` ${duplicados === 1 ? "Um já estava" : `${duplicados} já estavam`} no projeto Financeiro e não contou de novo.` : ""}</p>` : "";
+    const daFatura = m.lancamentos.filter(l => l.origem === "fatura").length;
+    const rodape = doSite || daFatura ? `<p class="sub" style="margin:0">${doSite ? `${doSite} ${doSite === 1 ? "gasto lançado" : "gastos lançados"} pelo site neste mês.${duplicados ? ` ${duplicados === 1 ? "Um já estava" : `${duplicados} já estavam`} no projeto Financeiro e não contou de novo.` : ""}` : ""}${daFatura ? ` ${daFatura} ${daFatura === 1 ? "compra veio" : "compras vieram"} da fatura do cartão (não estavam nos gastos do dia a dia).` : ""}</p>` : "";
     fluxo = null;
     if (!(c.receitas > 0)) {
       box.innerHTML = `<div class="termometro-topo"><div><div class="label">Fechamento de ${esc(m.rotulo)}</div><div class="fech-rot">Ainda pode gastar</div>
@@ -619,7 +711,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       const [a, m] = nextYM(a0, m0, i), [fa, fm] = nextYM(a, m);
       const mm = D.meses.find(x => x.ano === a && x.mes === m);
       const fat = lbl(fa, fm);
-      let rec = RECEITA_PREVISTA, parc = D.cartao.comprometido[fat] || 0, cartao = parc + fixCartao, nota = "";
+      let rec = RECEITA_PREVISTA, parc = parcelasDaFatura(fat) || 0, cartao = parc + fixCartao, nota = "";
       if (mm) {
         const c = calc(mm); rec = c.receitas; cartao = c.cartao;
         if (c.snap) { parc = c.snap.total; nota = "aberta"; } else parc = c.parcelas;
@@ -657,6 +749,11 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   const catDe = l => (ehAjuste(l) ? "Não detalhado (ajuste)" : ef(l).categoria);
   const rotuloEssencial = e => (e.essencial === true ? " · essencial" : e.essencial === false ? " · não essencial" : "");
   const chipConta = e => (e.conta !== "pessoal" ? ` · <span class="chip conta">${esc(nomeDaConta(e.conta))}</span>` : "");
+  // Situação de cada gasto na conferência com as faturas do cartão
+  const CONF = [["fatura", "Vieram da fatura"], ["conferido", "Conferidos na fatura"], ["nao", "Não achados na fatura"], ["forma", "Em outra forma, mas na fatura"], ["entrar", "Vão entrar na fatura"]];
+  const confDe = l => (l.origem === "fatura" ? "fatura" : l.outraForma ? "forma" : l.foraDaFatura ? "nao" : l.aEntrar ? "entrar" : l.naFatura ? "conferido" : "");
+  const chipConf = l => ({fatura: ` <span class="chip info">da fatura ${esc(l.fatura)}</span>`, forma: ` <span class="chip warn">está na fatura ${esc(l.naFatura)}</span>`,
+    nao: ' <span class="chip warn">não achado na fatura</span>', entrar: ' <span class="chip neutral">vai entrar na fatura</span>'})[confDe(l)] || "";
   // Essencial, não essencial e sem classificação (o ajuste "não detalhado" fica à parte)
   function divisaoEssencial(L) {
     const det = L.filter(l => !ehAjuste(l));
@@ -753,7 +850,37 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const contasMes = [...new Set(L.map(l => ef(l).conta))];
     fConta.closest("label").hidden = !contasMes.some(c => c !== "pessoal");
     opcoesComRotulo(fConta, contasMes.map(c => [c, nomeDaConta(c)]), "Todas");
+    const fConf = $id("g-fconf");
+    const situacoes = CONF.filter(([k]) => L.some(l => confDe(l) === k));
+    fConf.closest("label").hidden = !situacoes.length;
+    opcoesComRotulo(fConf, situacoes, "Todos");
+    seguro("g-conciliacao", () => renderConciliacao(m));
     renderGastosLista(m);
+  }
+  // Quadro da conferência com o cartão: o que cada fatura conhecida trouxe e o que conferir no mês aberto
+  function renderConciliacao(m) {
+    const box = $id("g-conciliacao");
+    box.hidden = !(CONC && CONC.faturas.length);
+    if (box.hidden) return;
+    const doMes = k => m.lancamentos.filter(l => confDe(l) === k);
+    const avisos = [
+      ["nao", "warn", q => `${q === 1 ? "Um gasto no cartão não aparece" : `${q} gastos no cartão não aparecem`} na fatura do período (valor ou data diferentes, ou foi em outro cartão).`],
+      ["forma", "warn", q => `${q === 1 ? "Um gasto lançado como Pix, débito ou dinheiro está" : `${q} gastos lançados como Pix, débito ou dinheiro estão`} na fatura do cartão. Confira a forma de pagamento.`],
+      ["fatura", "info", q => `${q === 1 ? "Uma compra da fatura não estava" : `${q} compras da fatura não estavam`} nos gastos do dia a dia e ${q === 1 ? "entrou" : "entraram"} agora (${brl(sum(doMes("fatura"), l => l.valor))}).`],
+      ["entrar", "info", q => `${q === 1 ? "Um gasto no cartão vai entrar" : `${q} gastos no cartão vão entrar`} na próxima fatura (lançados depois de ${dBR(CONC.fimConhecido)}).`],
+    ].map(([k, cls, texto]) => { const q = doMes(k).length; return q ? `<div class="alert ${cls}"><span class="sev"></span><div>${esc(texto(q))} <button type="button" class="btn-link" data-ver-conf="${k}">Ver na lista</button></div></div>` : ""; }).join("");
+    box.innerHTML = `<h2>Conferência com o cartão</h2>
+      <p class="sub" style="margin:-6px 0 10px">Cada compra das faturas é procurada nos gastos do dia a dia (mesmo valor, até 3 dias de diferença). A que faltava entrou nos gastos, marcada “da fatura”.</p>
+      <div class="scroll"><table><thead><tr><th>Fatura</th><th class="r">Compras</th><th class="r">Já estavam</th><th class="r">Entraram</th></tr></thead><tbody>
+        ${[...CONC.faturas].reverse().slice(0, 4).map(r => `<tr><td>${esc(r.mes)}<div class="sub">${r.fechada ? "fechada" : r.compras ? `prévia até ${dBR(r.previa.ate)}` : "prévia, só parcelas"}</div></td><td class="r num">${r.compras}</td><td class="r num">${r.conferidos}</td><td class="r num">${r.entraram}</td></tr>`).join("")}
+      </tbody></table></div>
+      ${avisos ? `<div class="conf-avisos">${avisos}</div>` : `<p class="sub" style="margin:8px 0 0">Em ${esc(m.rotulo)}, os gastos no cartão batem com as faturas.</p>`}
+      ${CONC.ajustes ? `<p class="sub" style="margin:8px 0 0">${CONC.ajustes === 1 ? "O ajuste" : `${CONC.ajustes} ajustes`} de gastos no cartão não anotados ${CONC.ajustes === 1 ? "saiu" : "saíram"}: a fatura traz cada compra do período.</p>` : ""}`;
+    box.querySelectorAll("[data-ver-conf]").forEach(b => { b.onclick = () => {
+      $id("g-fconf").value = b.dataset.verConf;
+      seguro("g-itens", () => renderGastosLista(atual));
+      $id("g-lista").scrollIntoView({block: "start"});
+    }; });
   }
   function opcoesComRotulo(sel, pares, rotuloTodos) {
     const antes = sel.value;
@@ -771,10 +898,10 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
 
   let listaGastos = [];
   function renderGastosLista(m) {
-    const fc = $id("g-fcat").value, ff = $id("g-fforma").value, fco = $id("g-fconta").value, q = semAcento($id("g-busca").value.trim());
+    const fc = $id("g-fcat").value, ff = $id("g-fforma").value, fco = $id("g-fconta").value, fcf = $id("g-fconf").value, q = semAcento($id("g-busca").value.trim());
     const L = m.lancamentos.filter(l => {
       const e = ef(l);
-      return (!fc || catDe(l) === fc) && (!ff || (l.forma || "Outro") === ff) && (!fco || e.conta === fco)
+      return (!fc || catDe(l) === fc) && (!ff || (l.forma || "Outro") === ff) && (!fco || e.conta === fco) && (!fcf || confDe(l) === fcf)
         && (!q || semAcento(`${l.desc} ${l.obs || ""} ${e.categoria} ${e.subcategoria || ""} ${e.complemento || ""} ${nomeDaConta(e.conta)}`).includes(q));
     });
     listaGastos = L;
@@ -783,9 +910,9 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     L.forEach(l => (porData[l.data] ||= []).push(l));
     const datas = Object.keys(porData).sort().reverse();
     $id("g-itens").innerHTML = L.length ? datas.map(d => `<div class="dgroup"><div class="dhead"><span>${dBR(d)} · ${diaSemana(d)}</span><span class="num">${brl(sum(porData[d], l => l.valor))}</span></div>
-      <table><tbody>${porData[d].map(l => { const e = ef(l); return `<tr><td>${esc(l.desc)}${ehAjuste(l) ? ' <span class="chip neutral">ajuste</span>' : ""}${l.origem === "site" ? ' <span class="chip info">lançado no site</span>' : ""}
+      <table><tbody>${porData[d].map(l => { const e = ef(l); return `<tr><td>${esc(l.desc)}${ehAjuste(l) ? ' <span class="chip neutral">ajuste</span>' : ""}${l.origem === "site" ? ' <span class="chip info">lançado no site</span>' : ""}${chipConf(l)}
         ${e.complemento ? `<div class="compl">${esc(e.complemento)}</div>` : ""}
-        <div class="sub">${esc(catDe(l))}${e.subcategoria && !ehAjuste(l) ? ` › ${esc(e.subcategoria)}` : ""} · ${esc(l.forma || "")}${l.parcelas ? ` · parcela ${esc(l.parcelas)}` : ""}${ehAjuste(l) ? "" : rotuloEssencial(e)}${chipConta(e)}${l.obs && !ehAjuste(l) && l.origem !== "site" ? ` · ${esc(l.obs)}` : ""}</div></td>
+        <div class="sub">${esc(catDe(l))}${e.subcategoria && !ehAjuste(l) ? ` › ${esc(e.subcategoria)}` : ""} · ${esc(l.forma || "")}${l.parcelas ? ` · parcela ${esc(l.parcelas)}` : ""}${ehAjuste(l) ? "" : rotuloEssencial(e)}${chipConta(e)}${l.obs && !ehAjuste(l) && l.origem !== "site" ? ` · ${esc(l.obs)}` : ""}${confDe(l) === "conferido" ? ` · conferido na fatura ${esc(l.naFatura)}` : ""}</div></td>
         <td class="r num">${n(l.valor)}<div class="acoes-lanc">${aoClassificar && !ehAjuste(l) ? `<button type="button" class="btn sec mini" data-classificar-g="${indice.get(l)}">Classificar</button>` : ""}${l.origem === "site" && aoApagarGasto ? `<button type="button" class="btn sec mini" data-apagar-gasto="${esc(l.id)}">Apagar</button>` : ""}</div></td></tr>`; }).join("")}</tbody></table></div>`).join("")
       + `<p class="sub" style="margin:10px 0 0">${L.length} ${L.length === 1 ? "lançamento" : "lançamentos"} · total ${brl(sum(L, l => l.valor))}</p>`
       : `<p class="muted" style="margin:6px 0 0">${m.lancamentos.length ? "Nenhum lançamento com esses filtros." : `Nenhum gasto lançado em ${esc(m.rotulo)}.`}</p>`;
@@ -794,9 +921,46 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   }
 
   // ---------- Cartão e faturas ----------
+  // Prévia da fatura que ainda não fechou (a primeira que não venceu); as seguintes são as próximas faturas
+  function previaAberta() {
+    const hojeIso = `${hojeKey}-${String(hoje.getDate()).padStart(2, "0")}`;
+    const [fa, fm] = nextYM(hoje.getFullYear(), hoje.getMonth() + 1);
+    return PREVIAS.find(p => (p.vencimento ? p.vencimento >= hojeIso : ordemFatura(p.mes) >= ordemFatura(lbl(fa, fm)))) || null;
+  }
+  function htmlPreviaAberta(p) {
+    const pend = D.meses.flatMap(m => m.lancamentos).filter(l => l.aEntrar);
+    const totPend = sum(pend, l => l.valor), minimo = p.total + totPend;
+    const prox = PREVIAS.filter(x => ordemFatura(x.mes) > ordemFatura(p.mes));
+    const escala = Math.max(META || 0, minimo) * 1.08;
+    const w = v => `${(Math.max(0, v) / escala * 100).toFixed(2)}%`;
+    return `<h2>Fatura aberta ${esc(p.mes)}</h2>
+      <div class="tv-big num">${brl(p.total)}</div>
+      <p class="sub" style="margin:2px 0 0">Prévia do ${esc(p.formato || "arquivo")} do app${p.banco ? ` do ${esc(p.banco)}` : ""}, com as compras até ${dBR(p.ate)}${p.vencimento ? ` · vence em ${dataLonga(p.vencimento)}` : ""}</p>
+      ${META != null ? `<div class="meter" role="img" aria-label="Fatura em relação à sua previsão de ${brl(META)}">
+          <div class="bar"><span style="width:${w(p.total)};background:var(--parc)"></span>${totPend > 0 ? `<span style="width:${w(totPend)};background:var(--gasto)"></span>` : ""}</div>
+          <span class="metaline" style="left:${w(META)}"></span><span class="metalbl" style="left:${w(META)}">previsão ${brl(META)}</span>
+        </div>
+        <div class="legend"><span><i style="background:var(--parc)"></i>Na prévia</span>${totPend > 0 ? '<span><i style="background:var(--gasto)"></i>Lançados depois</span>' : ""}</div>` : ""}
+      <table class="calc" style="margin-top:12px"><tbody>
+        <tr><td>Compras à vista e primeiras parcelas</td><td class="r num">${brl(p.compras)}</td></tr>
+        <tr><td>Parcelas de compras anteriores</td><td class="r num">${brl(p.parcelas_anteriores)}</td></tr>
+        ${totPend ? `<tr><td>Lançados no dia a dia depois de ${dBR(p.ate)}</td><td class="r num">${brl(totPend)}</td></tr>` : ""}
+        <tr class="total"><td>Fecha em pelo menos</td><td class="r num">${brl(minimo)}</td></tr>
+        ${META != null ? `<tr><td>Sua previsão</td><td class="r num">${brl(META)}</td></tr><tr><td>Diferença</td><td class="r num ${META - minimo < 0 ? "neg" : "pos"}">${brl(META - minimo)}</td></tr>` : ""}
+      </tbody></table>
+      ${pend.length ? `<div class="label" style="margin:14px 0 4px">No dia a dia, ainda não na fatura</div>
+        <div class="scroll"><table><tbody>${pend.map(l => `<tr><td class="num muted" style="padding-right:10px">${dBR(l.data)}</td><td>${esc(l.desc)}</td><td class="r num">${n(l.valor)}</td></tr>`).join("")}</tbody></table></div>` : ""}
+      ${prox.length ? `<div class="label" style="margin:14px 0 4px">Próximas faturas (prévia)</div>
+        <div class="scroll"><table><tbody>${prox.map(x => `<tr><td>${esc(x.mes)}<div class="sub">${x.n_lanc} ${x.n_lanc === 1 ? "lançamento" : "lançamentos"} · parcelas de compras anteriores ${brl(x.parcelas_anteriores)}</div></td><td class="r num">${n(x.total)}</td></tr>`).join("")}</tbody></table></div>` : ""}`;
+  }
+
   function renderFaturaAberta() {
     const box = $id("fatura-aberta");
-    if (!AB) { box.innerHTML = `<h2>Fatura aberta</h2><p class="muted" style="margin:0">Nenhuma fatura aberta registrada no projeto Financeiro.</p>`; return; }
+    if (!AB) {
+      const p = previaAberta();
+      box.innerHTML = p ? htmlPreviaAberta(p) : `<h2>Fatura aberta</h2><p class="muted" style="margin:0">Nenhuma fatura aberta registrada. Importe a fatura parcial do app (CSV ou OFX) no quadro de PDFs.</p>`;
+      return;
+    }
     const mm = D.meses.find(x => x.chave === AB.mes_compras);
     const c = mm ? calc(mm) : null, r = c ? ritmo(mm, c) : null;
     const minimo = c ? c.cartao : AB.total;
@@ -894,16 +1058,29 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       const c = calc(mm);
       if (c.snap) return {mes: mm.fatura, segs: [[c.snap.total, "var(--parc)"], [c.linhas.find(l => l.leg === "Compras novas").v, "var(--gasto)"], [c.fixosCartao, "var(--rec)"]], total: c.cartao,
         meta: `Aberta no app em ${dBR(c.snap.data)}: ${brl(c.snap.total)} + fixos a cair ${brl(c.fixosCartao)} · vence ${dataLonga(c.snap.vencimento)}`};
-      const compras = sum(mm.lancamentos.filter(l => card(l.forma)), l => l.valor);
-      return {mes: mm.fatura, segs: [[c.parcelas, "var(--parc)"], [compras, "var(--gasto)"], [c.fixosCartao, "var(--rec)"]], total: c.cartao,
-        meta: `Compras de ${esc(mm.rotulo)}: parcelas ${brl(c.parcelas)} + lançadas ${brl(compras)} + fixos ${brl(c.fixosCartao)}`};
-    });
-    Object.entries(D.cartao.comprometido).forEach(([mes, v]) => {
-      if (!futuras.some(f => f.mes === mes) && !fech.some(p => p.mes === mes)) {
-        const fx = sum(recCartao, r => r.valor);
-        futuras.push({mes, segs: [[v, "var(--parc)"], [fx, "var(--rec)"]], total: v + fx, meta: `Parcelas ${brl(v)} + fixos ${brl(fx)}, sem as compras do mês`});
+      // Fatura com prévia do app: o total da prévia, os gastos no cartão lançados depois dela e os fixos a cair
+      const pv = (FATURAS.get(mm.fatura) || {}).previa;
+      if (pv) {
+        const depois = pv === previaAberta() ? sum(D.meses.flatMap(x => x.lancamentos).filter(l => l.aEntrar), l => l.valor) : 0;
+        return {mes: mm.fatura, segs: [[pv.total, "var(--parc)"], [depois, "var(--gasto)"], [c.fixosCartao, "var(--rec)"]], total: pv.total + depois + c.fixosCartao,
+          meta: `Prévia do app até ${dBR(pv.ate)}: ${brl(pv.total)}${depois ? ` + lançadas depois ${brl(depois)}` : ""} + fixos ${brl(c.fixosCartao)}`};
       }
+      // As compras que vieram de uma fatura conhecida ficam nela, não na fatura seguinte ao mês da compra
+      const compras = sum(mm.lancamentos.filter(l => card(l.forma) && l.origem !== "fatura"), l => l.valor);
+      if (!(c.parcelas + compras + c.fixosCartao > 0)) return null;
+      return {mes: mm.fatura, segs: [[c.parcelas, "var(--parc)"], [compras, "var(--gasto)"], [c.fixosCartao, "var(--rec)"]], total: c.parcelas + compras + c.fixosCartao,
+        meta: `Compras de ${esc(mm.rotulo)}: parcelas ${brl(c.parcelas)} + lançadas ${brl(compras)} + fixos ${brl(c.fixosCartao)}`};
+    }).filter(Boolean);
+    // Faturas seguintes sem mês nos gastos: a prévia do app, se houver, ou as parcelas agendadas
+    const seguintes = new Map(Object.entries(D.cartao.comprometido));
+    PREVIAS.forEach(p => { if (!seguintes.has(p.mes)) seguintes.set(p.mes, null); });
+    seguintes.forEach((v, mes) => {
+      if (futuras.some(f => f.mes === mes) || fech.some(p => p.mes === mes)) return;
+      const fx = sum(recCartao, r => r.valor), pv = PREVIAS.find(p => p.mes === mes);
+      if (pv) futuras.push({mes, segs: [[pv.total, "var(--parc)"], [fx, "var(--rec)"]], total: pv.total + fx, meta: `Prévia do app: ${brl(pv.total)} em ${pv.n_lanc} lançamentos + fixos ${brl(fx)}`});
+      else futuras.push({mes, segs: [[v, "var(--parc)"], [fx, "var(--rec)"]], total: v + fx, meta: `Parcelas ${brl(v)} + fixos ${brl(fx)}, sem as compras do mês`});
     });
+    if (futuras.every(f => Number.isFinite(ordemFatura(f.mes)))) futuras.sort((a, b) => ordemFatura(a.mes) - ordemFatura(b.mes));
     const max = Math.max(META || 0, ...futuras.map(f => f.total), ...fech.map(p => p.total)) * 1.02;
     const w = v => `${(Math.max(0, v) / max * 100).toFixed(2)}%`;
     const metaLine = META != null ? `<span class="metaline" style="left:${w(META)}" title="Previsão ${brl(META)}"></span>` : "";
@@ -1081,7 +1258,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   }
 
   function mostrarQuem() {
-    const soCartao = QUEM !== "dono" || SO_FATURAS;
+    // No painel só de faturas, a fatura aberta e a linha do tempo aparecem quando há prévia importada do app
+    const soCartao = QUEM !== "dono" || (SO_FATURAS && !PREVIAS.length);
     $id("cartao-quem").textContent = PESSOAS[QUEM].nome;
     ["fatura-aberta", "cartao"].forEach(id => { $id(id).hidden = soCartao; });
     seguro("quem", renderQuem);
@@ -1129,7 +1307,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   });
 
   // Filtros das listas e o botão da lista de categorias
-  ["g-fcat", "g-fforma", "g-fconta"].forEach(id => $id(id).addEventListener("change", () => seguro("g-itens", () => renderGastosLista(atual))));
+  ["g-fcat", "g-fforma", "g-fconta", "g-fconf"].forEach(id => $id(id).addEventListener("change", () => seguro("g-itens", () => renderGastosLista(atual))));
   document.querySelectorAll("[data-editar-categorias]").forEach(b => {
     b.hidden = !aoEditarCategorias;
     b.onclick = () => aoEditarCategorias();
