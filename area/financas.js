@@ -859,8 +859,8 @@ function prepararPdfs() {
     if (apagar && confirm("Apagar este PDF?")) {
       try {
         await armazem.financas.apagarPdf(apagar.dataset.apagarPdf);
-        mensagemPdf("PDF apagado.", "ok");
         await listarPdfs();
+        mensagemPdf("PDF apagado.", "ok");
       } catch (err) {
         mensagemPdf("Não foi possível apagar: " + err.message, "bad");
       }

@@ -287,45 +287,231 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     $id("g-alertas").innerHTML = html;
   }
 
-  // ---------- Termômetro do mês: quanto do dinheiro do mês já está gasto ou comprometido ----------
+  // ---------- Fechamento do mês: entradas, saídas e quanto ainda dá para gastar, em R$ ----------
+  // Saídas: tudo o que já foi gasto ou está comprometido no mês (investimento, cartão, gastos fora do cartão e fixos
+  // que ainda vão cair). No gráfico, as saídas começam nos compromissos do mês e crescem com cada gasto lançado;
+  // o espaço até a linha das entradas é o que ainda dá para gastar.
+  let fluxo = null; // o que o gráfico do mês aberto precisa para ser redesenhado quando a largura muda
+  let obsFluxo = null, larguraFluxo = 0;
+  const curtoBRL = v => (Math.abs(v) >= 1000 ? `R$ ${(v / 1000).toLocaleString("pt-BR", {maximumFractionDigits: 1})} mil` : v ? `R$ ${Math.round(v)}` : "0");
+  function marcasEixo(max) {
+    const bruto = max / 5, pot = 10 ** Math.floor(Math.log10(bruto || 1));
+    const passo = [1, 2, 2.5, 5, 10].map(f => f * pot).find(p => p >= bruto);
+    const t = [];
+    for (let v = 0; ; v += passo) { t.push(v); if (v >= max) break; }
+    return t;
+  }
+
   function renderTermometro(m, c) {
     const box = $id("g-termometro");
     const botao = !aoLancarGasto ? "" : `<div class="termometro-acoes"><button type="button" class="btn" id="btn-lancar-gasto">Lançar gasto ou Pix</button>${aoImportarExtrato ? '<button type="button" class="btn btn-claro" id="btn-extrato-gastos">Importar extrato</button>' : ""}</div>`;
+    const usado = c.receitas - c.saldo;
+    const gastosDia = sum(m.lancamentos, l => l.valor);
+    const corrente = m.chave === hojeKey, futuro = m.chave > hojeKey, neg = c.saldo < 0;
+    const nL = m.lancamentos.length, nE = m.receitas.length;
+    const temSalario = m.receitas.some(r => r.fonte === "Empresa" && r.liquido != null);
+    let subEntradas = !nE ? "nenhuma lançada" : temSalario ? (nE === 1 ? "salário" : `salário e mais ${nE - 1} ${nE - 1 === 1 ? "recebimento" : "recebimentos"}`) : `${nE} ${nE === 1 ? "recebimento" : "recebimentos"}`;
+    if (nE && c.semSalario && SAL_NORMAL > 0) subEntradas += " · falta o salário";
+    const kpi = (rotulo, valor, sub) => `<div class="fech-kpi"><span class="label">${rotulo}</span><b>${valor}</b><span class="sub">${sub}</span></div>`;
+    const kpis = `<div class="fech-kpis">
+        ${kpi("Entradas", brl(c.receitas), subEntradas)}
+        ${kpi("Saídas", brl(usado), c.receitas > 0 ? `${porcento(usado / c.receitas)} das entradas · gastas e comprometidas` : "gastas e comprometidas")}
+        ${kpi("Gastos do dia a dia", brl(gastosDia), `${nL} ${nL === 1 ? "lançamento" : "lançamentos"} · já contam nas saídas`)}
+      </div>`;
+    const doSite = m.lancamentos.filter(l => l.origem === "site").length;
+    const rodape = doSite ? `<p class="sub" style="margin:0">${doSite} ${doSite === 1 ? "gasto lançado" : "gastos lançados"} pelo site neste mês.${duplicados ? ` ${duplicados === 1 ? "Um já estava" : `${duplicados} já estavam`} no projeto Financeiro e não contou de novo.` : ""}</p>` : "";
+    fluxo = null;
     if (!(c.receitas > 0)) {
-      box.innerHTML = `<div class="termometro-topo"><div><div class="label">Uso do dinheiro de ${esc(m.rotulo)}</div><p class="muted" style="margin:6px 0 0">O percentual aparece quando as entradas do mês estiverem lançadas${aoLancarEntrada ? " (botão Lançar entrada, no topo)" : " no projeto Financeiro"}.</p></div>${botao}</div>`;
+      box.innerHTML = `<div class="termometro-topo"><div><div class="label">Fechamento de ${esc(m.rotulo)}</div><div class="fech-rot">Ainda pode gastar</div>
+          <p class="muted" style="margin:4px 0 0">Aparece quando as entradas do mês estiverem lançadas${aoLancarEntrada ? " (botão Lançar entrada, no topo)" : " no projeto Financeiro"}.</p></div>${botao}</div>
+        ${kpis}${rodape}`;
     } else {
-      const usado = c.receitas - c.saldo;
       const uso = usado / c.receitas;
-      const nivel = uso >= 1 ? "bad" : uso >= 0.85 ? "warn" : "ok";
+      const rotulo = corrente ? (neg ? "Faltam para fechar o mês" : "Ainda pode gastar") : futuro ? (neg ? "Deve faltar no mês" : "Deve sobrar no mês") : neg ? "Faltou no mês" : "Sobrou no mês";
+      const ritmo = corrente ? (neg ? "as saídas já passam das entradas" : c.dias === 1 ? "para hoje, o último dia do mês" : `${brl(c.saldo / c.dias)} por dia nos ${c.dias} dias que faltam`)
+        : futuro ? "previsão com o que já está comprometido" : "mês encerrado";
       const escala = Math.max(c.receitas, usado);
       const w = v => `${(Math.max(0, v) / escala * 100).toFixed(2)}%`;
       const segs = c.linhas.filter(l => l.v > 0);
-      const gastosDia = sum(m.lancamentos, l => l.valor);
-      const doSite = m.lancamentos.filter(l => l.origem === "site").length;
+      const pctE = v => porcento(v / c.receitas);
+      const item = (rotulo, valor, pct, cor) => `<tr class="fx-item"><td>${cor ? `<i style="background:${cor}"></i>` : ""}${rotulo}</td><td class="r num">${valor}</td><td class="r num pct">${pct}</td></tr>`;
+
+      // Gráfico: saídas acumuladas dia a dia (compromissos + gastos lançados até cada dia) contra as entradas
+      const ult = new Date(m.ano, m.mes, 0).getDate();
+      const porDia = Array(ult + 1).fill(0), qDia = Array(ult + 1).fill(0);
+      m.lancamentos.forEach(l => {
+        const k = String(l.data || "").slice(0, 7);
+        let d = k === m.chave ? Number(String(l.data).slice(8, 10)) : k < m.chave ? 1 : ult;
+        if (!(d >= 1 && d <= ult)) d = 1;
+        porDia[d] += l.valor; qDia[d]++;
+      });
+      const acum = porDia.reduce((a, v, i) => (a.push((i ? a[i - 1] : 0) + v), a), []);
+      const ultimoComGasto = qDia.reduce((u, q, d) => (q ? d : u), 0);
+      const hojeDia = corrente ? hoje.getDate() : null;
+      const ate = corrente ? Math.max(hojeDia, ultimoComGasto) : futuro ? ultimoComGasto : ult;
+      const K = usado - gastosDia; // compromissos do mês que não são gastos lançados
+      const cabe = corrente && !neg && ate < ult && c.dias ? c.saldo / c.dias : null;
+      const rotuloSobra = neg ? (corrente ? "faltam" : futuro ? "deve faltar" : "faltou") : corrente ? "ainda pode gastar" : futuro ? "deve sobrar" : "sobrou";
+      const iso = d => `${m.chave}-${String(d).padStart(2, "0")}`;
+      const diaMes = d => `${String(d).padStart(2, "0")}/${String(m.mes).padStart(2, "0")}`;
+      const comGrafico = !futuro || gastosDia > 0;
+      const aria = `Saídas de ${m.rotulo} somando dia a dia: começam em ${brl(Math.max(0, K))} de compromissos e chegam a ${brl(usado)}${corrente ? " hoje" : ""}, para entradas de ${brl(c.receitas)}. ${neg ? `Faltam ${brl(-c.saldo)}` : `${rotulo}: ${brl(c.saldo)}`}.`;
+      const tabelaDias = [`<tr><td>Início do mês</td><td class="r num">—</td><td class="r num">${n(K)}</td><td class="r num">${n(c.receitas - K)}</td></tr>`];
+      for (let d = 1; d <= ate; d++) if (qDia[d]) tabelaDias.push(`<tr><td>${diaMes(d)} · ${diaSemana(iso(d))}</td><td class="r num">${n(porDia[d])}</td><td class="r num">${n(K + acum[d])}</td><td class="r num">${n(c.receitas - K - acum[d])}</td></tr>`);
+      const grafico = !comGrafico ? `<p class="muted" style="margin:0">Os gastos do dia a dia de ${esc(m.rotulo)} aparecem aqui quando forem lançados.</p>` : `
+        <figure class="fech-grafico">
+          <figcaption><b>Entradas x saídas, dia a dia</b><span class="sub">As saídas começam nos compromissos do mês e crescem a cada gasto lançado. O espaço até a linha das entradas é o que ainda dá para gastar.</span></figcaption>
+          <div class="legend">
+            <span><i class="hachura"></i>Compromissos do mês <span class="num">${brl(Math.max(0, K))}</span></span>
+            <span><i style="background:var(--gasto)"></i>Gastos do dia a dia <span class="num">${brl(gastosDia)}</span></span>
+            <span><i class="linha"></i>Entradas <span class="num">${brl(c.receitas)}</span></span>
+            ${cabe != null ? `<span><i class="linha tracejada"></i>Cabe por dia até o fim do mês <span class="num">${brl(cabe)}</span></span>` : ""}
+          </div>
+          <div class="fg-caixa"><svg id="fg-svg" role="img" aria-label="${esc(aria)}"></svg><div class="fg-tip" id="fg-tip" hidden></div></div>
+          <details class="fg-tabela"><summary>Ver os dias em tabela</summary><div class="scroll"><table>
+            <thead><tr><th>Dia</th><th class="r">Gasto no dia</th><th class="r">Saídas até o dia</th><th class="r">Ainda podia gastar</th></tr></thead>
+            <tbody>${tabelaDias.join("")}</tbody></table></div></details>
+        </figure>`;
+
       box.innerHTML = `
         <div class="termometro-topo">
           <div>
-            <div class="label">Uso do dinheiro de ${esc(m.rotulo)}</div>
-            <div class="termometro-pct ${nivel}">${porcento(uso)}</div>
-            <div class="sub">${brl(usado)} de ${brl(c.receitas)} já gastos ou comprometidos · ${c.saldo >= 0 ? `sobram ${brl(c.saldo)}${c.dias ? ` (${brl(c.saldo / c.dias)} por dia)` : ""}` : `faltam ${brl(-c.saldo)}`}</div>
+            <div class="label">Fechamento de ${esc(m.rotulo)}</div>
+            <div class="fech-rot">${rotulo}</div>
+            <div class="fech-valor${neg ? " neg" : ""}">${brl(neg ? -c.saldo : c.saldo)}</div>
+            <div class="sub">${ritmo} · ${porcento(uso)} das entradas já usados</div>
           </div>
           ${botao}
         </div>
-        <div class="meter termometro-barra" role="img" aria-label="${porcento(uso)} do dinheiro do mês usado">
+        ${kpis}
+        <div class="meter termometro-barra" role="img" aria-label="Saídas de ${brl(usado)} para entradas de ${brl(c.receitas)} (${porcento(uso)}); ${neg ? `faltam ${brl(-c.saldo)}` : `sobram ${brl(c.saldo)}`}">
           <div class="bar">${segs.map(l => `<span style="width:${w(l.v)};background:${l.cor}"></span>`).join("")}</div>
           <span class="metaline" style="left:${w(c.receitas * 0.85)}"></span><span class="metalbl" style="left:${w(c.receitas * 0.85)}">85%</span>
         </div>
-        <div class="legend">${segs.map(l => `<span><i style="background:${l.cor}"></i>${l.leg} ${porcento(l.v / c.receitas)}</span>`).join("")}<span><i style="background:var(--line)"></i>Livre ${porcento(Math.max(0, c.saldo) / c.receitas)}</span></div>
-        <div class="kv" style="margin-top:14px">
-          <div><span class="label">Gastos do dia a dia</span><b>${brl(gastosDia)} · ${porcento(gastosDia / c.receitas)} do mês</b></div>
-          <div><span class="label">Cartão (fatura ${esc(m.fatura)})</span><b>${brl(c.cartao)}${META != null ? ` · ${porcento(c.cartao / META)} da previsão` : ""}</b></div>
+        <div class="fech-grade">
+          <div class="scroll"><table class="fech-fluxo">
+            <thead><tr><th>Fluxo de ${esc(m.rotulo)}</th><th class="r">R$</th><th class="r">% das entradas</th></tr></thead>
+            <tbody>
+              <tr class="fx-grupo"><th scope="row">Entradas</th><td class="r num">${brl(c.receitas)}</td><td class="r num pct">100%</td></tr>
+              ${m.receitas.map(r => item(esc(r.desc), r.liquido == null ? "aguardando" : n(r.liquido), r.liquido == null ? "" : pctE(r.liquido))).join("")}
+              <tr class="fx-grupo"><th scope="row">(−) Saídas</th><td class="r num">${brl(usado)}</td><td class="r num pct">${pctE(usado)}</td></tr>
+              ${segs.map(l => item(esc(l.t), n(l.v), pctE(l.v), l.cor)).join("")}
+              <tr class="fx-total"><th scope="row">${neg ? "" : '<i style="background:var(--line)"></i>'}(=) ${rotulo}</th><td class="r num${neg ? " neg" : ""}">${brl(c.saldo)}</td><td class="r num pct">${pctE(c.saldo)}</td></tr>
+            </tbody>
+          </table></div>
+          ${grafico}
         </div>
-        ${doSite ? `<p class="sub" style="margin:10px 0 0">${doSite} ${doSite === 1 ? "gasto lançado" : "gastos lançados"} pelo site neste mês.${duplicados ? ` ${duplicados === 1 ? "Um já estava" : `${duplicados} já estavam`} no projeto Financeiro e não contou de novo.` : ""}</p>` : ""}`;
+        ${rodape}`;
+      if (comGrafico) {
+        fluxo = {A: c.receitas, K, saldo: c.saldo, rotuloSobra, ult, ate, hojeDia, porDia, qDia, acum, cabe, iso, diaMes};
+        larguraFluxo = 0;
+        if (window.ResizeObserver) {
+          if (!obsFluxo) { let rz; obsFluxo = new ResizeObserver(() => { clearTimeout(rz); rz = setTimeout(() => desenharFluxo(false), 60); }); }
+          obsFluxo.disconnect();
+          obsFluxo.observe($id("fg-svg"));
+        }
+        desenharFluxo(true);
+      }
     }
     const b = $id("btn-lancar-gasto");
     if (b) b.onclick = aoLancarGasto;
     const x = $id("btn-extrato-gastos");
     if (x) x.onclick = aoImportarExtrato;
+  }
+
+  // Desenha o gráfico com a largura da tela (com a aba escondida a largura é zero: desenha quando ela aparecer)
+  function desenharFluxo(forcar) {
+    const svg = $id("fg-svg"), tip = $id("fg-tip");
+    if (!fluxo || !svg) return;
+    const W = svg.clientWidth;
+    if (!W || (!forcar && W === larguraFluxo)) return;
+    larguraFluxo = W;
+    const F = fluxo, H = 220, ml = 66, mr = 14, mt = 22, mb = 24, pw = W - ml - mr, ph = H - mt - mb;
+    const fim = F.K + F.acum[F.ate];
+    const tk = marcasEixo(Math.max(F.A, fim, F.K, 1) * 1.04), top = tk.at(-1);
+    const x = d => ml + (d - 0.5) / F.ult * pw; // centro do dia d
+    const y = v => mt + ph - Math.max(0, Math.min(v, top)) / top * ph;
+    const f1 = v => v.toFixed(1);
+    const halo = 'paint-order="stroke" stroke="var(--surface)" stroke-width="4" stroke-linejoin="round"';
+    let s = "";
+    tk.forEach(v => { s += `<line x1="${ml}" x2="${W - mr}" y1="${f1(y(v))}" y2="${f1(y(v))}" stroke="var(--line)" stroke-width="1"/><text x="${ml - 8}" y="${f1(y(v) + 4)}" text-anchor="end">${curtoBRL(v)}</text>`; });
+    const marcas = [...new Set([1, 5, 10, 15, 20, 25, F.ult])].filter(d => !F.hojeDia || d === F.hojeDia || Math.abs(d - F.hojeDia) > 1);
+    if (F.hojeDia && !marcas.includes(F.hojeDia)) marcas.push(F.hojeDia);
+    marcas.forEach(d => { s += `<text x="${f1(x(d))}" y="${H - 6}" text-anchor="middle"${d === F.hojeDia ? ' class="fg-rot"' : ""}>${d === F.hojeDia ? "hoje" : d}</text>`; });
+    // Compromissos: faixa do começo ao fim do mês
+    const yK = y(F.K);
+    if (F.K > 0) {
+      s += `<defs><pattern id="fg-hachura" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="var(--bg)"/><line x1="1" y1="0" x2="1" y2="6" stroke="var(--muted)" stroke-opacity=".4" stroke-width="1.5"/></pattern></defs>`;
+      s += `<rect x="${ml}" y="${f1(yK)}" width="${f1(pw)}" height="${f1(y(0) - yK)}" fill="url(#fg-hachura)"/>`;
+      if (y(0) - yK > 22) s += `<text x="${ml + 8}" y="${f1(y(0) - 8)}" ${halo}>Compromissos ${curtoBRL(F.K)}</text>`;
+    }
+    // Gastos do dia a dia somando por cima dos compromissos
+    const pts = [[ml, F.K]];
+    for (let d = 1; d <= F.ate; d++) pts.push([x(d), F.K + F.acum[d]]);
+    const linha = pts.map(([px, v], i) => `${i ? "L" : "M"}${f1(px)},${f1(y(v))}`).join("");
+    if (F.ate) {
+      s += `<path d="${linha}L${f1(x(F.ate))},${f1(yK)}L${ml},${f1(yK)}Z" fill="var(--gasto)" fill-opacity=".28"/>`;
+      s += `<line x1="${ml}" x2="${f1(x(F.ate))}" y1="${f1(yK)}" y2="${f1(yK)}" stroke="var(--surface)" stroke-width="2"/>`;
+      s += `<path d="${linha}" fill="none" stroke="var(--gasto)" stroke-width="2" stroke-linejoin="round"/>`;
+    }
+    // Entradas e, no mês atual, o ritmo que fecha o mês sem passar delas
+    const yA = y(F.A), xFim = ml + pw;
+    s += `<line x1="${ml}" x2="${f1(xFim)}" y1="${f1(yA)}" y2="${f1(yA)}" stroke="var(--ink)" stroke-width="2"/>`;
+    s += `<text class="fg-rot" x="${f1(xFim)}" y="${f1(yA > mt + 12 ? yA - 7 : yA + 15)}" text-anchor="end" ${halo}>Entradas ${curtoBRL(F.A)}</text>`;
+    const xP = F.ate ? x(F.ate) : ml, yP = y(fim);
+    if (F.cabe != null) {
+      s += `<line x1="${f1(xP)}" y1="${f1(yP)}" x2="${f1(xFim)}" y2="${f1(yA)}" stroke="var(--ink)" stroke-opacity=".55" stroke-width="2" stroke-dasharray="5 4"/>`;
+      if (xFim - xP > 110) s += `<text x="${f1((xP + xFim) / 2)}" y="${f1((yP + yA) / 2 + 16)}" text-anchor="middle" ${halo}>cabe ${curtoBRL(F.cabe)}/dia</text>`;
+    }
+    // O que ainda dá para gastar (ou o que falta), entre o ponto de hoje e a linha das entradas
+    if (Math.abs(yP - yA) >= 26 && xP - ml > 130) s += `<text class="fg-rot" x="${f1(xP - 8)}" y="${f1((yP + yA) / 2 + 4)}" text-anchor="end" ${halo}>${F.rotuloSobra} ${curtoBRL(Math.abs(F.saldo))}</text>`;
+    if (F.ate) s += `<circle cx="${f1(xP)}" cy="${f1(yP)}" r="4.5" fill="var(--gasto)" stroke="var(--surface)" stroke-width="2"/>`;
+    s += `<line id="fg-cruz" x1="0" x2="0" y1="${mt}" y2="${mt + ph}" stroke="var(--ink)" stroke-width="1" opacity="0"/>`;
+    s += `<rect id="fg-alvo" x="${ml}" y="${mt}" width="${f1(pw)}" height="${ph}" fill="transparent" tabindex="0" aria-label="Valores de cada dia: use as setas"/>`;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.innerHTML = s;
+
+    const alvo = $id("fg-alvo"), cruz = $id("fg-cruz");
+    const mostrar = d => {
+      d = Math.max(1, Math.min(F.ult, Math.round(d)));
+      cruz.setAttribute("x1", x(d)); cruz.setAttribute("x2", x(d)); cruz.setAttribute("opacity", .35);
+      tip.replaceChildren();
+      const t = document.createElement("div"); t.className = "t"; t.textContent = `${diaSemana(F.iso(d))}, ${F.diaMes(d)}`; tip.append(t);
+      const linhaTip = (valor, nome, cor) => {
+        const div = document.createElement("div"), rot = document.createElement("span"), b = document.createElement("b");
+        if (cor) { const i = document.createElement("i"); i.style.borderTopColor = cor; rot.append(i); }
+        rot.append(nome); b.textContent = valor; div.append(b, rot); tip.append(div);
+      };
+      if (d <= F.ate) {
+        linhaTip(brl(F.K + F.acum[d]), "saídas até o dia", "var(--gasto)");
+        linhaTip(brl(F.porDia[d]), F.qDia[d] ? `gasto no dia (${F.qDia[d]})` : "sem gasto no dia");
+        const resta = F.A - F.K - F.acum[d];
+        linhaTip(brl(Math.abs(resta)), resta < 0 ? "faltavam" : "ainda podia gastar");
+      } else {
+        linhaTip("—", "dia que ainda vem");
+        if (F.cabe != null) linhaTip(brl(F.cabe), "cabe por dia", "var(--ink)");
+      }
+      tip.hidden = false;
+      const caixa = svg.getBoundingClientRect(), px = x(d) / W * caixa.width, tw = tip.offsetWidth;
+      tip.style.left = `${Math.max(0, Math.min(caixa.width - tw, px < caixa.width / 2 ? px + 12 : px - tw - 12))}px`;
+    };
+    const esconder = () => { tip.hidden = true; cruz.setAttribute("opacity", 0); };
+    const doPonteiro = ev => { const caixa = svg.getBoundingClientRect(); mostrar(((ev.clientX - caixa.left) / caixa.width * W - ml) / pw * F.ult + 0.5); };
+    alvo.addEventListener("pointermove", doPonteiro);
+    alvo.addEventListener("pointerdown", doPonteiro);
+    alvo.addEventListener("pointerleave", esconder);
+    let foco = F.ate || 1;
+    alvo.addEventListener("focus", () => mostrar(foco));
+    alvo.addEventListener("blur", esconder);
+    alvo.addEventListener("keydown", ev => {
+      const passo = {ArrowRight: 1, ArrowLeft: -1}[ev.key];
+      if (passo) foco = Math.max(1, Math.min(F.ult, foco + passo));
+      else if (ev.key === "Home") foco = 1;
+      else if (ev.key === "End") foco = F.ult;
+      else return;
+      ev.preventDefault();
+      mostrar(foco);
+    });
   }
 
   function renderMonths() {
@@ -541,16 +727,24 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const maxd = Math.max(...porDia);
     const hojeDia = m.chave === hojeKey ? hoje.getDate() : null;
     const marcas = new Set([1, 5, 10, 15, 20, 25, ult]);
+    // No mês atual, a linha tracejada mostra quanto cabe por dia daqui até o fim do mês sem passar das entradas
+    let cabe = null;
+    if (hojeDia) { const c = calc(m); if (c.receitas > 0 && c.saldo > 0 && c.dias) cabe = c.saldo / c.dias; }
+    const escalaD = Math.max(maxd, cabe || 0);
+    const altura = v => (v / escalaD).toFixed(4);
+    const linhaCabe = cabe == null ? "" : `<span class="dlimite" style="left:${((hojeDia - 1) / ult * 100).toFixed(2)}%;bottom:calc(${altura(cabe)} * (100% - 20px))"></span>
+        <span class="dlimite-rot" style="${hojeDia > ult * 0.6 ? "right:0" : `left:${((hojeDia - 1) / ult * 100).toFixed(2)}%`};bottom:calc(${altura(cabe)} * (100% - 20px))">cabe ${brl(cabe)} por dia até ${String(ult).padStart(2, "0")}/${String(m.mes).padStart(2, "0")}</span>`;
     $id("g-dias").innerHTML = `<h2>Gasto por dia</h2>
-      ${maxd > 0 ? `<div class="daychart" role="img" aria-label="Gasto por dia em ${esc(m.rotulo)}; maior dia ${brl(maxd)}">
-        <span class="dmax num">${brl(maxd)}</span>
+      ${maxd > 0 ? `<div class="daychart" role="img" aria-label="Gasto por dia em ${esc(m.rotulo)}; maior dia ${brl(maxd)}${cabe != null ? `; cabem ${brl(cabe)} por dia até o fim do mês` : ""}">
+        <span class="dmax num">${brl(escalaD)}</span>
         ${porDia.map((v, i) => { const d = i + 1; const dd = String(d).padStart(2, "0") + "/" + String(m.mes).padStart(2, "0");
           const lado = d <= 6 ? " l" : d >= ult - 5 ? " rt" : "";
-          return `<div class="dcol${lado}" ${v ? `tabindex="0" data-tip="${dd} · ${brl(v)} (${qDia[i]})"` : ""}><span class="dbar" style="height:${v ? Math.max(2, v / maxd * 100) : 0}%"></span></div>`; }).join("")}
+          return `<div class="dcol${lado}" ${v ? `tabindex="0" data-tip="${dd} · ${brl(v)} (${qDia[i]})"` : ""}><span class="dbar" style="height:${v ? Math.max(2, v / escalaD * 100) : 0}%"></span></div>`; }).join("")}
+        ${linhaCabe}
       </div>
       <div class="daxis" aria-hidden="true">${porDia.map((v, i) => { const d = i + 1; const mostra = d === hojeDia || (marcas.has(d) && !(hojeDia && Math.abs(d - hojeDia) === 1));
         return `<span class="${d === hojeDia ? "hoje" : ""}">${mostra ? d : ""}</span>`; }).join("")}</div>
-      <p class="sub" style="margin:8px 0 0">Toque ou passe o mouse nas barras para ver o valor de cada dia.${totAj ? ` O ajuste de ${brl(totAj)} fica fora do gráfico.` : ""}</p>`
+      <p class="sub" style="margin:8px 0 0">Toque ou passe o mouse nas barras para ver o valor de cada dia.${cabe != null ? " A linha tracejada é quanto cabe por dia até o fim do mês sem passar das entradas." : ""}${totAj ? ` O ajuste de ${brl(totAj)} fica fora do gráfico.` : ""}</p>`
       : '<p class="muted" style="margin:0">Sem gastos detalhados no mês.</p>'}`;
 
     opcoes($id("g-fcat"), Object.keys(porCat).sort(), "Todas");
