@@ -174,7 +174,7 @@ Separado do Controle financeiro da engenharia: é o **painel do projeto Financei
   Os lançados aqui ficam no site e continuam valendo depois de cada importação; o projeto Financeiro no Claude não os recebe sozinho.
 - **Lançar entrada:** pelo botão no topo ou na visão geral.
   - **Salário (holerite):** o bruto e cada desconto com o nome e o valor (INSS, IRRF, plano de saúde, coparticipação, previdência etc.; os mais comuns já vêm com o nome). O líquido é calculado e dá para corrigir se o holerite tiver outro valor.
-  - **Outro recebimento:** recebimentos por fora, com a conta (pessoal, engenharia ou empresa) quando houver mais de uma.
+  - **Outro recebimento:** recebimentos por fora, com a conta (de quem é o dinheiro) quando houver mais de uma.
 
   A entrada soma nas receitas do mês em que entrou. O salário lançado substitui o do projeto Financeiro no mesmo mês (que às vezes é só uma estimativa), e outro recebimento igual a um do projeto no mesmo mês não conta duas vezes. Na visão geral, o salário lançado aparece com o bruto e os descontos, e cada entrada lançada pelo site pode ser apagada.
 - **Importar extrato:** traz de uma vez os Pix, débitos, boletos e saques do mês. Use o arquivo **OFX** que o app ou o internet banking do banco exporta (em Extrato, "Exportar" ou "Salvar em OFX") ou o **CSV da conta do Nubank**. O arquivo é lido no navegador e não fica guardado. Antes de gravar, a lista mostra cada saída com a forma de pagamento e a categoria sugerida, e dá para desmarcar o que não for gasto. Já vêm desmarcados:
@@ -214,12 +214,14 @@ Separado do Controle financeiro da engenharia: é o **painel do projeto Financei
 
 - **Categoria e subcategoria** (ex.: Saúde › Farmácia), escolhidas na lista da pessoa; "Nova categoria…" e "Nova subcategoria…" acrescentam na hora;
 - **Essencial**, **não essencial** ou o padrão (o que veio do projeto ou, sem isso, o padrão da categoria);
-- **Conta**, de quem é o dinheiro: **pessoal**, **engenharia (autônomo)** ou uma das **empresas** cadastradas;
+- **Conta**, de quem é o dinheiro: **pessoal** de quem é o painel, **pessoal da outra pessoa** do casal, **compartilhado do casal**, **engenharia (autônomo)**, uma das **empresas** cadastradas ou empresas **unidas numa conta só** (aba Cadastros);
 - **Complemento**: um texto livre, por exemplo "PlayStation 5 comprado no Mercado Livre" para uma cobrança que aparece na fatura só como MERCADOLIVRE.
 
 A classificação fica no site e continua valendo depois de cada importação (o arquivo do projeto Financeiro não muda). "Voltar ao original" desfaz. As análises usam os valores ajustados: por categoria (com as subcategorias), essencial e não essencial, e o total por conta quando há lançamentos fora da conta pessoal. Na mesma compra parcelada, a classificação vale para todas as parcelas.
 
-**Lista de categorias.** O botão **Categorias** (nas abas Gastos e Cartão) abre a lista de cada pessoa: renomear (os lançamentos já classificados e os que vêm do projeto com o nome antigo passam para o novo), apagar, criar, acrescentar ou tirar subcategorias e marcar o padrão de cada categoria (essencial, não essencial ou depende). A primeira lista junta uma lista padrão às categorias que aparecem nos dados.
+**Cadastros.** Última aba do menu, ao lado de Visão geral, Gastos do dia a dia, Cartão e faturas, Investimentos e Lista de desejos (os botões **Categorias** das abas Gastos e Cartão levam para ela):
+- **Categorias e subcategorias:** a lista de cada painel. Dá para renomear (os lançamentos já classificados e os que vêm do projeto com o nome antigo passam para o novo), apagar, criar, acrescentar ou tirar subcategorias e marcar o padrão de cada categoria (essencial, não essencial ou depende). A primeira lista junta uma lista padrão às categorias que aparecem nos dados. As mudanças ficam na tela até **Salvar categorias**; **Desfazer mudanças** volta ao que está salvo. Categoria nova criada ao lançar ou classificar entra na lista na hora.
+- **Contas (de quem é o dinheiro):** pessoal de quem é o painel (sempre aparece), pessoal da outra pessoa do casal, compartilhado do casal, engenharia (autônomo) e as empresas. Desmarcar esconde a conta ao lançar e classificar; os lançamentos antigos continuam com ela. **Unir empresas numa conta só** junta duas ou mais empresas numa conta com nome próprio (que dá para renomear ou **Separar**). A conta unida aparece no lugar delas nos formulários e nos totais por conta, e os lançamentos dela entram em "Pagos com o seu dinheiro" na página de cada empresa unida. Os nomes das pessoas e das empresas vêm do banco.
 
 **Lista de desejos.** Aba própria, para cada pessoa:
 
@@ -235,7 +237,7 @@ Uma página para cada empresa com que você tem movimento financeiro (onde traba
 
 - **Lançamentos com a empresa:** receita é o que a empresa paga a você (reembolso, taxa de ART, salário, bônus); despesa é o que você pagou pela empresa ou para ela. Com vencimento, recebido em, situação (a receber, atrasado), resumo mensal e exportação em planilha, como no Controle financeiro, mas separado dele: não entra no lucro da engenharia nem no painel gerencial.
 - **ARTs tiradas para a empresa:** as ARTs marcadas com ela no Controle de ART, com a taxa e um botão para lançar o reembolso.
-- **Pagos com o seu dinheiro:** os lançamentos das Finanças pessoais que você marcou com a conta da empresa (ex.: um hotel pago no seu cartão). "Lançar a receber" cria o valor a cobrar; depois aparece "já lançado".
+- **Pagos com o seu dinheiro:** os lançamentos das Finanças pessoais que você marcou com a conta da empresa ou com uma conta unida de que ela faz parte (ex.: um hotel pago no seu cartão). "Lançar a receber" cria o valor a cobrar; depois aparece "já lançado".
 - Empresa com lançamentos não pode ser removida (os lançamentos iriam para a engenharia). Remover uma empresa deixa as ARTs dela sem empresa.
 
 ## Painel gerencial

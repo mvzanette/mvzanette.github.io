@@ -13,7 +13,7 @@ import { lerArquivoFinancas, outrasPessoas, soFaturas } from "./financas-importa
 import { desenharFinancas } from "./financas-painel.js";
 import { desenharDesejos } from "./financas-desejos.js";
 import { mostrarCasal } from "./financas-casal.js";
-import { categoriaDe, contasDisponiveis, lerCategorias, normalizarCategoria } from "./financas-classificacao.js";
+import { categoriaDe, contasDisponiveis, lerCategorias, lerContas, normalizarCategoria } from "./financas-classificacao.js";
 import { aplicarFatura, historicoDeCategorias, lerFaturaPdf, manterFaturasDoSite, montarFatura } from "./financas-faturas.js";
 import { decodificarExtrato, lerExtrato, MOTIVOS, saidasDoExtrato } from "./financas-extrato.js";
 import { aplicarPrevia, bancoDoCartao, faturaProvavel, lerFaturaParcial, montarPrevia, ordemFatura, rotuloFatura } from "./financas-previa.js";
@@ -35,7 +35,9 @@ let nomeArquivo = "";
 let prefs = null; // lista de categorias e plano da lista de desejos
 let cats = null; // lista de categorias em uso ({ lista, renomeadas })
 let ajustes = []; // classificação feita no site para os lançamentos do projeto
-let contas = []; // pessoal, engenharia e empresas (conforme as permissões)
+let contas = []; // contas que aparecem nos formulários (de quem é o dinheiro), conforme as permissões e os Cadastros
+let contasTodas = []; // as mesmas e as escondidas, para dar nome aos lançamentos antigos
+let empresas = []; // empresas cadastradas (os nomes vêm do banco)
 let faturaPdf = null; // fatura em PDF sendo processada: { caminho, nome, leitura, quem, montada, destino }
 let extrato = null; // extrato da conta sendo importado: { leitura, saidas, entradas }
 
@@ -111,6 +113,7 @@ function lerCategoria(form) {
 async function salvarCategorias() {
   prefs = await armazem.financas.salvarPreferencias(dono.id, { categorias: { lista: cats.lista, renomeadas: cats.renomeadas } });
   cats.salva = true;
+  if (!categoriasMexidas) recomecarCategorias(); // categoria nova criada ao lançar ou classificar aparece nos Cadastros
 }
 
 // Categoria ou subcategoria escrita em "Nova…" entra na lista da pessoa (antes de "Outros")
@@ -131,11 +134,18 @@ async function guardarNaLista(categoria, subcategoria) {
   if (mudou) await salvarCategorias();
 }
 
+// Contas do painel aberto: a outra pessoa do casal é a de quem está usando ou, no painel dela, quem está usando
+function montarContas() {
+  const par = dono.id === perfil.id ? parceiro : { id: perfil.id, nome: perfil.nome, email: perfil.email };
+  contasTodas = contasDisponiveis({ perfil, dono, parceiro: par, empresas, prefs });
+  contas = contasTodas.filter((c) => !c.oculta);
+}
+
 function preencherConta(form, atual) {
   const campo = form.querySelector("[data-campo-conta]");
   campo.hidden = contas.length < 2;
   const lista = [...contas];
-  if (atual && !lista.some((c) => c.id === atual)) lista.push({ id: atual, nome: "Empresa removida" });
+  if (atual && !lista.some((c) => c.id === atual)) lista.push(contasTodas.find((c) => c.id === atual) || { id: atual, nome: "Conta removida" });
   form.elements.conta.innerHTML = lista.map((c) => `<option value="${esc(c.id)}">${esc(c.nome)}</option>`).join("");
   form.elements.conta.value = atual || "pessoal";
 }
@@ -471,19 +481,29 @@ function prepararClassificacao() {
   $("#btn-desfazer-classificacao").addEventListener("click", desfazerClassificacao);
 }
 
-// ---------------------------------------------------------------- lista de categorias e subcategorias
+// ---------------------------------------------------------------- cadastros: categorias, subcategorias e contas
+// A aba Cadastros do painel tem a lista de categorias (com as subcategorias e o padrão essencial) e as contas de quem
+// é o dinheiro. As mudanças ficam na tela até Salvar; Desfazer volta ao que está salvo.
 let edicao = null; // cópia da lista em edição (original = nome com que a categoria estava salva)
+let categoriasMexidas = false; // há mudança na lista que ainda não foi salva
+let edicaoContas = null; // { grupos, ocultas } em edição
 
 function erroCategorias(texto) {
   $("#erro-categorias").textContent = texto;
   $("#erro-categorias").hidden = !texto;
 }
 
-function abrirCategorias() {
+function recomecarCategorias() {
+  categoriasMexidas = false;
   edicao = cats.lista.map((c) => ({ ...c, sub: [...c.sub], original: c.nome }));
   erroCategorias("");
   desenharEdicao();
-  $("#dlg-categorias").showModal();
+}
+
+// Os botões Categorias do painel levam para a aba Cadastros
+function abrirCategorias() {
+  $("#tab-cadastros").click();
+  $("#cad-categorias").scrollIntoView({ block: "start" });
 }
 
 function desenharEdicao(foco) {
@@ -532,6 +552,7 @@ async function salvarEdicao() {
   const novoNome = (nome) => (trocas.find(([antigo]) => antigo === nome) || [])[1];
   const botao = $("#btn-salvar-categorias");
   botao.disabled = true;
+  erroCategorias("");
   try {
     // Lançamentos já classificados com o nome antigo passam para o novo
     const mudar = ajustes.filter((a) => novoNome(a.categoria));
@@ -548,7 +569,7 @@ async function salvarEdicao() {
     await salvarCategorias();
     painel.atualizarGastos(gastos);
     painel.atualizarClassificacao({ ajustes, categorias: cats });
-    $("#dlg-categorias").close();
+    recomecarCategorias();
     avisar("Categorias salvas.");
   } catch (err) {
     erroCategorias("Não foi possível salvar: " + err.message);
@@ -559,6 +580,9 @@ async function salvarEdicao() {
 
 function prepararEdicaoCategorias() {
   const lista = $("#lista-categorias");
+  const mexeu = () => { categoriasMexidas = true; };
+  ["input", "change", "click"].forEach((tipo) => lista.addEventListener(tipo, (e) => { if (e.target.closest("input, select, button")) mexeu(); }));
+  ["#btn-nova-categoria", "#btn-categorias-padrao"].forEach((sel) => $(sel).addEventListener("click", mexeu));
   lista.addEventListener("input", (e) => {
     const div = e.target.closest(".cat-edicao");
     if (div && e.target.dataset.campo === "nome") edicao[Number(div.dataset.i)].nome = e.target.value;
@@ -597,7 +621,100 @@ function prepararEdicaoCategorias() {
     edicao = lerCategorias(null, registro.dados).lista.map((c) => ({ ...c, original: c.nome }));
     desenharEdicao();
   });
+  $("#btn-desfazer-categorias").addEventListener("click", recomecarCategorias);
   $("#btn-salvar-categorias").addEventListener("click", salvarEdicao);
+}
+
+// Contas: mostrar ou esconder nos formulários, unir empresas numa conta só, renomear e separar
+const TIPO_CONTA = {
+  pessoal: "padrão: o dinheiro de quem é o painel",
+  pessoa: "gasto que é da outra pessoa do casal",
+  casal: "despesa dos dois",
+  engenharia: "trabalho autônomo de engenharia",
+  empresa: "empresa",
+};
+
+function erroContas(texto) {
+  $("#erro-contas").textContent = texto;
+  $("#erro-contas").hidden = !texto;
+}
+
+function recomecarContas() {
+  edicaoContas = structuredClone(lerContas(prefs));
+  erroContas("");
+  desenharContas();
+}
+
+function desenharContas() {
+  const lista = contasDisponiveis({ perfil, dono, parceiro: dono.id === perfil.id ? parceiro : { id: perfil.id, nome: perfil.nome, email: perfil.email },
+    empresas, prefs: { contas: edicaoContas } }).filter((c) => !c.agrupada);
+  $("#lista-contas").innerHTML = lista.map((c) => `<div class="conta-cad" data-id="${esc(c.id)}">
+      <label class="conta-mostrar"><input type="checkbox" data-mostrar${c.oculta ? "" : " checked"}${c.id === "pessoal" ? " disabled" : ""}
+        aria-label="Mostrar ${esc(c.nome)} nos formulários"></label>
+      <div class="conta-nome">${c.tipo === "grupo"
+        ? `<input data-nome-grupo value="${esc(c.nome)}" maxlength="60" autocomplete="off" aria-label="Nome da conta unida"><small>empresas unidas: ${esc(c.nomesEmpresas.join(", "))}</small>`
+        : `<b>${esc(c.nome)}</b><small>${esc(TIPO_CONTA[c.tipo] || "")}</small>`}</div>
+      ${c.tipo === "grupo" ? '<button type="button" class="btn-link" data-separar>Separar</button>' : ""}
+    </div>`).join("");
+  const livres = empresas.filter((e) => !edicaoContas.grupos.some((g) => g.empresas.includes(String(e.id))));
+  $("#unir-empresas").hidden = !lista.some((c) => c.tipo === "empresa" || c.tipo === "grupo") || livres.length < 2;
+  $("#unir-lista").innerHTML = livres.map((e) => `<label class="opcao-linha"><input type="checkbox" value="${esc(e.id)}"><span>${esc(e.nome)}</span></label>`).join("");
+}
+
+function unirEmpresas() {
+  const ids = [...document.querySelectorAll("#unir-lista input:checked")].map((x) => x.value);
+  const nome = $("#unir-nome").value.trim().slice(0, 60);
+  if (ids.length < 2) return erroContas("Marque pelo menos duas empresas para unir.");
+  if (!nome) return erroContas("Dê um nome para a conta unida (ex.: as duas empresas juntas).");
+  edicaoContas.grupos.push({ id: `grupo:${crypto.randomUUID()}`, nome, empresas: ids });
+  $("#unir-nome").value = "";
+  erroContas("");
+  desenharContas();
+}
+
+async function salvarContas() {
+  if (edicaoContas.grupos.some((g) => !g.nome.trim())) return erroContas("Toda conta unida precisa de um nome.");
+  const botao = $("#btn-salvar-contas");
+  botao.disabled = true;
+  erroContas("");
+  try {
+    prefs = await armazem.financas.salvarPreferencias(dono.id, { contas: lerContas({ contas: edicaoContas }) });
+    montarContas();
+    painel.atualizarClassificacao({ contas: contasTodas });
+    recomecarContas();
+    avisar("Contas salvas.");
+  } catch (err) {
+    erroContas("Não foi possível salvar: " + err.message);
+  } finally {
+    botao.disabled = false;
+  }
+}
+
+function prepararContas() {
+  const lista = $("#lista-contas");
+  lista.addEventListener("change", (e) => {
+    const div = e.target.closest(".conta-cad");
+    if (!div || !e.target.matches("[data-mostrar]")) return;
+    const id = div.dataset.id;
+    edicaoContas.ocultas = edicaoContas.ocultas.filter((x) => x !== id);
+    if (!e.target.checked) edicaoContas.ocultas.push(id);
+  });
+  lista.addEventListener("input", (e) => {
+    const div = e.target.closest(".conta-cad");
+    if (!div || !e.target.matches("[data-nome-grupo]")) return;
+    const g = edicaoContas.grupos.find((x) => x.id === div.dataset.id);
+    if (g) g.nome = e.target.value;
+  });
+  lista.addEventListener("click", (e) => {
+    const div = e.target.closest(".conta-cad");
+    if (!div || !e.target.closest("[data-separar]")) return;
+    edicaoContas.grupos = edicaoContas.grupos.filter((x) => x.id !== div.dataset.id);
+    edicaoContas.ocultas = edicaoContas.ocultas.filter((x) => x !== div.dataset.id);
+    desenharContas();
+  });
+  $("#btn-unir-empresas").addEventListener("click", unirEmpresas);
+  $("#btn-desfazer-contas").addEventListener("click", recomecarContas);
+  $("#btn-salvar-contas").addEventListener("click", salvarContas);
 }
 
 // ---------------------------------------------------------------- PDFs das faturas e relatórios
@@ -1283,6 +1400,7 @@ async function iniciar() {
   prepararEntrada();
   prepararClassificacao();
   prepararEdicaoCategorias();
+  prepararContas();
 
   const link = linkFinancas(perfil);
   if (link) {
@@ -1352,7 +1470,8 @@ async function iniciar() {
     return;
   }
   cats = lerCategorias(prefs, registro.dados);
-  contas = contasDisponiveis(perfil, sessao.empresas);
+  empresas = sessao.empresas || [];
+  montarContas();
   mostrarStatus();
   prepararLancamento();
   // Lançar gasto (ou Pix), lançar entrada e importar o extrato ficam no topo, em qualquer aba
@@ -1375,11 +1494,13 @@ async function iniciar() {
     aoApagarEntrada: apagarEntrada,
     categorias: cats,
     ajustes,
-    contas,
+    contas: contasTodas,
     aoClassificar: abrirClassificacao,
     aoEditarCategorias: abrirCategorias,
     comDesejos: !!desejos,
   });
+  recomecarCategorias();
+  recomecarContas();
   listarPdfs();
   if (desejos) {
     desenharDesejos({

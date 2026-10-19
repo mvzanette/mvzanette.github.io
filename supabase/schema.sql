@@ -207,11 +207,12 @@ create table if not exists public.financas_gastos (
 
 create index if not exists financas_gastos_perfil_data_idx on public.financas_gastos (perfil_id, data);
 
--- Subcategoria e conta do gasto. Conta: pessoal (padrão), engenharia (trabalho autônomo) ou uma empresa
--- ("empresa:" seguido do id da empresa)
+-- Subcategoria e conta do gasto. Conta (de quem é o dinheiro): pessoal de quem é o painel (padrão), "casal"
+-- (compartilhado do casal), engenharia (trabalho autônomo), uma empresa ("empresa:" e o id), a outra pessoa do
+-- casal ("pessoa:" e o id do perfil) ou empresas unidas numa conta só ("grupo:" e o id, nas preferências)
 alter table public.financas_gastos add column if not exists subcategoria text;
 alter table public.financas_gastos add column if not exists conta text
-  check (conta is null or conta ~ '^(pessoal|engenharia|empresa:[0-9a-f-]{36})$');
+  check (conta is null or conta ~ '^(pessoal|casal|engenharia|(empresa|pessoa|grupo):[0-9a-f-]{36})$');
 
 -- Entradas lançadas pelo site em Finanças pessoais: o salário (holerite, com o bruto e os descontos) e outros
 -- recebimentos. Somam com as receitas do projeto Financeiro no mês em que entraram (data).
@@ -225,7 +226,7 @@ create table if not exists public.financas_entradas (
   -- [{ "nome": "INSS", "valor": 988.07 }, ...]
   descontos   jsonb not null default '[]'::jsonb check (jsonb_typeof(descontos) = 'array'),
   liquido     numeric(12, 2) not null check (liquido > 0),
-  conta       text check (conta is null or conta ~ '^(pessoal|engenharia|empresa:[0-9a-f-]{36})$'),
+  conta       text check (conta is null or conta ~ '^(pessoal|casal|engenharia|(empresa|pessoa|grupo):[0-9a-f-]{36})$'),
   observacao  text,
   criado_em   timestamptz not null default now(),
   criado_por  uuid default auth.uid() references auth.users (id) on delete set null
@@ -264,6 +265,10 @@ create table if not exists public.financas_preferencias (
   atualizado_em timestamptz not null default now()
 );
 
+-- Contas do painel (Cadastros): empresas unidas numa conta só ({ "grupos": [{ "id", "nome", "empresas": [ids] }] })
+-- e as contas escondidas nos formulários ({ "ocultas": [ids] })
+alter table public.financas_preferencias add column if not exists contas jsonb not null default '{}'::jsonb;
+
 -- Classificação feita no site para os lançamentos que vêm do projeto Financeiro (gastos do dia a dia e
 -- lançamentos das faturas): categoria, subcategoria, essencial, conta e um complemento de texto.
 -- A chave identifica o lançamento (data, valor e descrição) e continua valendo depois de cada importação.
@@ -275,10 +280,21 @@ create table if not exists public.financas_ajustes (
   subcategoria  text,
   essencial     boolean,
   complemento   text,
-  conta         text check (conta is null or conta ~ '^(pessoal|engenharia|empresa:[0-9a-f-]{36})$'),
+  conta         text check (conta is null or conta ~ '^(pessoal|casal|engenharia|(empresa|pessoa|grupo):[0-9a-f-]{36})$'),
   atualizado_em timestamptz not null default now(),
   unique (perfil_id, chave)
 );
+
+-- Bancos criados antes das contas do casal e das empresas unidas: a regra da conta passa a aceitar os valores novos
+do $$
+declare t text;
+begin
+  foreach t in array array['financas_gastos', 'financas_entradas', 'financas_ajustes'] loop
+    execute format('alter table public.%I drop constraint if exists %I', t, t || '_conta_check');
+    execute format('alter table public.%I add constraint %I check (conta is null or conta ~ %L)', t, t || '_conta_check',
+      '^(pessoal|casal|engenharia|(empresa|pessoa|grupo):[0-9a-f-]{36})$');
+  end loop;
+end $$;
 
 -- Lista de desejos de compra.
 --   quem: eu (quem cadastrou compra) · outra (a pessoa de outra_id compra) · conjunto (os dois; parte = % de quem cadastrou)

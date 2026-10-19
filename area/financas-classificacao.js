@@ -7,21 +7,70 @@ import { pode } from "./modulos.js";
 const semAcento = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 
 // ---------------------------------------------------------------- contas
-// De quem é o dinheiro do lançamento: pessoal (padrão), engenharia (trabalho autônomo) ou uma empresa
+// De quem é o dinheiro do lançamento: pessoal de quem é o painel (o padrão), pessoal da outra pessoa do casal,
+// compartilhado do casal, engenharia (trabalho autônomo), uma empresa ou empresas unidas numa conta só. Os nomes das
+// pessoas e das empresas vêm do banco; as empresas unidas e as contas escondidas ficam nas preferências da pessoa.
 export const ROTULO_ENGENHARIA = "Engenharia (autônomo)";
+export const ROTULO_CASAL = "Compartilhado do casal";
+const primeiroNome = (p) => String((p && (p.nome || p.email)) || "").trim().split(/[\s@]/)[0];
+export const contaValida = (v) => /^(pessoal|casal|engenharia|(empresa|pessoa|grupo):[0-9a-f-]{36})$/.test(String(v || ""));
 
-export function contasDisponiveis(perfil, empresas = []) {
-  const lista = [{ id: "pessoal", nome: "Pessoal" }];
-  if (pode(perfil, "financeiro")) lista.push({ id: "engenharia", nome: ROTULO_ENGENHARIA });
-  if (pode(perfil, "empresas")) empresas.forEach((e) => lista.push({ id: `empresa:${e.id}`, nome: e.nome }));
-  return lista;
+// Preferências das contas: { grupos: [{ id, nome, empresas: [ids] }], ocultas: [ids das contas escondidas] }
+export function lerContas(prefs) {
+  const c = (prefs && prefs.contas) || {};
+  const grupos = (Array.isArray(c.grupos) ? c.grupos : [])
+    .filter((g) => g && /^grupo:[0-9a-f-]{36}$/.test(g.id) && String(g.nome || "").trim())
+    .map((g) => ({ id: g.id, nome: String(g.nome).trim().slice(0, 60), empresas: [...new Set((g.empresas || []).map(String))] }));
+  const ocultas = (Array.isArray(c.ocultas) ? c.ocultas : []).filter((id) => contaValida(id) && id !== "pessoal");
+  return { grupos, ocultas };
+}
+
+// Todas as contas do painel, com as escondidas marcadas (oculta). As empresas que estão numa conta unida continuam
+// na lista, escondidas, só para dar nome aos lançamentos antigos (agrupada: id da conta unida).
+// dono: de quem é o painel; parceiro: a outra pessoa do casal (se houver)
+export function contasDisponiveis({ perfil, dono = null, parceiro = null, empresas = [], prefs = null }) {
+  const { grupos, ocultas } = lerContas(prefs);
+  const nome = primeiroNome(dono || perfil);
+  const lista = [{ id: "pessoal", nome: nome ? `Pessoal de ${nome}` : "Pessoal", tipo: "pessoal" }];
+  if (parceiro && parceiro.id) {
+    lista.push({ id: `pessoa:${parceiro.id}`, nome: `Pessoal de ${primeiroNome(parceiro) || "outra pessoa"}`, tipo: "pessoa" });
+    lista.push({ id: "casal", nome: ROTULO_CASAL, tipo: "casal" });
+  }
+  if (pode(perfil, "financeiro")) lista.push({ id: "engenharia", nome: ROTULO_ENGENHARIA, tipo: "engenharia" });
+  const agrupadas = [];
+  if (pode(perfil, "empresas")) {
+    const nomes = new Map(empresas.map((e) => [String(e.id), e.nome]));
+    const unidas = new Map();
+    for (const g of grupos) {
+      const membros = g.empresas.filter((id) => nomes.has(id) && !unidas.has(id));
+      if (!membros.length) continue;
+      membros.forEach((id) => unidas.set(id, g.id));
+      lista.push({ id: g.id, nome: g.nome, tipo: "grupo", empresas: membros, nomesEmpresas: membros.map((id) => nomes.get(id)) });
+    }
+    empresas.forEach((e) => {
+      const g = unidas.get(String(e.id));
+      if (g) agrupadas.push({ id: `empresa:${e.id}`, nome: e.nome, tipo: "empresa", oculta: true, agrupada: g });
+      else lista.push({ id: `empresa:${e.id}`, nome: e.nome, tipo: "empresa" });
+    });
+  }
+  return [...lista.map((c) => ({ ...c, oculta: ocultas.includes(c.id) })), ...agrupadas];
 }
 
 export function nomeConta(conta, empresas = []) {
   if (!conta || conta === "pessoal") return "Pessoal";
   if (conta === "engenharia") return ROTULO_ENGENHARIA;
+  if (conta === "casal") return ROTULO_CASAL;
+  if (conta.startsWith("pessoa:")) return "Pessoal da outra pessoa";
+  if (conta.startsWith("grupo:")) return "Empresas unidas";
   const e = empresas.find((x) => `empresa:${x.id}` === conta);
   return e ? e.nome : "Empresa removida";
+}
+
+// Contas que entram na página de uma empresa: a da própria empresa e as contas unidas de que ela faz parte
+export function contasDaEmpresa(prefs, empresaId) {
+  const ids = new Set([`empresa:${empresaId}`]);
+  for (const g of lerContas(prefs).grupos) if (g.empresas.includes(String(empresaId))) ids.add(g.id);
+  return ids;
 }
 
 // ---------------------------------------------------------------- categorias
@@ -144,6 +193,7 @@ export function efetivo(l, ajuste, cats) {
 // para as páginas da engenharia e das empresas. A compra no cartão que também está nos gastos do dia a dia
 // aparece uma vez só.
 export function lancamentosDaConta({ dados, gastos = [], ajustes = [], prefs = null }, conta) {
+  const alvo = conta instanceof Set ? conta : new Set([conta]); // uma conta ou várias (empresa e contas unidas)
   const d = dados || {};
   const cats = lerCategorias(prefs, d);
   const aj = new Map(ajustes.map((a) => [a.chave, a]));
@@ -152,7 +202,7 @@ export function lancamentosDaConta({ dados, gastos = [], ajustes = [], prefs = n
     const ls = m.lancamentos || [];
     chavesGastos(ls).forEach((chave, i) => {
       const e = efetivo(ls[i], aj.get(chave), cats);
-      if (e.conta === conta) {
+      if (alvo.has(e.conta)) {
         lista.push({ chave, data: ls[i].data, descricao: ls[i].desc, complemento: e.complemento, valor: Number(ls[i].valor),
           categoria: e.categoria, origem: "Gastos do dia a dia", doDia: true });
       }
@@ -162,13 +212,13 @@ export function lancamentosDaConta({ dados, gastos = [], ajustes = [], prefs = n
   chavesFatura(fatura, "c").forEach((chave, i) => {
     const l = fatura[i];
     const e = efetivo(l, aj.get(chave), cats);
-    if (e.conta !== conta) return;
+    if (!alvo.has(e.conta)) return;
     if (lista.some((x) => x.doDia && x.data === l.data && Math.abs(x.valor - Number(l.valor)) < 0.01)) return;
     lista.push({ chave, data: l.data || null, descricao: l.nome, complemento: e.complemento, valor: Number(l.valor),
       categoria: e.categoria, origem: `Fatura ${l.mes}${l.parcela ? ` · parcela ${l.parcela}` : ""}` });
   });
   for (const g of gastos) {
-    if ((g.conta || "pessoal") !== conta) continue;
+    if (!alvo.has(g.conta || "pessoal")) continue;
     lista.push({ chave: `s|${g.id}`, data: g.data, descricao: g.descricao, complemento: g.observacao, valor: Number(g.valor),
       categoria: renomear(cats, g.categoria || "Outros"), origem: g.parcelas > 1 ? `Lançado no site · ${g.parcelas}x` : "Lançado no site" });
   }

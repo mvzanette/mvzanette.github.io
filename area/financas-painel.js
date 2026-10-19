@@ -49,7 +49,9 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   let AJ = new Map(ajustes.map(a => [a.chave, a]));
   let CONTAS = contas;
   const ef = l => efetivo(l, AJ.get(l.chave), CATS);
-  const nomeDaConta = c => (CONTAS.find(x => x.id === c) || {}).nome || nomeConta(c);
+  // Conta como aparece no painel: a empresa que entrou numa conta unida (Cadastros) aparece pela conta unida
+  const unificada = c => (CONTAS.find(x => x.id === c && x.agrupada) || {}).agrupada || c;
+  const nomeDaConta = c => (CONTAS.find(x => x.id === unificada(c)) || {}).nome || nomeConta(c);
   const SO_FATURAS = modo === "faturas";
   // Visão geral e gastos do mês: no painel completo e, no painel só de faturas, quando dá para lançar pelo site
   // (os meses vêm das entradas e dos gastos lançados)
@@ -765,7 +767,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   // Total por conta (pessoal, engenharia, empresas), só quando há lançamento fora da conta pessoal
   function porConta(L) {
     const t = {};
-    L.forEach(l => { const c = ef(l).conta; t[c] = (t[c] || 0) + l.valor; });
+    L.forEach(l => { const c = unificada(ef(l).conta); t[c] = (t[c] || 0) + l.valor; });
     return Object.keys(t).some(c => c !== "pessoal") ? Object.entries(t).sort((a, b) => (a[0] === "pessoal" ? -1 : b[0] === "pessoal" ? 1 : b[1] - a[1])) : [];
   }
   function opcoes(sel, valores, rotuloTodos) {
@@ -847,7 +849,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     opcoes($id("g-fcat"), Object.keys(porCat).sort(), "Todas");
     opcoes($id("g-fforma"), Object.keys(porForma).sort(), "Todas");
     const fConta = $id("g-fconta");
-    const contasMes = [...new Set(L.map(l => ef(l).conta))];
+    const contasMes = [...new Set(L.map(l => unificada(ef(l).conta)))];
     fConta.closest("label").hidden = !contasMes.some(c => c !== "pessoal");
     opcoesComRotulo(fConta, contasMes.map(c => [c, nomeDaConta(c)]), "Todas");
     const fConf = $id("g-fconf");
@@ -901,7 +903,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const fc = $id("g-fcat").value, ff = $id("g-fforma").value, fco = $id("g-fconta").value, fcf = $id("g-fconf").value, q = semAcento($id("g-busca").value.trim());
     const L = m.lancamentos.filter(l => {
       const e = ef(l);
-      return (!fc || catDe(l) === fc) && (!ff || (l.forma || "Outro") === ff) && (!fco || e.conta === fco) && (!fcf || confDe(l) === fcf)
+      return (!fc || catDe(l) === fc) && (!ff || (l.forma || "Outro") === ff) && (!fco || unificada(e.conta) === fco) && (!fcf || confDe(l) === fcf)
         && (!q || semAcento(`${l.desc} ${l.obs || ""} ${e.categoria} ${e.subcategoria || ""} ${e.complemento || ""} ${nomeDaConta(e.conta)}`).includes(q));
     });
     listaGastos = L;
@@ -1154,19 +1156,19 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   }
 
   // ---------- Abas: visão geral, gastos do dia a dia, cartão e faturas, investimentos, lista de desejos ----------
-  const ABAS = ["geral", "gastos", "cartao", "investimentos", "desejos"];
+  const ABAS = ["geral", "gastos", "cartao", "investimentos", "desejos", "cadastros"];
   function irPara(aba, rolar) {
-    if (!COM_MESES && aba !== "investimentos" && aba !== "desejos") aba = "cartao";
-    if (!ABAS.includes(aba) || (aba === "investimentos" && !CARTEIRA) || (aba === "desejos" && !comDesejos)) aba = COM_MESES ? "geral" : "cartao";
+    if (!COM_MESES && !["investimentos", "desejos", "cadastros"].includes(aba)) aba = "cartao";
+    if (!ABAS.includes(aba) || (aba === "investimentos" && !CARTEIRA) || (aba === "desejos" && !comDesejos) || (aba === "cadastros" && !aoEditarCategorias)) aba = COM_MESES ? "geral" : "cartao";
     document.querySelectorAll("#fin-abas [role=tab]").forEach(t => {
       const sel = t.dataset.aba === aba;
       t.setAttribute("aria-selected", String(sel));
       t.tabIndex = sel ? 0 : -1;
     });
-    ["geral", "gastos", "cartao", "desejos"].forEach(k => { $id("view-" + k).hidden = k !== aba; });
+    ["geral", "gastos", "cartao", "desejos", "cadastros"].forEach(k => { $id("view-" + k).hidden = k !== aba; });
     $id("fin-root").hidden = aba === "investimentos";
     $id("view-inv").hidden = aba !== "investimentos";
-    if (COM_MESES || CARTEIRA || comDesejos) {
+    if (COM_MESES || CARTEIRA || comDesejos || aoEditarCategorias) {
       guardar("aba", aba);
       try { if (location.hash !== "#" + aba) history.replaceState(null, "", "#" + aba); } catch (e) { /* sem histórico */ }
     }
@@ -1178,15 +1180,16 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   function iniciarAbas() {
     const barra = $id("fin-abas");
     const tabs = [...barra.querySelectorAll("[role=tab]")];
-    const quem = {geral: DONO, gastos: DONO, cartao: OUTRA ? `${DONO} e ${OUTRA.nome}` : DONO, investimentos: TITULARES || DONO, desejos: "Prioridades e projeção"};
+    const quem = {geral: DONO, gastos: DONO, cartao: OUTRA ? `${DONO} e ${OUTRA.nome}` : DONO, investimentos: TITULARES || DONO, desejos: "Prioridades e projeção", cadastros: "Categorias e contas"};
     tabs.forEach(t => { const s = t.querySelector("small"); if (s) s.textContent = quem[t.dataset.aba]; });
     $id("tab-inv").hidden = !CARTEIRA;
     $id("tab-desejos").hidden = !comDesejos;
+    $id("tab-cadastros").hidden = !aoEditarCategorias;
     document.querySelectorAll("[data-dono]").forEach(el => { el.textContent = DONO; });
     if (!COM_MESES) {
       $id("tab-geral").hidden = true;
       $id("tab-gastos").hidden = true;
-      if (!CARTEIRA && !comDesejos) { barra.hidden = true; irPara("cartao", false); return; }
+      if (!CARTEIRA && !comDesejos && !aoEditarCategorias) { barra.hidden = true; irPara("cartao", false); return; }
     }
     const visiveis = () => tabs.filter(t => !t.hidden);
     tabs.forEach(t => t.addEventListener("click", () => irPara(t.dataset.aba, true)));

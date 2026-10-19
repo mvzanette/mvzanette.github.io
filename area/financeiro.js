@@ -6,7 +6,7 @@ import { abrirPagina, empresaAberta, paginaEmpresa } from "./sessao.js";
 import { pode } from "./modulos.js";
 import { dataBR, hojeISO, situacao as situacaoArt, ROTULO_SITUACAO } from "./regras.js";
 import * as G from "./regras-gestao.js";
-import { lancamentosDaConta } from "./financas-classificacao.js";
+import { contasDaEmpresa, lancamentosDaConta } from "./financas-classificacao.js";
 import { $, esc, moeda, avisar, baixarCsv, opcoes, prepararDialogos, numeroDigitado } from "./ui.js";
 
 const hoje = hojeISO();
@@ -157,7 +157,7 @@ async function carregarPessoais() {
       armazem.financas.ajustes(perfil.id),
       armazem.financas.preferencias(perfil.id),
     ]);
-    return lancamentosDaConta({ dados: registro && registro.dados, gastos, ajustes, prefs }, DA_EMPRESA ? `empresa:${empresa.id}` : "engenharia");
+    return lancamentosDaConta({ dados: registro && registro.dados, gastos, ajustes, prefs }, DA_EMPRESA ? contasDaEmpresa(prefs, empresa.id) : "engenharia");
   } catch {
     return []; // banco sem as tabelas novas: a seção só não aparece
   }

@@ -11,9 +11,9 @@
   <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@500;600;700;800&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../styles.css?v=12bc86b1">
   <link rel="stylesheet" href="area.css?v=827164a0">
-  <link rel="stylesheet" href="financas.css?v=f933ea0f">
-  <script type="importmap" data-versoes>{"imports": {"./art.js": "./art.js?v=67208bf7", "./config-area.js": "./config-area.js?v=c77553f2", "./conta.js": "./conta.js?v=fdce23ea", "./dados.js": "./dados.js?v=45c0de2c", "./demandas.js": "./demandas.js?v=19d8f618", "./financas-casal.js": "./financas-casal.js?v=3cab7b4e", "./financas-classificacao.js": "./financas-classificacao.js?v=23a17fbf", "./financas-desejos.js": "./financas-desejos.js?v=7175e284", "./financas-extrato.js": "./financas-extrato.js?v=6a8ecce9", "./financas-faturas.js": "./financas-faturas.js?v=49a291b7", "./financas-importar.js": "./financas-importar.js?v=71dfaaa4", "./financas-painel.js": "./financas-painel.js?v=cf77d58f", "./financas-previa.js": "./financas-previa.js?v=bfb16e3d", "./financas.js": "./financas.js?v=37c9b182", "./financeiro.js": "./financeiro.js?v=c6aaedbd", "./inicio.js": "./inicio.js?v=36840010", "./leitores.js": "./leitores.js?v=2d72bdc2", "./login.js": "./login.js?v=f434d5fc", "./modulos.js": "./modulos.js?v=fac7935d", "./painel.js": "./painel.js?v=f606b3b3", "./pdf-texto.js": "./pdf-texto.js?v=b5de895d", "./regras-gestao.js": "./regras-gestao.js?v=351037e5", "./regras.js": "./regras.js?v=3eaec5e4", "./sessao.js": "./sessao.js?v=c9d6a0d9", "./ui.js": "./ui.js?v=efb69f88", "./usuarios.js": "./usuarios.js?v=6966c106", "./vendor/pdf.min.mjs": "./vendor/pdf.min.mjs?v=f548e26b", "./vendor/pdf.worker.min.mjs": "./vendor/pdf.worker.min.mjs?v=8860b503"}}</script>
-  <script type="module" src="financas.js?v=37c9b182"></script>
+  <link rel="stylesheet" href="financas.css?v=120c8785">
+  <script type="importmap" data-versoes>{"imports": {"./art.js": "./art.js?v=67208bf7", "./config-area.js": "./config-area.js?v=c77553f2", "./conta.js": "./conta.js?v=fdce23ea", "./dados.js": "./dados.js?v=93fffdf5", "./demandas.js": "./demandas.js?v=19d8f618", "./financas-casal.js": "./financas-casal.js?v=3cab7b4e", "./financas-classificacao.js": "./financas-classificacao.js?v=b7ec2a53", "./financas-desejos.js": "./financas-desejos.js?v=7175e284", "./financas-extrato.js": "./financas-extrato.js?v=6a8ecce9", "./financas-faturas.js": "./financas-faturas.js?v=49a291b7", "./financas-importar.js": "./financas-importar.js?v=71dfaaa4", "./financas-painel.js": "./financas-painel.js?v=d094801b", "./financas-previa.js": "./financas-previa.js?v=bfb16e3d", "./financas.js": "./financas.js?v=37225dfb", "./financeiro.js": "./financeiro.js?v=832a8c7e", "./inicio.js": "./inicio.js?v=36840010", "./leitores.js": "./leitores.js?v=2d72bdc2", "./login.js": "./login.js?v=f434d5fc", "./modulos.js": "./modulos.js?v=fac7935d", "./painel.js": "./painel.js?v=f606b3b3", "./pdf-texto.js": "./pdf-texto.js?v=b5de895d", "./regras-gestao.js": "./regras-gestao.js?v=351037e5", "./regras.js": "./regras.js?v=3eaec5e4", "./sessao.js": "./sessao.js?v=c9d6a0d9", "./ui.js": "./ui.js?v=efb69f88", "./usuarios.js": "./usuarios.js?v=6966c106", "./vendor/pdf.min.mjs": "./vendor/pdf.min.mjs?v=f548e26b", "./vendor/pdf.worker.min.mjs": "./vendor/pdf.worker.min.mjs?v=8860b503"}}</script>
+  <script type="module" src="financas.js?v=37225dfb"></script>
 </head>
 <body class="area">
 
@@ -81,6 +81,7 @@
         <button type="button" role="tab" id="tab-cartao" data-aba="cartao" aria-controls="view-cartao" aria-selected="false" tabindex="-1">Cartão e faturas<small></small></button>
         <button type="button" role="tab" id="tab-inv" data-aba="investimentos" aria-controls="view-inv" aria-selected="false" tabindex="-1">Investimentos<small></small></button>
         <button type="button" role="tab" id="tab-desejos" data-aba="desejos" aria-controls="view-desejos" aria-selected="false" tabindex="-1" hidden>Lista de desejos<small></small></button>
+        <button type="button" role="tab" id="tab-cadastros" data-aba="cadastros" aria-controls="view-cadastros" aria-selected="false" tabindex="-1" hidden>Cadastros<small></small></button>
       </div>
 
       <div class="fin" id="fin-root">
@@ -198,6 +199,44 @@
               <section class="panel" id="d-plano"></section>
               <section class="panel" id="d-projecao"></section>
             </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-cadastros" role="tabpanel" aria-labelledby="tab-cadastros" hidden>
+          <header class="top">
+            <div>
+              <div class="label">Cadastros</div>
+              <h1>Categorias, subcategorias e contas</h1>
+            </div>
+          </header>
+          <div class="grid cadastros">
+            <section class="panel" id="cad-categorias">
+              <div class="panel-topo"><h2>Categorias e subcategorias</h2><button type="button" class="btn sec mini" id="btn-nova-categoria">Nova categoria</button></div>
+              <p class="sub" style="margin:-4px 0 12px">Esta lista aparece ao classificar os lançamentos e ao lançar gastos. Renomear uma categoria muda também os lançamentos que já estão nela. O padrão (essencial ou não) vale para os lançamentos que não têm essa informação.</p>
+              <div id="lista-categorias"></div>
+              <p class="erro" id="erro-categorias" role="alert" hidden></p>
+              <div class="acoes">
+                <button type="button" class="btn" id="btn-salvar-categorias">Salvar categorias</button>
+                <button type="button" class="btn sec" id="btn-desfazer-categorias">Desfazer mudanças</button>
+                <button type="button" class="btn sec" id="btn-categorias-padrao">Voltar à lista padrão</button>
+              </div>
+            </section>
+            <section class="panel" id="cad-contas">
+              <h2>Contas: de quem é o dinheiro</h2>
+              <p class="sub" style="margin:-4px 0 12px">Cada lançamento pode ser marcado com a conta de quem é o dinheiro. Desmarque o que não deve aparecer ao lançar e classificar; os lançamentos antigos continuam com a conta que tinham.</p>
+              <div id="lista-contas"></div>
+              <div class="unir-empresas" id="unir-empresas" hidden>
+                <h3>Unir empresas numa conta só</h3>
+                <div id="unir-lista"></div>
+                <label>Nome da conta unida<input id="unir-nome" maxlength="60" autocomplete="off"></label>
+                <button type="button" class="btn sec mini" id="btn-unir-empresas">Unir</button>
+              </div>
+              <p class="erro" id="erro-contas" role="alert" hidden></p>
+              <div class="acoes">
+                <button type="button" class="btn" id="btn-salvar-contas">Salvar contas</button>
+                <button type="button" class="btn sec" id="btn-desfazer-contas">Desfazer mudanças</button>
+              </div>
+            </section>
           </div>
         </section>
 
@@ -472,25 +511,6 @@
         <button class="btn btn-primary" type="submit">Salvar</button>
       </div>
     </form>
-  </dialog>
-
-  <!-- ============ CATEGORIAS E SUBCATEGORIAS ============ -->
-  <dialog class="dialogo largo" id="dlg-categorias" aria-labelledby="titulo-categorias">
-    <div class="dlg-cab">
-      <h2 id="titulo-categorias">Categorias e subcategorias</h2>
-      <button class="btn-link" type="button" data-fechar>Fechar</button>
-    </div>
-    <div class="dlg-corpo">
-      <p class="dica">Esta lista aparece ao classificar os lançamentos e ao lançar gastos. Renomear uma categoria muda também os lançamentos que já estão nela. O padrão (essencial ou não) vale para os lançamentos que não têm essa informação.</p>
-      <div id="lista-categorias"></div>
-      <div class="linha-acoes"><button type="button" class="btn btn-claro" id="btn-nova-categoria">Nova categoria</button></div>
-      <p class="erro" id="erro-categorias" role="alert" hidden></p>
-    </div>
-    <div class="dlg-rodape">
-      <button class="btn btn-claro esquerda" type="button" id="btn-categorias-padrao">Voltar à lista padrão</button>
-      <button class="btn btn-claro" type="button" data-fechar>Cancelar</button>
-      <button class="btn btn-primary" type="button" id="btn-salvar-categorias">Salvar</button>
-    </div>
   </dialog>
 
   <!-- ============ DESEJO DE COMPRA ============ -->

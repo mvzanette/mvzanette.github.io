@@ -70,7 +70,9 @@ const hojeLocal = () => {
 };
 
 // Conta de um lançamento das finanças pessoais: pessoal, engenharia (trabalho autônomo) ou uma empresa
-const contaValida = (v) => (/^(pessoal|engenharia|empresa:[0-9a-f-]{36})$/.test(String(v || "")) ? v : null);
+// Conta (de quem é o dinheiro): pessoal, compartilhado do casal, engenharia, uma empresa, a outra pessoa do casal
+// ou empresas unidas numa conta só (as duas últimas com o id)
+const contaValida = (v) => (/^(pessoal|casal|engenharia|(empresa|pessoa|grupo):[0-9a-f-]{36})$/.test(String(v || "")) ? v : null);
 
 // Gasto lançado pelo site em Finanças pessoais: só as colunas da tabela, com tipos certos
 const FORMAS_GASTO = ["cartao", "pix", "debito", "dinheiro", "outro"];
@@ -495,7 +497,7 @@ function armazemDemo() {
       async salvarPreferencias(perfilId, campos) {
         exigirDono(perfilId);
         const todos = lerJson(PREFS, {});
-        todos[perfilId] = { perfil_id: perfilId, categorias: {}, plano: {}, ...todos[perfilId], ...soCampos(campos, ["categorias", "plano"]),
+        todos[perfilId] = { perfil_id: perfilId, categorias: {}, plano: {}, contas: {}, ...todos[perfilId], ...soCampos(campos, ["categorias", "plano", "contas"]),
           atualizado_em: new Date().toISOString() };
         gravarJson(PREFS, todos);
         return structuredClone(todos[perfilId]);
@@ -781,10 +783,11 @@ async function armazemSupabase(url, chave) {
       async salvarPreferencias(perfilId, campos) {
         const { data, error } = await sb
           .from("financas_preferencias")
-          .upsert({ perfil_id: perfilId, ...soCampos(campos, ["categorias", "plano"]) }, { onConflict: "perfil_id" })
+          .upsert({ perfil_id: perfilId, ...soCampos(campos, ["categorias", "plano", "contas"]) }, { onConflict: "perfil_id" })
           .select()
           .single();
-        if (error) throw new Error(error.code === "42501" || error.code === "PGRST116" ? "Sem permissão para alterar estas preferências." : error.message);
+        if (error) throw new Error(error.code === "42501" || error.code === "PGRST116" ? "Sem permissão para alterar estas preferências."
+          : /contas/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
         return data;
       },
       async ajustes(perfilId) {
