@@ -288,6 +288,24 @@ function atualizarTipoEntrada() {
   calcularLiquido();
 }
 
+// Mês de trabalho a que a entrada se refere: o anterior ao recebimento (trabalha e recebe depois) ou o próprio
+const MESES_CURTOS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+const somarMes = (chave, k) => { const [a, m] = chave.split("-").map(Number); const t = a * 12 + m - 1 + k; return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, "0")}`; };
+const rotuloMes = (chave) => `${MESES_CURTOS[Number(chave.slice(5, 7)) - 1]}/${chave.slice(2, 4)}`;
+const referenciaPadrao = (data, recebimento) => (recebimento === "depois" ? somarMes(data.slice(0, 7), -1) : data.slice(0, 7));
+
+function atualizarReferencia(manterEscolha) {
+  const form = formEntrada();
+  const data = form.elements.data.value || hojeISO();
+  const recebimento = form.elements.recebimento.value;
+  const sel = form.elements.referencia;
+  const antes = sel.value;
+  const meses = [-3, -2, -1, 0, 1].map((k) => somarMes(data.slice(0, 7), k));
+  sel.innerHTML = meses.map((c) => `<option value="${c}">${rotuloMes(c)}</option>`).join("");
+  sel.value = manterEscolha && meses.includes(antes) ? antes : referenciaPadrao(data, recebimento);
+  form.querySelector("[data-campo-referencia]").hidden = recebimento === "avulso";
+}
+
 function abrirEntrada() {
   const form = formEntrada();
   form.reset();
@@ -298,6 +316,7 @@ function abrirEntrada() {
   liquidoDigitado = false;
   $("#erro-entrada").hidden = true;
   atualizarTipoEntrada();
+  escolherRecebimento();
   $("#dlg-entrada").showModal();
   form.elements.bruto.focus();
 }
@@ -333,6 +352,9 @@ async function lancarEntrada(e) {
       liquido,
       conta: contaEscolhida(form),
       observacao: form.elements.observacao.value,
+      recebimento: form.elements.recebimento.value || null,
+      referencia: form.elements.recebimento.value === "avulso" ? null : form.elements.referencia.value,
+      repete: form.elements.repete.checked,
     });
     entradas.push(salvo);
     painel.atualizarEntradas(entradas);
@@ -358,9 +380,50 @@ async function apagarEntrada(idEntrada) {
   }
 }
 
+// Salário: trabalha e recebe depois, todo mês; outro recebimento: avulso (dá para trocar)
+function escolherRecebimento() {
+  const form = formEntrada();
+  const salario = form.elements.tipo.value === "salario";
+  form.elements.recebimento.value = salario ? "depois" : "avulso";
+  form.elements.repete.checked = salario;
+  atualizarReferencia(false);
+}
+
+// Mudar como é o recebimento de uma entrada já lançada (no fluxo de caixa)
+async function mudarRecebimento(idEntrada, campos) {
+  const ent = entradas.find((x) => x.id === idEntrada);
+  if (!ent) return;
+  const novo = { recebimento: ent.recebimento, referencia: ent.referencia, repete: !!ent.repete, ...campos };
+  if (campos.recebimento) novo.referencia = campos.recebimento === "avulso" ? null : referenciaPadrao(ent.data, campos.recebimento);
+  try {
+    const salvo = await armazem.financas.atualizarEntrada(idEntrada, novo);
+    entradas = entradas.map((x) => (x.id === idEntrada ? salvo : x));
+    painel.atualizarEntradas(entradas);
+    avisar("Recebimento atualizado.");
+  } catch (err) {
+    avisar("Não foi possível atualizar: " + err.message);
+    painel.atualizarEntradas(entradas);
+  }
+}
+
+// Saldo da conta no início de um mês (fluxo de caixa): os meses seguintes continuam a partir dele
+async function salvarSaldoInicial(chave, valor) {
+  const caixa = { saldos: { ...((prefs && prefs.caixa && prefs.caixa.saldos) || {}) } };
+  if (valor == null) delete caixa.saldos[chave];
+  else caixa.saldos[chave] = Math.round(valor * 100) / 100;
+  prefs = await armazem.financas.salvarPreferencias(dono.id, { caixa });
+  painel.atualizarCaixa((prefs && prefs.caixa) || caixa);
+  avisar(valor == null ? "Saldo do início do mês apagado." : "Saldo do início do mês salvo.");
+}
+
 function prepararEntrada() {
   const form = formEntrada();
-  $("#tipos-entrada").addEventListener("change", atualizarTipoEntrada);
+  $("#tipos-entrada").addEventListener("change", () => {
+    atualizarTipoEntrada();
+    escolherRecebimento();
+  });
+  $("#recebimento-entrada").addEventListener("change", () => atualizarReferencia(false));
+  form.elements.data.addEventListener("change", () => atualizarReferencia(false));
   form.addEventListener("input", (e) => {
     if (e.target.name === "liquido") liquidoDigitado = !!e.target.value.trim();
     else if (e.target.name === "bruto" || e.target.name === "desconto_valor") calcularLiquido();
@@ -1492,6 +1555,9 @@ async function iniciar() {
     entradasSite: entradas,
     aoLancarEntrada: abrirEntrada,
     aoApagarEntrada: apagarEntrada,
+    aoMudarRecebimento: mudarRecebimento,
+    caixa: (prefs && prefs.caixa) || {},
+    aoSalvarSaldo: salvarSaldoInicial,
     categorias: cats,
     ajustes,
     contas: contasTodas,

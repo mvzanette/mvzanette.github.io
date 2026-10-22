@@ -165,7 +165,23 @@ Separado do Controle financeiro da engenharia: é o **painel do projeto Financei
 - **Finanças em casal:** com o casal ligado em Usuários e permissões, aparece no topo a escolha do painel: **o seu**, **o da outra pessoa** e **Casal**.
   - No painel de cada um, os dois veem tudo e podem alterar tudo: lançar gastos, Pix e entradas, importar extrato, processar faturas, classificar, mudar categorias, desejos e PDFs. O que se faz ali vale para o dono do painel.
   - **Casal** mostra o mês dos dois lado a lado, com os mesmos cálculos dos painéis: entradas, investimento, cartão, gastos fora do cartão, fixos e saldo de cada um e do casal, os totais do casal, a carteira de investimentos e as entradas de cada um. Transferências entre os dois (como o investimento na conta conjunta) contam como saída de quem transfere.
-- **Fechamento do mês:** a aba Gastos do dia a dia começa pelo valor em R$ que **ainda pode gastar** no mês (entradas menos saídas), com quanto cabe por dia até o fim do mês. Logo abaixo vêm o total de **entradas**, o de **saídas** (gastas e comprometidas: investimento, cartão, Pix, débito, dinheiro e fixos que ainda vão cair) e o dos gastos do dia a dia. Em seguida aparecem a barra dividida por tipo com a marca de 85% e o **fluxo do mês** (cada entrada e cada saída em R$ e em % das entradas). O gráfico **Entradas x saídas, dia a dia** mostra as saídas começando nos compromissos do mês e crescendo a cada gasto lançado; o espaço até a linha das entradas é o que ainda dá para gastar. Ele tem os valores de cada dia ao passar o mouse (ou com as setas do teclado) e uma tabela. No gráfico de gasto por dia, a linha tracejada mostra quanto cabe por dia até o fim do mês. Depois vêm os alertas: a partir de **85% usado**, **saldo negativo** e os do cartão (fatura acima ou perto da sua previsão). Os mesmos alertas aparecem na visão geral.
+- **Duas visões de cada mês: fluxo de caixa e gastos do mês.** A visão geral mostra as duas lado a lado.
+  - **Fluxo de caixa do mês:** o dinheiro que entra e sai da conta, pela data em que entra ou sai, separado em **realizado** (com data até hoje) e **previsto**.
+    - Entradas: pela data do recebimento.
+    - Fatura do cartão: inteira, na data de vencimento. As compras no cartão só mexem no caixa quando a fatura é paga; as de outubro entram na fatura que vence em novembro.
+    - Pix, débito e dinheiro: na data do gasto.
+    - Também saem os fixos fora do cartão e o investimento do mês.
+    - A fatura que ainda não fechou é prevista pelas parcelas agendadas, pelas compras no cartão lançadas no mês da compra e pelos fixos. A aberta vem do print do app ou da prévia importada. Sem a data, o vencimento é o dia de vencimento da última fatura.
+    - **Saldo em conta no início do mês:** você informa o saldo da conta no dia 1º de um mês. Os meses seguintes continuam a partir dele (saldo do fim do mês anterior), e dá para corrigir qualquer mês. Sem ele, o caixa mostra só as entradas e as saídas do próprio mês.
+    - As entradas marcadas como **repete todo mês** ficam previstas nos meses seguintes, no mesmo dia do mês, até a próxima ser lançada.
+  - **Gastos do mês:** o que foi gasto no mês pela data da compra, por forma de pagamento e por categoria. Na compra parcelada no cartão, cada parcela entra no mês da fatura em que vence (as parcelas de compras antigas vêm da fatura lida ou da lista de parceladas). O pagamento da fatura não conta como gasto, porque as compras dela já estão contadas. Embaixo, aparecem as entradas do trabalho daquele mês (mês de referência), mesmo quando caem no mês seguinte, e quanto sobra delas depois dos gastos.
+- **Fechamento do mês (aba Gastos do dia a dia):** começa pelo valor em R$ que **ainda pode gastar** no Pix, no débito e no dinheiro, que é o saldo previsto do caixa no fim do mês, com quanto cabe por dia. Logo abaixo vêm:
+  - as entradas e as saídas do caixa (pagas e previstas) e os gastos do mês;
+  - a barra das saídas por tipo, com a marca de 85%;
+  - o aviso da fatura em que entram as compras no cartão do mês;
+  - o gráfico **Saldo na conta, dia a dia**: realizado até hoje e previsto tracejado, com os valores de cada dia ao passar o mouse (ou com as setas do teclado) e uma tabela.
+
+  No gráfico de gasto por dia, a linha tracejada mostra quanto cabe por dia até o fim do mês. Depois vêm os alertas: **caixa negativo**, saídas a partir de **85%** do que há no caixa e os do cartão (fatura acima ou perto da sua previsão). Os mesmos alertas aparecem na visão geral. A previsão dos próximos meses, a comparação com a sua previsão e a visão do casal usam o mesmo caixa: em cada mês sai a fatura que vence nele.
 - **Lançar gasto ou Pix:** pelo botão no topo da página (em qualquer aba) ou na aba Gastos, com valor, descrição, data, categoria, forma de pagamento (cartão, Pix, débito ou dinheiro) e, se quiser, essencial ou não. Na mesma visita, o próximo lançamento já abre na forma de pagamento do anterior. Os gastos lançados pelo site somam com os do projeto Financeiro (aparecem com a marca "lançado no site" e podem ser apagados ali):
   - **no cartão**, o gasto entra na fatura do mês; **parcelado**, cada parcela cai numa fatura e a compra aparece em "Compras parceladas a vencer";
   - Pix, débito e dinheiro saem do saldo do mês na hora;
@@ -175,8 +191,14 @@ Separado do Controle financeiro da engenharia: é o **painel do projeto Financei
 - **Lançar entrada:** pelo botão no topo ou na visão geral.
   - **Salário (holerite):** o bruto e cada desconto com o nome e o valor (INSS, IRRF, plano de saúde, coparticipação, previdência etc.; os mais comuns já vêm com o nome). O líquido é calculado e dá para corrigir se o holerite tiver outro valor.
   - **Outro recebimento:** recebimentos por fora, com a conta (de quem é o dinheiro) quando houver mais de uma.
+  - **Como é esse recebimento?** O formulário pergunta como é cada entrada:
+    - **trabalho o mês e recebo depois:** como o salário, que cai até o dia 10 do mês seguinte; o mês de trabalho é o anterior ao recebimento;
+    - **recebo antes e uso no mês:** como o ticket alimentação, que cai no dia 1º; o mês de trabalho é o próprio;
+    - **avulso:** sem mês de trabalho.
 
-  A entrada soma nas receitas do mês em que entrou. O salário lançado substitui o do projeto Financeiro no mesmo mês (que às vezes é só uma estimativa), e outro recebimento igual a um do projeto no mesmo mês não conta duas vezes. Na visão geral, o salário lançado aparece com o bruto e os descontos, e cada entrada lançada pelo site pode ser apagada.
+    O mês de trabalho dá para trocar, e **repete todo mês** põe a entrada na previsão dos meses seguintes. No fluxo de caixa, cada entrada lançada tem a mesma caixa de seleção para corrigir depois.
+
+  A entrada soma no caixa do mês em que entrou. O salário lançado substitui o do projeto Financeiro no mesmo mês (que às vezes é só uma estimativa), e outro recebimento igual a um do projeto no mesmo mês não conta duas vezes. Na visão geral, o salário lançado aparece com o bruto e os descontos, e cada entrada lançada pelo site pode ser apagada.
 - **Importar extrato:** traz de uma vez os Pix, débitos, boletos e saques do mês. Use o arquivo **OFX** que o app ou o internet banking do banco exporta (em Extrato, "Exportar" ou "Salvar em OFX") ou o **CSV da conta do Nubank**. O arquivo é lido no navegador e não fica guardado. Antes de gravar, a lista mostra cada saída com a forma de pagamento e a categoria sugerida, e dá para desmarcar o que não for gasto. Já vêm desmarcados:
   - o pagamento da fatura do cartão (as compras já estão na fatura);
   - aplicações e investimentos;

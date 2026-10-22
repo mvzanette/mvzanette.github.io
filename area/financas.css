@@ -436,3 +436,36 @@
 /* A lista de categorias é longa: os botões de salvar ficam sempre à vista */
 .fin #cad-categorias > .acoes { position: sticky; bottom: 0; z-index: 1; margin: 12px -18px -18px; padding: 12px 18px; background: var(--surface); border-top: 1px solid var(--line); }
 @media (max-width: 480px) { .fin #cad-categorias > .acoes { margin: 12px -14px -16px; padding: 10px 14px; } }
+
+/* ---------- Fluxo de caixa do mês e gastos do mês (visão geral) ---------- */
+.fin .caixa-tabela td, .fin .caixa-tabela th { vertical-align: top; }
+.fin .caixa-tabela thead th.r { min-width: 96px; }
+.fin .caixa-tabela .prev { color: var(--muted); }
+.fin .caixa-tabela .cx-grupo th, .fin .caixa-tabela .cx-grupo td { font: 700 0.9rem var(--font-body); letter-spacing: 0; text-transform: none; color: var(--ink); border-top: 1px solid var(--muted); }
+.fin .caixa-tabela .cx-grupo td.prev { color: var(--muted); }
+.fin .caixa-tabela .cx-inicial td { background: var(--bg); padding-left: 8px; padding-right: 8px; }
+.fin .caixa-tabela tr.cx-fim td { border-top: 0; font-size: 1rem; }
+.fin .caixa-tabela td.neg { color: var(--bad); }
+.fin .cx-receb { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 6px; }
+.fin .cx-receb select { font: inherit; font-size: 0.82rem; padding: 4px 6px; border: 1px solid var(--gray-300); background: var(--surface); color: var(--ink); max-width: 100%; }
+.fin .cx-receb select.falta { border-color: var(--warn); background: var(--warn-soft); }
+.fin .cx-repete { display: inline-flex; align-items: center; gap: 5px; font-size: 0.82rem; color: var(--muted); }
+.fin .cx-receb .btn-link { font-size: 0.82rem; }
+.fin .saldo-editar { margin-top: 6px; }
+.fin .saldo-editar summary { cursor: pointer; font-size: 0.82rem; font-weight: 600; }
+.fin .saldo-form { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 6px; }
+.fin .saldo-form input { font: inherit; width: 140px; max-width: 100%; padding: 6px 8px; border: 1px solid var(--gray-300); background: var(--surface); color: var(--ink); }
+.fin .saldo-form .erro { flex-basis: 100%; margin: 0; }
+.fin .gm-parcelas { margin-top: 12px; }
+.fin .gm-parcelas summary { cursor: pointer; font-weight: 600; font-size: 0.9rem; }
+.fin .gm-parcelas table { font-size: 0.86rem; margin-top: 6px; }
+.fin .gm-trabalho { display: grid; gap: 6px; margin-top: 14px; padding: 12px 14px; background: var(--bg); }
+.fin .gm-linha { display: flex; justify-content: space-between; gap: 12px; font-size: 0.9rem; }
+.fin .gm-linha.total { border-top: 1px solid var(--muted); padding-top: 6px; font-weight: 700; }
+.fin .gm-linha .neg { color: var(--bad); }
+
+/* Lançar entrada: como é o recebimento */
+.recebimento .opcoes-recebimento { display: grid; gap: 8px; margin-bottom: 10px; }
+.recebimento .opcao-linha span { display: grid; gap: 2px; }
+.recebimento .opcao-linha small { color: var(--muted); font-size: 0.82rem; }
+.recebimento .repete-linha { align-self: end; padding-bottom: 8px; }

@@ -117,6 +117,16 @@ function limparEntrada(e) {
     liquido,
     conta: contaValida(e.conta),
     observacao: texto(e.observacao, 300),
+    ...comoRecebe(e),
+  };
+}
+// Como é o recebimento: trabalha e recebe depois, recebe antes, ou avulso; o mês de trabalho (AAAA-MM) e se repete
+const RECEBIMENTOS = ["depois", "antes", "avulso"];
+function comoRecebe(e) {
+  return {
+    recebimento: RECEBIMENTOS.includes(e.recebimento) ? e.recebimento : null,
+    referencia: /^\d{4}-(0[1-9]|1[0-2])$/.test(String(e.referencia || "")) ? e.referencia : null,
+    repete: e.repete === true,
   };
 }
 const numerosEntrada = (e) => ({ ...e, liquido: Number(e.liquido), bruto: e.bruto == null ? null : Number(e.bruto),
@@ -459,6 +469,15 @@ function armazemDemo() {
         gravarJson(ENTRADAS, [...lerJson(ENTRADAS, []), linha]);
         return structuredClone(linha);
       },
+      async atualizarEntrada(idEntrada, campos) {
+        const todas = lerJson(ENTRADAS, []);
+        const e = todas.find((x) => x.id === idEntrada);
+        if (!e) throw new Error("Entrada não encontrada.");
+        if (!acessoFinancas(e.perfil_id)) throw new Error("Sem permissão para alterar este painel.");
+        Object.assign(e, comoRecebe({ ...e, ...campos }));
+        gravarJson(ENTRADAS, todas);
+        return structuredClone(e);
+      },
       async apagarEntrada(idEntrada) {
         gravarJson(ENTRADAS, lerJson(ENTRADAS, []).filter((e) => e.id !== idEntrada));
       },
@@ -497,7 +516,7 @@ function armazemDemo() {
       async salvarPreferencias(perfilId, campos) {
         exigirDono(perfilId);
         const todos = lerJson(PREFS, {});
-        todos[perfilId] = { perfil_id: perfilId, categorias: {}, plano: {}, contas: {}, ...todos[perfilId], ...soCampos(campos, ["categorias", "plano", "contas"]),
+        todos[perfilId] = { perfil_id: perfilId, categorias: {}, plano: {}, contas: {}, caixa: {}, ...todos[perfilId], ...soCampos(campos, ["categorias", "plano", "contas", "caixa"]),
           atualizado_em: new Date().toISOString() };
         gravarJson(PREFS, todos);
         return structuredClone(todos[perfilId]);
@@ -732,7 +751,13 @@ async function armazemSupabase(url, chave) {
       async salvarEntrada(entrada) {
         const { data, error } = await sb.from("financas_entradas").insert(limparEntrada(entrada)).select().single();
         if (error) throw new Error(error.code === "42501" || error.code === "PGRST116" ? "Sem permissão para lançar neste painel."
-          : /financas_entradas/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+          : /financas_entradas|recebimento|referencia|repete/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+        return numerosEntrada(data);
+      },
+      async atualizarEntrada(idEntrada, campos) {
+        const { data, error } = await sb.from("financas_entradas").update(comoRecebe(campos)).eq("id", idEntrada).select().single();
+        if (error) throw new Error(error.code === "42501" || error.code === "PGRST116" ? "Sem permissão para alterar este painel."
+          : /recebimento|referencia|repete/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
         return numerosEntrada(data);
       },
       async apagarEntrada(idEntrada) {
@@ -783,11 +808,11 @@ async function armazemSupabase(url, chave) {
       async salvarPreferencias(perfilId, campos) {
         const { data, error } = await sb
           .from("financas_preferencias")
-          .upsert({ perfil_id: perfilId, ...soCampos(campos, ["categorias", "plano", "contas"]) }, { onConflict: "perfil_id" })
+          .upsert({ perfil_id: perfilId, ...soCampos(campos, ["categorias", "plano", "contas", "caixa"]) }, { onConflict: "perfil_id" })
           .select()
           .single();
         if (error) throw new Error(error.code === "42501" || error.code === "PGRST116" ? "Sem permissão para alterar estas preferências."
-          : /contas/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+          : /contas|caixa/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
         return data;
       },
       async ajustes(perfilId) {

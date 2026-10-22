@@ -1,6 +1,6 @@
-// Visão do casal (Finanças pessoais → Casal): o mês das duas pessoas que formam casal nas finanças lado a lado, com
-// os mesmos cálculos dos painéis de cada uma (entradas, investimento, cartão, gastos fora do cartão, fixos e saldo)
-// e o total do casal. Para lançar ou mudar alguma coisa, abre-se o painel de cada uma.
+// Visão do casal (Finanças pessoais → Casal): o caixa do mês das duas pessoas que formam casal nas finanças lado a
+// lado, com os mesmos cálculos dos painéis de cada uma (entradas, investimento, fatura que vence no mês, gastos fora
+// do cartão, fixos e saldo do mês) e o total do casal. Para lançar ou mudar alguma coisa, abre-se o painel de cada uma.
 import { desenharFinancas } from "./financas-painel.js";
 import { $, esc } from "./ui.js";
 
@@ -45,21 +45,21 @@ export async function mostrarCasal({ armazem, pessoas }) {
       <tbody>
         ${linha("Entradas", (r) => r.receitas)}
         ${linha("(−) Investimento", (r) => r.investimento)}
-        ${linha("(−) Cartão", (r) => r.cartao, (r) => `fatura ${r.fatura}`)}
+        ${linha("(−) Fatura do cartão que vence no mês", (r) => r.cartao, (r) => `fatura ${r.fatura}`)}
         ${linha("(−) Gastos fora do cartão (Pix, débito, dinheiro)", (r) => r.fora)}
         ${linha("(−) Fixos fora do cartão", (r) => r.fixosFora)}
         <tr class="casal-saldo"><th scope="row">Saldo do mês</th>${res.map((r) => (r ? `<td class="r${r.saldo < 0 ? " neg" : ""}">${brl(r.saldo)}</td>` : '<td class="r"><span class="sem">—</span></td>')).join("")}<td class="r casal-total${saldo < 0 ? " neg" : ""}">${brl(saldo)}</td></tr>
       </tbody>`;
     $("#casal-kpis").innerHTML = [
       ["Entradas do casal", brl(soma((r) => r.receitas)), meses.get(atual)],
-      ["Saídas do casal", brl(saidas), "investimento, cartões, gastos e fixos"],
+      ["Saídas do casal", brl(saidas), "faturas que vencem, Pix, fixos e investimento"],
       ["Saldo do casal", brl(saldo), saldo < 0 ? "faltam para fechar o mês" : "sobra no mês"],
       ...(carteira ? [["Investimentos", brl(carteira.total), carteira.data ? `carteira em ${String(carteira.data).slice(8, 10)}/${String(carteira.data).slice(5, 7)}` : "carteira conjunta"]] : []),
     ].map(([t, v, s]) => `<div class="kpi"><span class="kpi-rotulo">${esc(t)}</span><strong class="kpi-valor${t === "Saldo do casal" && saldo < 0 ? " neg" : ""}">${v}</strong><small>${esc(s || "")}</small></div>`).join("");
     $("#casal-entradas").innerHTML = lidos.map((p, i) => {
       const r = res[i];
       const itens = r && r.entradas.length
-        ? r.entradas.map((e) => `<li><span>${esc(e.desc)}${e.site ? ' <span class="etiqueta">lançado no site</span>' : ""}</span><span class="num">${brl(e.liquido)}</span></li>`).join("")
+        ? r.entradas.map((e) => `<li><span>${esc(e.desc)}${e.site ? ' <span class="etiqueta">lançado no site</span>' : ""}</span><span class="num">${brl(e.liquido)}${e.previsto ? " <small>previsto</small>" : ""}</span></li>`).join("")
         : `<li class="sem">${p.painel ? "Nenhuma entrada neste mês." : "Painel ainda não importado."}</li>`;
       return `<section class="cartao casal-pessoa"><h2>Entradas de ${esc(p.nome)}</h2><ul class="casal-lista">${itens}</ul>
         <a class="btn btn-claro" href="${esc(p.link)}">Abrir o painel de ${esc(p.nome)}</a></section>`;

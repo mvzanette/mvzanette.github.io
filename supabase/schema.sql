@@ -234,6 +234,15 @@ create table if not exists public.financas_entradas (
 
 create index if not exists financas_entradas_perfil_data_idx on public.financas_entradas (perfil_id, data);
 
+-- Como é o recebimento (para o fluxo de caixa e a previsão):
+--   depois: trabalha o mês e recebe depois (ex.: salário até o dia 10 do mês seguinte)
+--   antes: recebe no começo e usa no mês (ex.: ticket alimentação)
+--   avulso: recebimento sem mês de trabalho
+-- referencia: mês de trabalho a que a entrada se refere (AAAA-MM). repete: entra na previsão dos meses seguintes.
+alter table public.financas_entradas add column if not exists recebimento text check (recebimento in ('depois', 'antes', 'avulso'));
+alter table public.financas_entradas add column if not exists referencia text check (referencia ~ '^[0-9]{4}-(0[1-9]|1[0-2])$');
+alter table public.financas_entradas add column if not exists repete boolean not null default false;
+
 -- Empresas com que há movimento financeiro: onde você trabalha ou que pagam as ARTs que você tira.
 -- Os nomes ficam só aqui no banco (o código do site é público).
 create table if not exists public.empresas (
@@ -268,6 +277,10 @@ create table if not exists public.financas_preferencias (
 -- Contas do painel (Cadastros): empresas unidas numa conta só ({ "grupos": [{ "id", "nome", "empresas": [ids] }] })
 -- e as contas escondidas nos formulários ({ "ocultas": [ids] })
 alter table public.financas_preferencias add column if not exists contas jsonb not null default '{}'::jsonb;
+
+-- Fluxo de caixa: saldo da conta informado no início de um mês ({ "saldos": { "2026-10": 1234.56 } }); os meses
+-- seguintes continuam a partir dele
+alter table public.financas_preferencias add column if not exists caixa jsonb not null default '{}'::jsonb;
 
 -- Classificação feita no site para os lançamentos que vêm do projeto Financeiro (gastos do dia a dia e
 -- lançamentos das faturas): categoria, subcategoria, essencial, conta e um complemento de texto.
