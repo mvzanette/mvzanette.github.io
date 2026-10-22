@@ -74,10 +74,11 @@ export function contasDaEmpresa(prefs, empresaId) {
 }
 
 // ---------------------------------------------------------------- categorias
-// Lista inicial, genérica. Cada pessoa edita a dela: nome, subcategorias e se a categoria é essencial por padrão.
+// Lista inicial, genérica. Cada pessoa edita a dela: nome, subcategorias e se a categoria é essencial por padrão
+// (essSub: o padrão de uma subcategoria, quando é diferente do da categoria).
 export const CATEGORIAS_PADRAO = [
-  { nome: "Mercado e padaria", essencial: true, sub: ["Supermercado", "Padaria", "Hortifrúti", "Açougue"] },
-  { nome: "Restaurantes", essencial: false, sub: ["Almoço", "Jantar", "Lanche e café", "Delivery"] },
+  { nome: "Alimentação", essencial: null, sub: ["Supermercado", "Padaria", "Hortifrúti", "Açougue", "Restaurante", "Almoço", "Jantar", "Lanche e café", "Delivery"],
+    essSub: { Supermercado: true, Padaria: true, Hortifrúti: true, Açougue: true, Restaurante: false, Almoço: false, Jantar: false, "Lanche e café": false, Delivery: false } },
   { nome: "Transporte", essencial: true, sub: ["Combustível", "Aplicativo e táxi", "Estacionamento", "Pedágio", "Manutenção do carro", "Transporte público"] },
   { nome: "Saúde", essencial: true, sub: ["Farmácia", "Consultas e exames", "Plano de saúde", "Academia e esporte"] },
   { nome: "Casa", essencial: true, sub: ["Aluguel e condomínio", "Energia", "Água e gás", "Internet e telefone", "Manutenção e reparos", "Móveis e utensílios"] },
@@ -90,6 +91,8 @@ export const CATEGORIAS_PADRAO = [
   { nome: "Assinaturas", essencial: null, sub: ["Streaming", "Aplicativos e software", "Clubes e revistas"] },
   { nome: "Presentes e doações", essencial: false, sub: ["Presentes", "Doações"] },
   { nome: "Pets", essencial: true, sub: ["Ração", "Veterinário", "Banho e tosa"] },
+  // O que é lançado aqui sai como investimento no fluxo de caixa (não conta como gasto do mês)
+  { nome: "Investimentos", essencial: null, sub: ["CDB", "LCI", "LCA", "Tesouro Direto", "Fundos", "Ações", "Previdência", "Poupança", "Cripto", "Outros investimentos"] },
   { nome: "Impostos e taxas", essencial: true, sub: ["IPVA", "IPTU", "Outros impostos"] },
   { nome: "Tarifas e encargos", essencial: null, sub: ["Anuidade", "IOF", "Juros e multas", "Tarifas bancárias"] },
   { nome: "Outros", essencial: null, sub: [] },
@@ -98,11 +101,10 @@ export const CATEGORIAS_PADRAO = [
 const simNao = (v) => (v === true || v === "Essencial" ? true : v === false || v === "Não essencial" ? false : null);
 
 export function normalizarCategoria(c) {
-  return {
-    nome: String((c && c.nome) || "").trim().slice(0, 60),
-    sub: [...new Set(((c && c.sub) || []).map((s) => String(s).trim().slice(0, 60)).filter(Boolean))],
-    essencial: simNao(c && c.essencial),
-  };
+  const sub = [...new Set(((c && c.sub) || []).map((s) => String(s).trim().slice(0, 60)).filter(Boolean))];
+  const essSub = {};
+  for (const [k, v] of Object.entries((c && c.essSub) || {})) if (sub.includes(k) && simNao(v) != null) essSub[k] = simNao(v);
+  return { nome: String((c && c.nome) || "").trim().slice(0, 60), sub, essencial: simNao(c && c.essencial), ...(Object.keys(essSub).length ? { essSub } : {}) };
 }
 
 // Categorias que aparecem nos dados importados (gastos do dia a dia e faturas, inclusive da outra pessoa)
@@ -122,13 +124,43 @@ export function categoriasDosDados(dados) {
 export function lerCategorias(prefs, dados) {
   const salvas = prefs && prefs.categorias;
   if (salvas && Array.isArray(salvas.lista) && salvas.lista.length) {
-    return { lista: salvas.lista.map(normalizarCategoria).filter((c) => c.nome), renomeadas: { ...(salvas.renomeadas || {}) }, salva: true };
+    return { lista: salvas.lista.map(normalizarCategoria).filter((c) => c.nome), renomeadas: { ...(salvas.renomeadas || {}) },
+      subPadrao: { ...(salvas.subPadrao || {}) }, salva: true };
   }
   const lista = CATEGORIAS_PADRAO.map(normalizarCategoria);
   for (const nome of categoriasDosDados(dados)) {
     if (!lista.some((c) => semAcento(c.nome) === semAcento(nome))) lista.splice(lista.length - 1, 0, { nome, sub: [], essencial: null });
   }
-  return { lista, renomeadas: {}, salva: false };
+  return { lista, renomeadas: {}, subPadrao: {}, salva: false };
+}
+
+// Junta categorias numa só: as juntadas viram subcategorias dela (sub: o nome da subcategoria que os lançamentos sem
+// subcategoria recebem). Devolve a lista nova e o que muda nos lançamentos: [{ de, para, sub }].
+// fontes: nomes das categorias juntadas; destino: nome da categoria que fica (nova ou uma das da lista)
+export function juntarCategorias(lista, fontes, destino, subDe = {}) {
+  const alvo = String(destino || "").trim().slice(0, 60);
+  if (!alvo) throw new Error("Dê um nome para a categoria que fica.");
+  const iguais = (a, b) => semAcento(a) === semAcento(b);
+  const juntadas = lista.filter((c) => fontes.some((f) => iguais(f, c.nome)) && !iguais(c.nome, alvo));
+  if (!juntadas.length) throw new Error("Escolha pelo menos uma categoria para juntar.");
+  const existente = lista.find((c) => iguais(c.nome, alvo));
+  const nova = existente ? { ...existente, sub: [...existente.sub], essSub: { ...(existente.essSub || {}) } } : { nome: alvo, sub: [], essencial: null, essSub: {} };
+  const mudancas = [];
+  for (const c of juntadas) {
+    const sub = String(subDe[c.nome] || c.nome).trim().slice(0, 60);
+    for (const s of [sub, ...c.sub]) {
+      if (!nova.sub.some((x) => iguais(x, s))) nova.sub.push(s);
+      if (c.essencial != null && nova.essSub[s] == null) nova.essSub[s] = c.essencial;
+    }
+    mudancas.push({ de: c.nome, para: nova.nome, sub });
+  }
+  // O padrão da categoria: o das juntadas quando todas são iguais (e a que fica não tinha outro)
+  const padroes = [...new Set([...(existente ? [existente.essencial] : []), ...juntadas.map((c) => c.essencial)])];
+  nova.essencial = padroes.length === 1 ? padroes[0] : null;
+  const posicao = Math.min(...[existente, ...juntadas].filter(Boolean).map((c) => lista.indexOf(c)));
+  const resto = lista.filter((c) => c !== existente && !juntadas.includes(c));
+  resto.splice(Math.min(posicao, resto.length), 0, normalizarCategoria(nova));
+  return { lista: resto, mudancas };
 }
 
 // Nome atual de uma categoria que foi renomeada na lista (os dados importados continuam com o nome antigo)
@@ -174,12 +206,16 @@ export function chavesFatura(lancamentos, prefixo = "c") {
 export function efetivo(l, ajuste, cats) {
   const a = ajuste || {};
   const site = l.origem === "site";
-  const categoria = a.categoria || renomear(cats, l.cat || "Outros");
-  const padrao = (categoriaDe(cats, categoria) || {}).essencial ?? null;
+  const original = l.cat || "Outros";
+  const categoria = a.categoria || renomear(cats, original);
+  // Categoria juntada a outra: o lançamento sem subcategoria fica na subcategoria que ela virou
+  const subcategoria = a.subcategoria || l.sub || (!a.categoria && cats && cats.subPadrao && cats.subPadrao[original]) || null;
+  const c = categoriaDe(cats, categoria) || {};
+  const padrao = (subcategoria && c.essSub && c.essSub[subcategoria] != null ? c.essSub[subcategoria] : c.essencial) ?? null;
   const doProjeto = simNao(l.essencial);
   return {
     categoria,
-    subcategoria: a.subcategoria || l.sub || null,
+    subcategoria,
     essencial: simNao(a.essencial) ?? doProjeto ?? padrao,
     semAjuste: doProjeto ?? padrao, // o que vale se o ajuste de essencial for retirado
     padrao,

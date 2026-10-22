@@ -214,6 +214,9 @@ alter table public.financas_gastos add column if not exists subcategoria text;
 alter table public.financas_gastos add column if not exists conta text
   check (conta is null or conta ~ '^(pessoal|casal|engenharia|(empresa|pessoa|grupo):[0-9a-f-]{36})$');
 
+-- Pagamento recorrente que este gasto paga (id do recorrente nas preferências ou "p:" e o nome do fixo do projeto)
+alter table public.financas_gastos add column if not exists recorrente text check (recorrente is null or length(recorrente) between 1 and 120);
+
 -- Entradas lançadas pelo site em Finanças pessoais: o salário (holerite, com o bruto e os descontos) e outros
 -- recebimentos. Somam com as receitas do projeto Financeiro no mês em que entraram (data).
 create table if not exists public.financas_entradas (
@@ -281,6 +284,12 @@ alter table public.financas_preferencias add column if not exists contas jsonb n
 -- Fluxo de caixa: saldo da conta informado no início de um mês ({ "saldos": { "2026-10": 1234.56 } }); os meses
 -- seguintes continuam a partir dele
 alter table public.financas_preferencias add column if not exists caixa jsonb not null default '{}'::jsonb;
+
+-- Pagamentos recorrentes lançados no site: [{ "id", "nome", "valor", "dia", "forma", "categoria", "subcategoria",
+-- "conta", "inicio": "AAAA-MM", "ativo" }]. Cada mês ficam pendentes até o pagamento ser marcado (vira um gasto
+-- lançado com o id do recorrente em financas_gastos.recorrente)
+alter table public.financas_preferencias add column if not exists recorrentes jsonb not null default '[]'::jsonb
+  check (jsonb_typeof(recorrentes) = 'array');
 
 -- Classificação feita no site para os lançamentos que vêm do projeto Financeiro (gastos do dia a dia e
 -- lançamentos das faturas): categoria, subcategoria, essencial, conta e um complemento de texto.

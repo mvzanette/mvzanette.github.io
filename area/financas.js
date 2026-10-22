@@ -13,8 +13,8 @@ import { lerArquivoFinancas, outrasPessoas, soFaturas } from "./financas-importa
 import { desenharFinancas } from "./financas-painel.js";
 import { desenharDesejos } from "./financas-desejos.js";
 import { mostrarCasal } from "./financas-casal.js";
-import { categoriaDe, contasDisponiveis, lerCategorias, lerContas, normalizarCategoria } from "./financas-classificacao.js";
-import { aplicarFatura, historicoDeCategorias, lerFaturaPdf, manterFaturasDoSite, montarFatura } from "./financas-faturas.js";
+import { categoriaDe, chavesFatura, chavesGastos, contasDisponiveis, juntarCategorias, lerCategorias, lerContas, normalizarCategoria } from "./financas-classificacao.js";
+import { aplicarFatura, herdarClassificacao, historicoDeCategorias, lerFaturaPdf, manterFaturasDoSite, montarFatura } from "./financas-faturas.js";
 import { decodificarExtrato, lerExtrato, MOTIVOS, saidasDoExtrato } from "./financas-extrato.js";
 import { aplicarPrevia, bancoDoCartao, faturaProvavel, lerFaturaParcial, montarPrevia, ordemFatura, rotuloFatura } from "./financas-previa.js";
 import { extrairLinhas } from "./pdf-texto.js";
@@ -40,6 +40,7 @@ let contasTodas = []; // as mesmas e as escondidas, para dar nome aos lançament
 let empresas = []; // empresas cadastradas (os nomes vêm do banco)
 let faturaPdf = null; // fatura em PDF sendo processada: { caminho, nome, leitura, quem, montada, destino }
 let extrato = null; // extrato da conta sendo importado: { leitura, saidas, entradas }
+let recorrentes = []; // pagamentos recorrentes cadastrados no site (preferências do painel)
 
 const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
 const brl = (v) => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -111,7 +112,7 @@ function lerCategoria(form) {
 }
 
 async function salvarCategorias() {
-  prefs = await armazem.financas.salvarPreferencias(dono.id, { categorias: { lista: cats.lista, renomeadas: cats.renomeadas } });
+  prefs = await armazem.financas.salvarPreferencias(dono.id, { categorias: { lista: cats.lista, renomeadas: cats.renomeadas, subPadrao: cats.subPadrao || {} } });
   cats.salva = true;
   if (!categoriasMexidas) recomecarCategorias(); // categoria nova criada ao lançar ou classificar aparece nos Cadastros
 }
@@ -155,23 +156,35 @@ const contaEscolhida = (form) => (contas.length > 1 && form.elements.conta.value
 // Forma de pagamento do último gasto lançado nesta visita: quem lança vários Pix seguidos não troca toda vez
 const FORMA_DA_VISITA = "mz-fin-forma";
 
-function abrirLancamento() {
+let pagamento = null; // pagamento recorrente sendo marcado como pago ({ chave, nome, rotulo, ... }); sem ele, gasto comum
+
+// Lançar gasto. Com um pagamento recorrente, o formulário vem preenchido com ele (valor, data e forma para conferir)
+function abrirLancamento(recorrente = null) {
+  pagamento = recorrente && recorrente.chave ? recorrente : null;
   const form = $("#form-gasto");
   form.reset();
-  form.elements.data.value = hojeISO();
+  form.elements.data.value = pagamento ? pagamento.data : hojeISO();
   try {
-    const forma = sessionStorage.getItem(FORMA_DA_VISITA);
+    const forma = pagamento ? pagamento.forma : sessionStorage.getItem(FORMA_DA_VISITA);
     const opcao = forma && form.querySelector(`[name=forma][value="${CSS.escape(forma)}"]`);
     if (opcao) opcao.checked = true;
   } catch {
     /* sem armazenamento: começa no cartão */
   }
-  preencherCategorias(form, "", "");
-  preencherConta(form, "pessoal");
+  if (pagamento) {
+    form.elements.descricao.value = pagamento.nome;
+    form.elements.valor.value = pagamento.valor != null ? valorBR(pagamento.valor) : "";
+  }
+  $("#titulo-gasto").textContent = pagamento ? `Marcar como pago: ${pagamento.nome} (${pagamento.rotulo})` : "Lançar gasto";
+  form.querySelector("[type=submit]").textContent = pagamento ? "Marcar como pago" : "Lançar";
+  $("#dica-pagamento").hidden = !pagamento;
+  preencherCategorias(form, pagamento ? pagamento.categoria || "" : "", pagamento ? pagamento.subcategoria || "" : "");
+  preencherConta(form, (pagamento && pagamento.conta) || "pessoal");
   $("#erro-gasto").hidden = true;
   atualizarForma();
   $("#dlg-gasto").showModal();
   form.elements.valor.focus();
+  if (pagamento) form.elements.valor.select();
 }
 
 function atualizarForma() {
@@ -213,6 +226,7 @@ async function lancarGasto(e) {
       conta: contaEscolhida(form),
       essencial: essencial === "sim" ? true : essencial === "nao" ? false : null,
       observacao: form.elements.observacao.value,
+      recorrente: pagamento ? pagamento.chave : null,
     });
     gastos.push(salvo);
     try {
@@ -225,7 +239,8 @@ async function lancarGasto(e) {
     painel.atualizarClassificacao({ categorias: cats });
     $("#dlg-gasto").close();
     const parcelado = salvo.forma === "cartao" && salvo.parcelas > 1 ? ` em ${salvo.parcelas}x` : "";
-    avisar(salvo.forma === "cartao" ? `Gasto lançado no cartão${parcelado}.` : "Gasto lançado.");
+    avisar(pagamento ? `${pagamento.nome} marcado como pago em ${pagamento.rotulo}.` : salvo.forma === "cartao" ? `Gasto lançado no cartão${parcelado}.` : "Gasto lançado.");
+    pagamento = null;
   } catch (err) {
     falha("Não foi possível lançar: " + err.message);
   } finally {
@@ -233,14 +248,14 @@ async function lancarGasto(e) {
   }
 }
 
-async function apagarGasto(idGasto) {
+async function apagarGasto(idGasto, pergunta = null, aviso = "Gasto apagado.") {
   const g = gastos.find((x) => x.id === idGasto);
-  if (!g || !confirm(`Apagar o gasto "${g.descricao}" lançado pelo site?`)) return;
+  if (!g || !confirm(pergunta || `Apagar o gasto "${g.descricao}" lançado pelo site?`)) return;
   try {
     await armazem.financas.apagarGasto(idGasto);
     gastos = gastos.filter((x) => x.id !== idGasto);
     painel.atualizarGastos(gastos);
-    avisar("Gasto apagado.");
+    avisar(aviso);
   } catch (err) {
     avisar("Não foi possível apagar: " + err.message);
   }
@@ -251,6 +266,134 @@ function prepararLancamento() {
   $("#formas-gasto").addEventListener("change", atualizarForma);
   prepararCategorias($("#form-gasto"));
   $("#form-gasto").addEventListener("submit", lancarGasto);
+}
+
+// ---------------------------------------------------------------- pagamentos recorrentes
+// Aluguel, condomínio, escola, assinaturas: cadastrados nas preferências do painel. Cada mês ficam pendentes na visão
+// geral até serem marcados como pagos, o que lança o gasto (com o valor para conferir). O valor pode ser mudado só
+// num mês (conta de luz, por exemplo) sem mudar o dos outros meses.
+const FORMAS_REC = { pix: "Pix", outro: "Boleto ou débito automático", debito: "Débito", cartao: "Cartão de crédito", dinheiro: "Dinheiro" };
+let editandoRec = null; // id do recorrente aberto no formulário (null: novo)
+const mesAtual = () => hojeISO().slice(0, 7);
+const novoId = () => `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
+async function salvarRecorrentes(lista) {
+  prefs = await armazem.financas.salvarPreferencias(dono.id, { recorrentes: lista });
+  recorrentes = Array.isArray(prefs && prefs.recorrentes) ? prefs.recorrentes : lista;
+  painel.atualizarRecorrentes(recorrentes);
+  desenharRecorrentesCad();
+}
+
+function abrirRecorrente(id = null) {
+  const r = id ? recorrentes.find((x) => x.id === id) : null;
+  editandoRec = r ? r.id : null;
+  const form = $("#form-recorrente");
+  form.reset();
+  $("#titulo-recorrente").textContent = r ? `Editar: ${r.nome}` : "Novo pagamento recorrente";
+  form.elements.nome.value = r ? r.nome : "";
+  form.elements.valor.value = r && r.valor != null ? valorBR(Number(r.valor)) : "";
+  form.elements.dia.value = r && r.dia ? r.dia : "";
+  form.elements.inicio.value = (r && r.inicio) || mesAtual();
+  form.elements.fim.value = (r && r.fim) || "";
+  const forma = form.querySelector(`[name=forma][value="${CSS.escape((r && r.forma) || "pix")}"]`);
+  if (forma) forma.checked = true;
+  preencherCategorias(form, r ? r.categoria || "" : "", r ? r.subcategoria || "" : "");
+  preencherConta(form, (r && r.conta) || "pessoal");
+  $("#btn-apagar-recorrente").hidden = !r;
+  $("#erro-recorrente").hidden = true;
+  $("#dlg-recorrente").showModal();
+  form.elements.nome.focus();
+}
+
+async function salvarRecorrente(e) {
+  e.preventDefault();
+  const form = e.target;
+  const falha = (texto) => {
+    $("#erro-recorrente").textContent = texto;
+    $("#erro-recorrente").hidden = false;
+  };
+  const nome = form.elements.nome.value.trim().slice(0, 100);
+  const valor = numeroDigitado(form.elements.valor.value);
+  const dia = parseInt(form.elements.dia.value, 10);
+  if (!nome) return falha("Informe o nome (ex.: aluguel).");
+  if (!(valor > 0)) return falha("Informe o valor de todo mês (ex.: 1.850,00). Se ele muda, use o valor mais comum: dá para mudar só num mês na visão geral.");
+  if (form.elements.dia.value && !(dia >= 1 && dia <= 31)) return falha("O dia do vencimento vai de 1 a 31.");
+  const inicio = form.elements.inicio.value || mesAtual();
+  const fim = form.elements.fim.value || null;
+  if (fim && fim < inicio) return falha("O último mês vem depois do primeiro.");
+  const { categoria, subcategoria } = lerCategoria(form);
+  if (form.elements.categoria.value === NOVA && !categoria) return falha("Escreva o nome da nova categoria.");
+  const antigo = recorrentes.find((x) => x.id === editandoRec) || {};
+  const r = { ...antigo, id: antigo.id || novoId(), nome, valor: Math.round(valor * 100) / 100, dia: dia || null, forma: form.elements.forma.value,
+    categoria, subcategoria, conta: contaEscolhida(form), inicio, fim };
+  const botao = form.querySelector("[type=submit]");
+  botao.disabled = true;
+  try {
+    await guardarNaLista(categoria, subcategoria).catch(() => {});
+    await salvarRecorrentes(antigo.id ? recorrentes.map((x) => (x.id === r.id ? r : x)) : [...recorrentes, r]);
+    painel.atualizarClassificacao({ categorias: cats });
+    $("#dlg-recorrente").close();
+    avisar(antigo.id ? "Pagamento recorrente salvo." : "Pagamento recorrente cadastrado. Ele fica pendente a cada mês até você marcar como pago.");
+  } catch (err) {
+    falha("Não foi possível salvar: " + err.message);
+  } finally {
+    botao.disabled = false;
+  }
+}
+
+async function apagarRecorrente() {
+  const r = recorrentes.find((x) => x.id === editandoRec);
+  if (!r || !confirm(`Apagar o pagamento recorrente "${r.nome}"? Os pagamentos já marcados continuam nos gastos.`)) return;
+  try {
+    await salvarRecorrentes(recorrentes.filter((x) => x.id !== r.id));
+    $("#dlg-recorrente").close();
+    avisar("Pagamento recorrente apagado.");
+  } catch (err) {
+    $("#erro-recorrente").textContent = "Não foi possível apagar: " + err.message;
+    $("#erro-recorrente").hidden = false;
+  }
+}
+
+// Valor de um recorrente só num mês (null volta ao valor de todo mês). Guarda só os meses do último ano em diante.
+async function mudarValorRecorrente(id, mes, valor) {
+  const r = recorrentes.find((x) => x.id === id);
+  if (!r) return;
+  const valores = {};
+  const limite = `${Number(mesAtual().slice(0, 4)) - 1}${mesAtual().slice(4)}`;
+  for (const [k, v] of Object.entries(r.valores || {})) if (k >= limite) valores[k] = v;
+  if (valor == null || Math.abs(valor - Number(r.valor)) < 0.005) delete valores[mes];
+  else valores[mes] = valor;
+  await salvarRecorrentes(recorrentes.map((x) => (x.id === id ? { ...x, valores } : x)));
+  avisar(valores[mes] != null ? "Valor do mês salvo. Os outros meses continuam com o valor de sempre." : "O mês voltou ao valor de sempre.");
+}
+
+function desmarcarPagamento(idGasto, nome) {
+  return apagarGasto(idGasto, `Desmarcar o pagamento de "${nome}"? O gasto lançado ao marcar como pago será apagado.`, `${nome} voltou a ficar pendente.`);
+}
+
+// Lista nos Cadastros
+function desenharRecorrentesCad() {
+  const lista = [...recorrentes].sort((a, b) => (a.dia || 99) - (b.dia || 99) || a.nome.localeCompare(b.nome));
+  const mes = mesAtual();
+  $("#lista-recorrentes").innerHTML = lista.length ? lista.map((r) => {
+    const encerrado = r.fim && r.fim < mes;
+    const detalhe = [FORMAS_REC[r.forma] || "Outro", r.dia ? `vence dia ${r.dia}` : "", r.categoria || "", encerrado ? `terminou em ${r.fim.slice(5)}/${r.fim.slice(0, 4)}` : r.inicio > mes ? `começa em ${r.inicio.slice(5)}/${r.inicio.slice(0, 4)}` : ""].filter(Boolean);
+    return `<div class="rec-cad${encerrado ? " encerrado" : ""}"><div><b>${esc(r.nome)}</b><small>${esc(detalhe.join(" · "))}</small></div>
+      <span class="num">${brl(Number(r.valor) || 0)}</span><button type="button" class="btn-link" data-editar-rec="${esc(r.id)}">Editar</button></div>`;
+  }).join("") : '<p class="muted" style="margin:0">Nenhum pagamento recorrente cadastrado.</p>';
+}
+
+function prepararRecorrentes() {
+  const form = $("#form-recorrente");
+  form.elements.dia.innerHTML = '<option value="">—</option>' + Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join("");
+  prepararCategorias(form);
+  form.addEventListener("submit", salvarRecorrente);
+  $("#btn-apagar-recorrente").addEventListener("click", apagarRecorrente);
+  $("#btn-novo-recorrente").addEventListener("click", () => abrirRecorrente(null));
+  $("#lista-recorrentes").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-editar-rec]");
+    if (b) abrirRecorrente(b.dataset.editarRec);
+  });
 }
 
 // ---------------------------------------------------------------- entradas: salário (holerite) e outros recebimentos
@@ -550,6 +693,7 @@ function prepararClassificacao() {
 let edicao = null; // cópia da lista em edição (original = nome com que a categoria estava salva)
 let categoriasMexidas = false; // há mudança na lista que ainda não foi salva
 let edicaoContas = null; // { grupos, ocultas } em edição
+let fusoes = []; // categorias juntadas desde a última vez que salvou: { de (nome salvo), alvo (categoria que fica), sub }
 
 function erroCategorias(texto) {
   $("#erro-categorias").textContent = texto;
@@ -559,6 +703,7 @@ function erroCategorias(texto) {
 function recomecarCategorias() {
   categoriasMexidas = false;
   edicao = cats.lista.map((c) => ({ ...c, sub: [...c.sub], original: c.nome }));
+  fusoes = [];
   erroCategorias("");
   desenharEdicao();
 }
@@ -586,6 +731,49 @@ function desenharEdicao(foco) {
     const el = $(`#lista-categorias .cat-edicao[data-i="${foco.i}"] [data-campo="${foco.campo}"]`);
     if (el) el.focus();
   }
+  desenharJuntar();
+}
+
+// Juntar categorias: cada marcada vira uma subcategoria da que fica (o nome dela ou o escrito ao lado)
+function desenharJuntar() {
+  const marcadas = new Set([...document.querySelectorAll("#juntar-lista [data-juntar]:checked")].map((x) => x.value));
+  $("#juntar-lista").innerHTML = edicao.map((c, i) => (c.nome.trim() ? `<div class="juntar-linha">
+      <label><input type="checkbox" data-juntar value="${i}"${marcadas.has(String(i)) ? " checked" : ""}> ${esc(c.nome)}</label>
+      <label class="juntar-sub"${marcadas.has(String(i)) ? "" : " hidden"}>vira a subcategoria<input data-juntar-sub="${i}" value="${esc(c.nome)}" maxlength="60" autocomplete="off"></label>
+    </div>` : "")).join("");
+  $("#juntar-nomes").innerHTML = edicao.filter((c) => c.nome.trim()).map((c) => `<option value="${esc(c.nome)}"></option>`).join("");
+}
+
+function juntarMarcadas() {
+  const erro = (t) => { $("#erro-juntar").textContent = t; $("#erro-juntar").hidden = !t; };
+  const marcadas = [...document.querySelectorAll("#juntar-lista [data-juntar]:checked")].map((x) => edicao[Number(x.value)]).filter(Boolean);
+  const subDe = {};
+  for (const x of document.querySelectorAll("#juntar-lista [data-juntar-sub]")) {
+    const c = edicao[Number(x.dataset.juntarSub)];
+    if (c && x.value.trim()) subDe[c.nome] = x.value.trim();
+  }
+  try {
+    const { lista, mudancas } = juntarCategorias(edicao, marcadas.map((c) => c.nome), $("#juntar-destino").value, subDe);
+    const existente = edicao.find((c) => igual(c.nome, $("#juntar-destino").value));
+    const alvo = lista.find((c) => mudancas.length && c.nome === mudancas[0].para);
+    alvo.original = existente ? existente.original : null;
+    for (const m of mudancas) {
+      const fonte = marcadas.find((c) => c.nome === m.de);
+      fusoes.push({ de: (fonte && fonte.original) || m.de, alvo, sub: m.sub });
+      // Juntada antes nesta mesma edição: passa a apontar para a nova categoria que fica
+      fusoes.forEach((f) => { if (f.alvo === fonte) f.alvo = alvo; });
+    }
+    edicao = lista;
+    categoriasMexidas = true;
+    erro("");
+    $("#juntar-destino").value = "";
+    desenharEdicao();
+    document.querySelectorAll("#juntar-lista [data-juntar]").forEach((x) => { x.checked = false; });
+    desenharJuntar();
+    avisar(`${plural(mudancas.length, "categoria juntada", "categorias juntadas")} em ${alvo.nome}. Confira e clique em Salvar categorias.`);
+  } catch (err) {
+    erro(err.message);
+  }
 }
 
 function adicionarSub(div) {
@@ -611,24 +799,51 @@ async function salvarEdicao() {
     for (const k of Object.keys(renomeadas)) if (renomeadas[k] === antigo) renomeadas[k] = novo;
     renomeadas[antigo] = novo;
   }
-  for (const c of lista) delete renomeadas[c.nome]; // nome em uso não é desviado para outro
-  const novoNome = (nome) => (trocas.find(([antigo]) => antigo === nome) || [])[1];
+  // Categorias juntadas: o nome antigo aponta para a que ficou e o lançamento sem subcategoria ganha a que ela virou
+  const fus = fusoes.map((f) => ({ de: f.de, para: f.alvo.nome.trim(), sub: f.sub })).filter((f) => f.para && !igual(f.de, f.para));
+  const subPadrao = { ...(cats.subPadrao || {}) };
+  for (const f of fus) {
+    for (const k of Object.keys(renomeadas)) if (renomeadas[k] === f.de) renomeadas[k] = f.para;
+    renomeadas[f.de] = f.para;
+    subPadrao[f.de] = f.sub;
+  }
+  for (const c of lista) { delete renomeadas[c.nome]; delete subPadrao[c.nome]; } // nome em uso não é desviado para outro
+  // Para onde vai um lançamento classificado com uma categoria: renomeada e, se juntada, a subcategoria que ela virou
+  const mover = (nome) => {
+    if (!nome) return null;
+    let categoria = nome, sub = null, mudou = false;
+    const troca = trocas.find(([antigo]) => antigo === categoria);
+    if (troca) { categoria = troca[1]; mudou = true; }
+    for (const f of fus) if (igual(f.de, categoria)) { categoria = f.para; sub = sub || f.sub; mudou = true; }
+    return mudou ? { categoria, sub } : null;
+  };
   const botao = $("#btn-salvar-categorias");
   botao.disabled = true;
   erroCategorias("");
   try {
-    // Lançamentos já classificados com o nome antigo passam para o novo
-    const mudar = ajustes.filter((a) => novoNome(a.categoria));
+    // Lançamentos já classificados com o nome antigo passam para o novo (e, se juntada, para a subcategoria dela)
+    const mudar = ajustes.filter((a) => mover(a.categoria));
     if (mudar.length) {
-      const salvos = await armazem.financas.salvarAjustes(mudar.map((a) => ({ ...a, categoria: novoNome(a.categoria) })));
+      const salvos = await armazem.financas.salvarAjustes(mudar.map((a) => {
+        const d = mover(a.categoria);
+        return { ...a, categoria: d.categoria, subcategoria: a.subcategoria || d.sub };
+      }));
       ajustes = [...ajustes.filter((a) => !salvos.some((s) => s.chave === a.chave)), ...salvos];
     }
-    for (const g of gastos.filter((x) => novoNome(x.categoria))) {
-      const salvo = await armazem.financas.atualizarGasto(g.id, { categoria: novoNome(g.categoria), subcategoria: g.subcategoria,
+    for (const g of gastos.filter((x) => mover(x.categoria))) {
+      const d = mover(g.categoria);
+      const salvo = await armazem.financas.atualizarGasto(g.id, { categoria: d.categoria, subcategoria: g.subcategoria || d.sub,
         essencial: g.essencial, observacao: g.observacao, conta: g.conta });
       gastos = gastos.map((x) => (x.id === salvo.id ? salvo : x));
     }
-    cats = { lista: lista.map(normalizarCategoria), renomeadas, salva: cats.salva };
+    const recMudou = recorrentes.some((r) => mover(r.categoria));
+    if (recMudou) {
+      await salvarRecorrentes(recorrentes.map((r) => {
+        const d = mover(r.categoria);
+        return d ? { ...r, categoria: d.categoria, subcategoria: r.subcategoria || d.sub } : r;
+      }));
+    }
+    cats = { lista: lista.map(normalizarCategoria), renomeadas, subPadrao, salva: cats.salva };
     await salvarCategorias();
     painel.atualizarGastos(gastos);
     painel.atualizarClassificacao({ ajustes, categorias: cats });
@@ -682,8 +897,15 @@ function prepararEdicaoCategorias() {
   });
   $("#btn-categorias-padrao").addEventListener("click", () => {
     edicao = lerCategorias(null, registro.dados).lista.map((c) => ({ ...c, original: c.nome }));
+    fusoes = [];
     desenharEdicao();
   });
+  $("#juntar-lista").addEventListener("change", (e) => {
+    if (!e.target.matches("[data-juntar]")) return;
+    e.target.closest(".juntar-linha").querySelector(".juntar-sub").hidden = !e.target.checked;
+    if (e.target.checked && !$("#juntar-destino").value) $("#juntar-destino").focus();
+  });
+  $("#btn-juntar-cats").addEventListener("click", juntarMarcadas);
   $("#btn-desfazer-categorias").addEventListener("click", recomecarCategorias);
   $("#btn-salvar-categorias").addEventListener("click", salvarEdicao);
 }
@@ -873,6 +1095,25 @@ function historicoPara(quem) {
   return historicoDeCategorias(fontes, new Map(ajustes.map((a) => [a.chave, a])), cats);
 }
 
+// Classificação herdada das faturas anteriores para os lançamentos novos (fatura lida do PDF ou prévia): a mesma
+// compra parcelada leva tudo, inclusive o complemento; a mesma loja leva a categoria, a conta e o essencial
+function herancaDaFatura(dadosAntes, quem, novos, ajustesMap) {
+  const prefixo = quem === "dono" ? "c" : "co";
+  const antes = cartaoDe(dadosAntes || {}, quem) || {};
+  const comChave = (ls, p) => chavesFatura(ls, p).map((k, i) => ({ ...ls[i], chave: k }));
+  const antigos = [];
+  if (quem === "dono") {
+    for (const m of (dadosAntes && dadosAntes.meses) || []) antigos.push(...comChaveGastos(m.lancamentos || []));
+    antigos.push(...gastos.map((g) => ({ desc: g.descricao, valor: g.valor, chave: `s|${g.id}` })));
+  }
+  antigos.push(...comChave(antes.lancamentos || [], prefixo));
+  for (const p of antes.previas || []) antigos.push(...comChave((p.lancamentos || []).map((l) => ({ ...l, mes: p.mes })), prefixo));
+  return herdarClassificacao(novos, antigos, ajustesMap);
+}
+const comChaveGastos = (ls) => chavesGastos(ls).map((k, i) => ({ ...ls[i], chave: k }));
+const novosComChave = (lancamentos, quem, mes) => chavesFatura(lancamentos, quem === "dono" ? "c" : "co").map((k, i) => ({ ...lancamentos[i], chave: k })).filter((l) => !mes || l.mes === mes);
+const textoHeranca = (h) => (h.length ? `${plural(h.length, "lançamento herda", "lançamentos herdam")} a classificação feita nas faturas anteriores${h.some((x) => x.complemento) ? ` (${plural(h.filter((x) => x.complemento).length, "com complemento", "com complemento")})` : ""}.` : "");
+
 // Lê o PDF (o arquivo recém-enviado ou o guardado no banco) e mostra a prévia. Logo depois do envio, só abre a
 // janela se o PDF for uma fatura que o site sabe ler.
 let leituraAtual = 0;
@@ -933,8 +1174,11 @@ function mostrarFaturaPdf() {
     linha("Pontos de atenção", String(montada.alertas.length)),
   ].join("");
 
+  const depois = cartaoDe(comFatura(registro.dados, quem, montada), quem);
+  faturaPdf.herdados = herancaDaFatura(registro.dados, quem, novosComChave(depois.lancamentos, quem, f.mes), new Map(ajustes.map((a) => [a.chave, a])));
   const avisos = [];
   if (!montada.confere) avisos.push(`${f.conferencia}. Confira o PDF antes de atualizar.`);
+  if (faturaPdf.herdados.length) avisos.push(textoHeranca(faturaPdf.herdados));
   const existente = ((cartaoDe(registro.dados, quem) || {}).faturas || []).find((x) => x.mes === f.mes);
   if (existente) {
     avisos.push(existente.origem === "pdf" ? `A fatura ${f.mes} deste cartão já foi lida antes e será substituída.`
@@ -953,6 +1197,28 @@ function mostrarFaturaPdf() {
     <td class="r num">${brl(l.valor)}</td></tr>`).join("");
   $("#previa-fatura-pdf").hidden = false;
   $("#btn-confirmar-fatura-pdf").disabled = false;
+}
+
+// Grava a classificação herdada (sem travar a atualização da fatura se o banco recusar)
+async function herdarNoBanco(perfilId, herdados) {
+  if (!herdados || !herdados.length) return;
+  try {
+    const salvos = await armazem.financas.salvarAjustes(herdados.map((h) => ({ ...h, perfil_id: perfilId })));
+    if (perfilId === dono.id) ajustes = [...ajustes.filter((a) => !salvos.some((s) => s.chave === a.chave)), ...salvos];
+  } catch (err) {
+    console.error(err);
+  }
+}
+// No painel da outra pessoa (atualizado junto), a herança usa a classificação dela
+async function herdarNoPainelDela(perfilId, dadosAntes, novos) {
+  try {
+    const dela = await armazem.financas.ajustes(perfilId);
+    const antes = cartaoDe(dadosAntes || {}, "dono") || {};
+    const antigos = [...chavesFatura(antes.lancamentos || [], "c").map((k, i) => ({ ...antes.lancamentos[i], chave: k }))];
+    await herdarNoBanco(perfilId, herdarClassificacao(novos, antigos, new Map(dela.map((a) => [a.chave, a]))));
+  } catch (err) {
+    console.error(err);
+  }
 }
 
 // Dados do painel com a fatura no cartão de quem (o dono do painel ou a outra pessoa do arquivo)
@@ -979,11 +1245,14 @@ async function confirmarFaturaPdf() {
   try {
     const dados = comFatura(registro.dados, quem, montada);
     await armazem.financas.salvar({ perfil_id: dono.id, modo: registro.modo, dados, investimentos: registro.investimentos, arquivo: registro.arquivo });
+    await herdarNoBanco(dono.id, faturaPdf.herdados);
     if (destino && $("#fatura-outra").checked) {
       const atual = await armazem.financas.ler(destino.id);
+      const dadosDela = atual ? comFatura(atual.dados, "dono", montada) : soFaturas(dados, quem);
       await armazem.financas.salvar(atual
-        ? { perfil_id: destino.id, modo: atual.modo, dados: comFatura(atual.dados, "dono", montada), investimentos: atual.investimentos, arquivo: atual.arquivo }
-        : { perfil_id: destino.id, modo: "faturas", dados: soFaturas(dados, quem), investimentos: null, arquivo: "Faturas em PDF" });
+        ? { perfil_id: destino.id, modo: atual.modo, dados: dadosDela, investimentos: atual.investimentos, arquivo: atual.arquivo }
+        : { perfil_id: destino.id, modo: "faturas", dados: dadosDela, investimentos: null, arquivo: "Faturas em PDF" });
+      await herdarNoPainelDela(destino.id, atual && atual.dados, novosComChave(cartaoDe(dadosDela, "dono").lancamentos, "dono", montada.fatura.mes));
     }
     // Volta direto na análise da fatura atualizada
     try {
@@ -1083,6 +1352,8 @@ function mostrarParcial() {
   }
   const antiga = (atual.previas || []).find((p) => p.mes === mes);
   if (antiga && !bloqueia) avisos.push(`A prévia de ${mes} importada em ${dataBR(String(antiga.importada_em).slice(0, 10))} será substituída por esta.`);
+  parcial.herdados = bloqueia ? [] : herancaDaFatura(registro.dados, quem, novosComChave(previa.lancamentos.map((l) => ({ ...l, mes })), quem, mes), new Map(ajustes.map((a) => [a.chave, a])));
+  if (parcial.herdados.length) avisos.push(textoHeranca(parcial.herdados));
   $("#aviso-parcial").innerHTML = avisos.map(esc).join("<br>");
   $("#aviso-parcial").hidden = !avisos.length;
   $("#campo-parcial-outra").hidden = !destino;
@@ -1116,6 +1387,7 @@ async function confirmarParcial() {
   try {
     const dados = comPrevia(registro.dados, quem, previa);
     await armazem.financas.salvar({ perfil_id: dono.id, modo: registro.modo, dados, investimentos: registro.investimentos, arquivo: registro.arquivo });
+    await herdarNoBanco(dono.id, parcial.herdados);
     if (destino && $("#parcial-outra").checked) {
       const daOutra = await armazem.financas.ler(destino.id);
       await armazem.financas.salvar(daOutra
@@ -1533,10 +1805,12 @@ async function iniciar() {
     return;
   }
   cats = lerCategorias(prefs, registro.dados);
+  recorrentes = Array.isArray(prefs && prefs.recorrentes) ? prefs.recorrentes : [];
   empresas = sessao.empresas || [];
   montarContas();
   mostrarStatus();
   prepararLancamento();
+  prepararRecorrentes();
   // Lançar gasto (ou Pix), lançar entrada e importar o extrato ficam no topo, em qualquer aba
   $("#btn-lancar-topo").hidden = false;
   $("#btn-entrada-topo").hidden = false;
@@ -1558,6 +1832,11 @@ async function iniciar() {
     aoMudarRecebimento: mudarRecebimento,
     caixa: (prefs && prefs.caixa) || {},
     aoSalvarSaldo: salvarSaldoInicial,
+    recorrentes,
+    aoPagarRecorrente: abrirLancamento,
+    aoDesmarcarRecorrente: desmarcarPagamento,
+    aoEditarRecorrente: abrirRecorrente,
+    aoValorRecorrente: mudarValorRecorrente,
     categorias: cats,
     ajustes,
     contas: contasTodas,
@@ -1567,6 +1846,7 @@ async function iniciar() {
   });
   recomecarCategorias();
   recomecarContas();
+  desenharRecorrentesCad();
   listarPdfs();
   if (desejos) {
     desenharDesejos({

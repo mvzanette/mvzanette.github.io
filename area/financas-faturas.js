@@ -55,11 +55,11 @@ const REGRAS = [
   [/\bUBER\b|\b99 ?(APP|POP|TAXI)\b|CABIFY|\bTAXI\b|WHOOSH|PATINET|TEMBICI/, "Transporte", "Aplicativo e táxi"],
   [/METRO\b|\bBRT\b|ONIBUS|BILHETE UNICO|RODOVIARIA|BUSER|CLICKBUS/, "Transporte", "Transporte público"],
   [/AUTO ?CENTER|PNEU|MECANIC|LAVA ?JATO|AUTOPECAS|AUTO PECAS|VEICULOS/, "Transporte", "Manutenção do carro"],
-  [/IFOOD|\bIFD\b|RAPPI|AIQFOME|ZE DELIVERY|DELIVERY/, "Restaurantes", "Delivery"],
-  [/RESTAUR|PIZZ|BURGER|LANCH|OUTBACK|DOMINO|SPOLETO|MADERO|BUTECO|BOTECO|\bBAR\b|CHOPP|CERVEJ|ACAI|SORVET|CAFE\b|CAFETERIA|STARBUCKS|CHURRASC|PEIXARIA|SUSHI|TEMAKI|GRILL|BISTRO|MC ?DONALD|SUBWAY|HABIB|GIRAFFAS|COCO BAMBU|CANTINA|TRATTORIA|PASTEL|CREPE|ESPETINHO/, "Restaurantes", null],
-  [/SUPERMERC|HIPERMERC|ATACAD|ASSAI|CARREFOUR|PAO DE ACUCAR|\bEXTRA\b|BAHAMAS|HORTIFRUT|SACOLAO|EMPORIO|MERCEARIA|MINIMERCADO/, "Mercado e padaria", "Supermercado"],
-  [/PADARIA|PANIFIC|CONFEITARIA/, "Mercado e padaria", "Padaria"],
-  [/ACOUGUE|CASA DE CARNES/, "Mercado e padaria", "Açougue"],
+  [/IFOOD|\bIFD\b|RAPPI|AIQFOME|ZE DELIVERY|DELIVERY/, "Alimentação", "Delivery"],
+  [/RESTAUR|PIZZ|BURGER|LANCH|OUTBACK|DOMINO|SPOLETO|MADERO|BUTECO|BOTECO|\bBAR\b|CHOPP|CERVEJ|ACAI|SORVET|CAFE\b|CAFETERIA|STARBUCKS|CHURRASC|PEIXARIA|SUSHI|TEMAKI|GRILL|BISTRO|MC ?DONALD|SUBWAY|HABIB|GIRAFFAS|COCO BAMBU|CANTINA|TRATTORIA|PASTEL|CREPE|ESPETINHO/, "Alimentação", "Restaurante"],
+  [/SUPERMERC|HIPERMERC|ATACAD|ASSAI|CARREFOUR|PAO DE ACUCAR|\bEXTRA\b|BAHAMAS|HORTIFRUT|SACOLAO|EMPORIO|MERCEARIA|MINIMERCADO/, "Alimentação", "Supermercado"],
+  [/PADARIA|PANIFIC|CONFEITARIA/, "Alimentação", "Padaria"],
+  [/ACOUGUE|CASA DE CARNES/, "Alimentação", "Açougue"],
   [/DROGA|FARMA|\bRAIA\b|PACHECO|PAGUE MENOS|ARAUJO|PANVEL|VENANCIO/, "Saúde", "Farmácia"],
   [/TOTALPASS|GYMPASS|WELLHUB|SMART ?FIT|ACADEMIA|BIO RITMO|CROSSFIT|PILATES|\bYOGA\b|NATACAO|TICKETSPORTS|NUTRITION|SUPLEMENT/, "Saúde", "Academia e esporte"],
   [/CLINICA|HOSPITAL|LABORAT|ODONTO|DENTIST|MEDIC|EXAME|PSICOLOG|FISIOTER|\bOTICA\b/, "Saúde", "Consultas e exames"],
@@ -372,6 +372,38 @@ export function aplicarFatura(cartao, montada) {
   }
   if (!c.arquivo) c.arquivo = "Faturas em PDF";
   return c;
+}
+
+// Classificação herdada das faturas anteriores, para os lançamentos da fatura nova que ainda não foram classificados
+// no site: a mesma compra parcelada (mesmo nome, mesmo número de parcelas e mesmo valor da parcela) leva tudo
+// (categoria, subcategoria, essencial, conta e complemento); a mesma loja leva a categoria, a subcategoria, o
+// essencial e a conta da última vez em que foi classificada. Devolve os ajustes a gravar para as chaves novas.
+// novos e antigos: lançamentos com a chave da classificação (chave); ajustes: Map chave → ajuste
+export function herdarClassificacao(novos, antigos, ajustes) {
+  const parcelaDe = (l) => { const x = String(l.parcela || l.parcelas || "").match(/(\d+)\s*\/\s*(\d+)/); return x ? { k: Number(x[1]), n: Number(x[2]) } : null; };
+  const nomeDe = (l) => chaveNome(l.nome || l.desc);
+  const compra = new Map(), loja = new Map();
+  for (const l of antigos) {
+    const a = ajustes.get(l.chave);
+    if (!a) continue;
+    const p = parcelaDe(l);
+    if (p && p.n > 1) compra.set(`${nomeDe(l)}|${p.n}|${Number(l.valor).toFixed(2)}`, a);
+    if (a.categoria || a.conta || a.essencial != null) loja.set(nomeDe(l), a);
+  }
+  const herdados = [];
+  for (const l of novos) {
+    if (!l.chave || ajustes.has(l.chave)) continue;
+    const p = parcelaDe(l);
+    const daCompra = p && p.n > 1 ? compra.get(`${nomeDe(l)}|${p.n}|${Number(l.valor).toFixed(2)}`) : null;
+    const base = daCompra || loja.get(nomeDe(l));
+    if (!base) continue;
+    const h = { chave: l.chave, categoria: base.categoria || null, subcategoria: base.subcategoria || null, essencial: base.essencial ?? null,
+      conta: base.conta || null, complemento: daCompra ? daCompra.complemento || null : null };
+    // Nada a herdar além do que a categoria automática já dá
+    if (!h.complemento && !h.conta && h.essencial == null && (!h.categoria || h.categoria === l.cat) && (h.subcategoria || null) === (l.sub || null)) continue;
+    herdados.push(h);
+  }
+  return herdados;
 }
 
 // Na importação do arquivo do painel, as faturas lidas no site que o arquivo não traz continuam no cartão

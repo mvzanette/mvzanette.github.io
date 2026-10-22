@@ -43,7 +43,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   gastosSite = [], aoLancarGasto = null, aoApagarGasto = null, aoImportarExtrato = null,
   entradasSite = [], aoLancarEntrada = null, aoApagarEntrada = null,
   categorias = null, ajustes = [], contas = [], aoClassificar = null, aoEditarCategorias = null, comDesejos = false,
-  comMeses = false, somenteCalculo = false, caixa: caixaPrefs = null, aoSalvarSaldo = null, aoMudarRecebimento = null }) {
+  comMeses = false, somenteCalculo = false, caixa: caixaPrefs = null, aoSalvarSaldo = null, aoMudarRecebimento = null,
+  recorrentes: recorrentesSite = [], aoPagarRecorrente = null, aoDesmarcarRecorrente = null, aoEditarRecorrente = null, aoValorRecorrente = null }) {
   const D = completar(dados);
   let CATS = categorias || lerCategorias(null, dados);
   let AJ = new Map(ajustes.map(a => [a.chave, a]));
@@ -120,7 +121,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
 
   // ---------- Gastos lançados pelo site: entram nos meses como os do projeto (os de cartão, na fatura) ----------
   const ORIGINAL = {meses: structuredClone(D.meses), comprometido: structuredClone(D.cartao.comprometido)};
-  const FORMAS_SITE = {cartao: "Cartão de crédito", pix: "Pix", debito: "Débito", dinheiro: "Dinheiro", outro: "Outro"};
+  const FORMAS_SITE = {cartao: "Cartão de crédito", pix: "Pix", debito: "Débito", dinheiro: "Dinheiro", outro: "Boleto ou outro"};
   const faturaSeguinte = (rotulo, k) => {
     const [mm, yy] = String(rotulo || "").split("/");
     const i = MES.indexOf(mm);
@@ -133,7 +134,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   let entradasRepetidas = 0;
   let parcelasSite = []; // compras parceladas lançadas pelo site, para a lista de parceladas a vencer
   let atual = null;
-  let GASTOS_SITE = gastosSite, ENTRADAS_SITE = entradasSite;
+  let GASTOS_SITE = gastosSite, ENTRADAS_SITE = entradasSite, REC_SITE = recorrentesSite || [];
+  let PAGOS = new Map(); // pagamento recorrente marcado como pago ("chave|AAAA-MM") → gasto lançado ao marcar
   const mesDe = chave => {
     let m = D.meses.find(x => x.chave === chave);
     if (!m) {
@@ -214,6 +216,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     entradasRepetidas = 0;
     parcelasSite = [];
     memoCaixa.clear();
+    PAGOS = new Map((GASTOS_SITE || []).filter(g => g.recorrente).map(g => [g.recorrente, {id: g.id, valor: Number(g.valor) || 0, data: g.data}]));
     // O mês atual e o seguinte (a previsão do caixa) sempre aparecem, mesmo sem nada lançado
     if (COM_MESES) { mesDe(hojeKey); mesDe(somarChave(hojeKey, 1)); }
     // Entradas lançadas pelo site: o salário lançado substitui o do projeto no mesmo mês (que pode ser só uma
@@ -236,7 +239,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       m.lancamentos.push({data: g.data, desc: g.descricao, valor, forma: FORMAS_SITE[g.forma] || "Outro", cat: g.categoria || "Outros",
         parcelas: parcelas > 1 ? `1/${parcelas}` : null, obs: g.observacao || "",
         essencial: g.essencial === true ? "Essencial" : g.essencial === false ? "Não essencial" : null, origem: "site", id: g.id,
-        sub: g.subcategoria || null, conta: g.conta || null});
+        sub: g.subcategoria || null, conta: g.conta || null, recorrente: g.recorrente || null, total: parcelas > 1 ? Number(g.valor) : null});
       // Parcelado no cartão: as próximas parcelas entram nas faturas seguintes, a não ser que a compra já
       // apareça numa fatura processada pelo projeto (aí as parcelas já estão contadas)
       if (parcelas > 1 && !D.cartao.lancamentos.some(l => l.data === g.data && Math.abs(l.valor - valor) < 0.01)) {
@@ -261,14 +264,34 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
 
   const snapDe = m => (AB && AB.mes_compras === m.chave ? AB : null);
 
+  // Pagamentos recorrentes: os gastos fixos do projeto Financeiro e os cadastrados no site (do mês de início ao último
+  // mês, com o valor do mês quando ele foi mudado só naquele mês). Cada um fica pendente no mês até ser marcado como
+  // pago, o que lança um gasto com a chave do recorrente e o mês ("chave|AAAA-MM"), mesmo pago no mês seguinte.
+  const chaveRec = r => (r.site ? r.id : `p:${String(r.nome || "").slice(0, 100)}`);
+  function recorrentesDe(chave) {
+    const site = REC_SITE.filter(r => r && r.id && r.nome && (!r.inicio || r.inicio <= chave) && (!r.fim || r.fim >= chave)).map(r => {
+      const doMes = r.valores && r.valores[chave] != null && Number.isFinite(Number(r.valores[chave]));
+      const forma = FORMAS_SITE[r.forma] || FORMAS_SITE.outro;
+      return {id: r.id, nome: r.nome, valor: doMes ? Number(r.valores[chave]) : r.valor != null ? Number(r.valor) : null, editado: doMes, dia: Number(r.dia) || null,
+        forma, formaSite: r.forma || "outro", categoria: r.categoria || "", subcategoria: r.subcategoria || null, conta: r.conta || null,
+        // No cartão, a cobrança chega pela fatura: o lançamento com o nome dele conta como lançado
+        busca: card(forma) ? [String(r.nome).toLowerCase()] : [], site: true};
+    });
+    return [...D.recorrentes, ...site];
+  }
+
   // Liga cada gasto fixo a um lançamento já registrado, para não contar duas vezes.
   // Com a fatura aberta do app, fixos de cartão cujo dia já passou estão dentro dela.
   function statusRecorrentes(m) {
     const usados = new Set(), snap = snapDe(m);
     const snapDia = snap ? Number(snap.data.slice(8, 10)) : null;
     const corrente = m.chave === hojeKey, passado = m.chave < hojeKey;
-    return D.recorrentes.map(r => {
-      const bate = l => r.busca.some(b => l.desc.toLowerCase().includes(b));
+    return recorrentesDe(m.chave).map(r => {
+      const chave = chaveRec(r);
+      const pago = PAGOS.get(`${chave}|${m.chave}`);
+      if (pago) return {...r, chave, st: {t: `pago em ${dBR(pago.data)}`, c: ""}, pendente: 0, pago};
+      // O gasto lançado ao marcar outro recorrente não serve para este
+      const bate = l => !l.recorrente && r.busca.some(b => l.desc.toLowerCase().includes(b));
       if (r.variavel) {
         let gasto = 0;
         m.lancamentos.forEach((l, i) => { if (!usados.has(i) && bate(l)) { usados.add(i); gasto += l.valor; } });
@@ -278,18 +301,18 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
           : gasto >= r.valor ? {t: `${brl(gasto)} no mês`, c: ""}
           : gasto > 0 ? {t: `${brl(gasto)} até agora`, c: "warn"}
           : {t: "previsto no mês", c: "warn"};
-        return {...r, st, pendente: falta};
+        return {...r, chave, st, pendente: falta};
       }
       let idx = -1;
       if (r.valor != null) idx = m.lancamentos.findIndex((l, i) => !usados.has(i) && bate(l) && Math.abs(l.valor - r.valor) <= Math.max(5, r.valor * 0.15));
       if (idx >= 0) usados.add(idx);
       let st, pend = 0;
-      if (idx >= 0) st = {t: "lançado", c: ""};
+      if (idx >= 0) st = {t: "lançado", c: "", auto: true};
       else if (r.valor == null) st = {t: "informar valor", c: "bad"};
-      else if (snap && card(r.forma) && r.dia && r.dia <= snapDia) st = {t: "na fatura aberta", c: ""};
-      else if (passado || (corrente && r.dia && r.dia < hoje.getDate())) { st = {t: `dia ${r.dia}, não lançado`, c: "warn"}; pend = r.valor; }
-      else { st = {t: r.dia ? `previsto dia ${r.dia}` : "previsto", c: "warn"}; pend = r.valor; }
-      return {...r, st, pendente: pend};
+      else if (snap && card(r.forma) && r.dia && r.dia <= snapDia) st = {t: "na fatura aberta", c: "", auto: true};
+      else if (passado || (corrente && r.dia && r.dia < hoje.getDate())) { st = {t: r.dia ? `venceu dia ${r.dia}` : "pendente", c: "warn"}; pend = r.valor; }
+      else { st = {t: r.dia ? `vence dia ${r.dia}` : "pendente", c: "neutral"}; pend = r.valor; }
+      return {...r, chave, st, pendente: pend};
     });
   }
 
@@ -377,7 +400,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     if (f) return {rotulo: rot, valor: Number(f.total) || 0, venc: venc(f.vencimento), situacao: "fechada", segs: [[Number(f.total) || 0, "var(--muted)"]], meta: "Fechada"};
     const mm = D.meses.find(x => x.fatura === rot);
     const pv = (FATURAS.get(rot) || {}).previa;
-    const fixos = sum(D.recorrentes.filter(r => card(r.forma) && r.valor != null), r => r.valor);
+    const fixos = sum(recorrentesDe(chave || hojeKey).filter(r => card(r.forma) && r.valor != null), r => r.valor);
     if (mm) {
       const c = calc(mm);
       if (c.snap) return {rotulo: rot, valor: c.cartao, venc: venc(c.snap.vencimento), situacao: "aberta",
@@ -425,6 +448,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     return lista;
   }
 
+  const ehInvestimento = l => /^investiment/.test(semAcento(ef(l).categoria));
   function caixa(chave) {
     if (memoCaixa.has(chave)) return memoCaixa.get(chave);
     const m = D.meses.find(x => x.chave === chave) || null;
@@ -441,10 +465,13 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const saidas = [];
     const fatura = faturaDoCartao(rotuloDe(chave));
     if (fatura && fatura.valor > 0) saidas.push({tipo: "fatura", desc: `Fatura ${fatura.rotulo} do cartão`, valor: fatura.valor, data: fatura.venc, st: situacao(fatura.venc), fatura});
-    for (const l of m ? m.lancamentos : []) if (!card(l.forma)) saidas.push({tipo: "dia", forma: FORMA_CAIXA(l.forma), desc: l.desc, valor: l.valor, data: l.data || null, st: situacao(l.data), l});
-    const rec = m ? statusRecorrentes(m) : D.recorrentes.map(r => ({...r, pendente: r.valor || 0}));
-    for (const r of rec) if (!card(r.forma) && r.pendente > 0) saidas.push({tipo: "fixo", desc: r.nome, valor: r.pendente, data: r.dia ? diaDe(chave, r.dia) : null, st: passado ? "realizado" : "previsto"});
-    if (INV) saidas.push({tipo: "investimento", desc: INV_NOME || "Investimento", valor: INV, data: null, st: passado ? "realizado" : "previsto"});
+    // O que foi lançado na categoria Investimentos (Pix para a corretora, aplicação) sai como investimento, não como gasto
+    for (const l of m ? m.lancamentos : []) if (!card(l.forma)) saidas.push({tipo: ehInvestimento(l) ? "investimento" : "dia", forma: FORMA_CAIXA(l.forma), desc: l.desc, valor: l.valor, data: l.data || null, st: situacao(l.data), l});
+    const rec = m ? statusRecorrentes(m) : recorrentesDe(chave).map(r => ({...r, pendente: r.valor || 0}));
+    for (const r of rec) if (!card(r.forma) && r.pendente > 0) saidas.push({tipo: "fixo", desc: r.nome, valor: r.pendente, data: r.dia ? diaDe(chave, r.dia) : null, st: passado ? "realizado" : "previsto", r});
+    // A previsão de investimento do mês (metas do projeto) só conta no que ainda não foi lançado
+    const investido = sum(saidas.filter(x => x.tipo === "investimento"), x => x.valor);
+    if (INV && INV - investido > 0.005) saidas.push({tipo: "investimento", desc: INV_NOME || "Investimento", valor: Math.round((INV - investido) * 100) / 100, data: null, st: passado ? "realizado" : "previsto", meta: true});
     const total = (lista, st) => Math.round(sum(lista.filter(x => x.st === st), x => x.valor) * 100) / 100;
     const ent = {realizado: total(entradas, "realizado"), previsto: total(entradas, "previsto")};
     const sai = {realizado: total(saidas, "realizado"), previsto: total(saidas, "previsto")};
@@ -485,30 +512,54 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     if (resto > 0.01) lista.push({desc: "Outras parcelas agendadas", valor: resto, parcela: ""});
     return lista;
   }
-  // Categoria de uma parcela agendada: a da mesma compra numa fatura já lida
+  // Categoria e subcategoria de uma parcela agendada: as da mesma compra numa fatura já lida
   function categoriaPeloNome(nome) {
     const alvo = semAcento(nome);
     const l = [...D.cartao.lancamentos].reverse().find(x => semAcento(x.nome) === alvo);
-    return l ? ef(l).categoria : "Parcelas agendadas";
+    if (!l) return {cat: "Parcelas agendadas", sub: null};
+    const e = ef(l);
+    return {cat: e.categoria, sub: e.subcategoria};
   }
+  const subDe = l => (ehAjuste(l) ? null : ef(l).subcategoria || null);
 
   function gastosDoMes(chave) {
     const m = D.meses.find(x => x.chave === chave);
     const rot = rotuloDe(chave);
     const itens = [];
+    const investimentos = [];
     for (const l of m ? m.lancamentos : []) {
-      if (!compraParcelada(l)) itens.push({desc: l.desc, valor: l.valor, grupo: card(l.forma) ? "Cartão à vista" : FORMA_CAIXA(l.forma), cat: catDe(l), data: l.data});
+      if (ehInvestimento(l)) investimentos.push({desc: l.desc, valor: l.valor, data: l.data});
+      else if (!compraParcelada(l)) itens.push({desc: l.desc, valor: l.valor, grupo: card(l.forma) ? "Cartão à vista" : FORMA_CAIXA(l.forma), cat: catDe(l), sub: subDe(l), data: l.data});
     }
     // Parcelas que vencem na fatura deste mês: as da fatura conhecida ou, sem ela, as compras parceladas do mês
     // anterior (1ª parcela) e as parcelas agendadas de compras mais antigas
     const parcelas = [];
     const fk = FATURAS.get(rot);
-    if (fk) fk.itens.filter(l => l.parc && l.parc.n > 1).forEach(l => parcelas.push({desc: l.nome, valor: l.valor, parcela: `${l.parc.k}/${l.parc.n}`, cat: ef(l).categoria}));
+    if (fk) fk.itens.filter(l => l.parc && l.parc.n > 1).forEach(l => { const e = ef(l); parcelas.push({desc: l.nome, valor: l.valor, parcela: `${l.parc.k}/${l.parc.n}`, cat: e.categoria, sub: e.subcategoria || null, data: l.data}); });
     const mm = D.meses.find(x => x.fatura === rot);
-    for (const l of mm ? mm.lancamentos : []) if (compraParcelada(l) && l.origem !== "fatura" && !l.naFatura) parcelas.push({desc: l.desc, valor: l.valor, parcela: l.parcelas, cat: catDe(l)});
-    if (!fk) parcelasAgendadas(rot).forEach(p => parcelas.push({...p, cat: p.parcela ? categoriaPeloNome(p.desc) : "Parcelas agendadas"}));
+    for (const l of mm ? mm.lancamentos : []) if (compraParcelada(l) && l.origem !== "fatura" && !l.naFatura) parcelas.push({desc: l.desc, valor: l.valor, parcela: l.parcelas, cat: catDe(l), sub: subDe(l), data: l.data});
+    if (!fk) parcelasAgendadas(rot).forEach(p => parcelas.push({...p, ...(p.parcela ? categoriaPeloNome(p.desc) : {cat: "Parcelas agendadas", sub: null})}));
     parcelas.forEach(p => itens.push({...p, grupo: "Cartão parcelado"}));
-    return {chave, rotulo: rot, itens, parcelas, total: Math.round(sum(itens, i => i.valor) * 100) / 100};
+    return {chave, rotulo: rot, itens, parcelas, investimentos, total: Math.round(sum(itens, i => i.valor) * 100) / 100};
+  }
+
+  // Compras feitas no mês, pelo valor inteiro: a parcelada no cartão entra com o total da compra (10x de 100 = 1.000)
+  // no mês em que foi comprada. Investimentos não são compras.
+  function comprasDoMes(chave) {
+    const m = D.meses.find(x => x.chave === chave);
+    const itens = [];
+    for (const l of m ? m.lancamentos : []) {
+      if (ehInvestimento(l)) continue;
+      const p = compraParcelada(l) ? parcelaTexto(l.parcelas) : null;
+      if (p && p.k > 1) continue; // parcela de compra antiga anotada no mês
+      const total = p ? (l.total != null ? l.total : Math.round(l.valor * p.n * 100) / 100) : l.valor;
+      itens.push({desc: l.desc, data: l.data, valor: total, cat: catDe(l), grupo: p ? "Cartão parcelado" : card(l.forma) ? "Cartão à vista" : FORMA_CAIXA(l.forma),
+        parcela: p ? {n: p.n, valor: l.valor, fatura: l.fatura || m.fatura} : null});
+    }
+    const parceladas = itens.filter(i => i.parcela);
+    const total = Math.round(sum(itens, i => i.valor) * 100) / 100;
+    return {itens, parceladas, total, parcelado: Math.round(sum(parceladas, i => i.valor) * 100) / 100,
+      noMes: Math.round(sum(parceladas, i => i.parcela.valor) * 100) / 100};
   }
 
   const porcento = v => `${Math.round(v * 100).toLocaleString("pt-BR")}%`;
@@ -780,6 +831,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       <td class="r num">${e.st === "realizado" ? brl(e.valor) : ""}</td><td class="r num prev">${e.st === "previsto" ? brl(e.valor) : ""}</td></tr>`;
   }
 
+  const investido = cx => cx.saidas.some(x => x.tipo === "investimento" && x.l);
   function renderHero(m) {
     const cx = caixa(m.chave);
     const passado = m.chave < hojeKey, futuro = m.chave > hojeKey;
@@ -797,8 +849,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const porForma = new Map();
     cx.saidas.filter(x => x.tipo === "dia").forEach(s => { const k = `${s.forma}|${s.st}`; const o = porForma.get(k) || {forma: s.forma, st: s.st, v: 0, q: 0}; o.v += s.valor; o.q++; porForma.set(k, o); });
     [...porForma.values()].sort((a, b) => b.v - a.v).forEach(o => saidas.push(linha(esc(o.forma), `${o.q} ${o.q === 1 ? "gasto" : "gastos"}${o.st === "previsto" ? " com data futura" : ""}`, o.v, o.st)));
-    cx.saidas.filter(x => x.tipo === "fixo").forEach(s => saidas.push(linha(esc(s.desc), `fixo fora do cartão${s.data ? ` · dia ${dBR(s.data)}` : ""}`, s.valor, s.st)));
-    cx.saidas.filter(x => x.tipo === "investimento").forEach(s => saidas.push(linha(esc(s.desc), "investimento do mês", s.valor, s.st)));
+    cx.saidas.filter(x => x.tipo === "fixo").forEach(s => saidas.push(linha(esc(s.desc), `${s.r && s.r.site ? "recorrente ainda não pago" : "fixo fora do cartão"}${s.data ? ` · dia ${dBR(s.data)}` : ""}`, s.valor, s.st)));
+    cx.saidas.filter(x => x.tipo === "investimento").forEach(s => saidas.push(linha(esc(s.desc), s.l ? `investimento lançado${s.data ? ` em ${dBR(s.data)}` : ""}` : investido(cx) ? "previsão de investimento do mês, menos o já lançado" : "investimento do mês", s.valor, s.st)));
     // Saldo do início do mês: informado, continuação do mês anterior ou ainda sem valor
     const ini = cx.ini;
     const editavel = !!aoSalvarSaldo;
@@ -834,6 +886,22 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   }
 
   // ---------- Visão geral: gastos do mês (pela data da compra, parcelas no mês da fatura) ----------
+  // Cada categoria abre nas subcategorias, e cada subcategoria nos gastos dela. O que fica aberto é lembrado ao redesenhar.
+  const GM_ABERTAS = new Set();
+  const itemGasto = i => `<li><span>${esc(i.desc)}<span class="sub"> · ${[i.data && !i.parcela ? dBR(i.data) : "", esc(i.grupo), i.parcela ? `parcela ${esc(i.parcela)}` : ""].filter(Boolean).join(" · ")}</span></span><span class="num">${n(i.valor)}</span></li>`;
+  function categoriaExpansivel(cat, total, itens, pct, maxc) {
+    const subs = new Map();
+    itens.forEach(i => { const k = i.sub || ""; const o = subs.get(k) || {v: 0, itens: []}; o.v += i.valor; o.itens.push(i); subs.set(k, o); });
+    const ordem = [...subs.entries()].sort((a, b) => (a[0] === "") - (b[0] === "") || b[1].v - a[1].v);
+    const so = ordem.length === 1 && ordem[0][0] === "";
+    const lista = o => `<ul class="gm-itens">${[...o.itens].sort((a, b) => b.valor - a.valor).map(itemGasto).join("")}</ul>`;
+    const corpo = so ? lista(ordem[0][1]) : ordem.map(([sub, o]) => {
+      const chave = `${cat}|${sub}`;
+      return `<details class="gm-sub" data-gm="${esc(chave)}"${GM_ABERTAS.has(chave) ? " open" : ""}><summary><span>${esc(sub || "Sem subcategoria")} <span class="muted">(${o.itens.length})</span></span><span class="num">${n(o.v)} <span class="muted">${pct(o.v)}</span></span></summary>${lista(o)}</details>`;
+    }).join("");
+    return `<details class="gm-cat" data-gm="${esc(cat)}"${GM_ABERTAS.has(cat) ? " open" : ""}><summary class="cat"><span>${esc(cat)} <span class="muted">(${itens.length})</span></span><span class="num">${brl(total)} <span class="muted">${pct(total)}</span></span><div class="track"><span style="width:${(total / maxc * 100).toFixed(1)}%"></span></div></summary>
+      <div class="gm-cat-corpo">${corpo}</div></details>`;
+  }
   function renderGastosMes(m) {
     const g = gastosDoMes(m.chave);
     const pct = v => (g.total > 0 ? `${Math.round(v / g.total * 100)}%` : "—");
@@ -850,19 +918,39 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     $id("gastos-mes").innerHTML = `
       <h2>Gastos de ${esc(m.rotulo)}</h2>
       <div class="tv-big num">${brl(g.total)}</div>
-      <p class="sub" style="margin:2px 0 12px">Pela data da compra. Na compra parcelada no cartão, cada parcela entra no mês da fatura em que vence. O pagamento da fatura não conta aqui, porque as compras dela já estão contadas.</p>
+      <p class="sub" style="margin:2px 0 12px">Pela data da compra. Na compra parcelada no cartão, cada parcela entra no mês da fatura em que vence. O pagamento da fatura não conta aqui, porque as compras dela já estão contadas.${g.investimentos.length ? ` O que foi lançado em Investimentos (${brl(sum(g.investimentos, i => i.valor))} no mês) também não é gasto: aparece como investimento no fluxo de caixa.` : ""}</p>
       ${g.itens.length ? `<div class="label">Por forma de pagamento</div>
       <div class="scroll"><table><tbody>${[...porGrupo.entries()].sort((a, b) => b[1].v - a[1].v).map(([k, o]) =>
         `<tr><td>${esc(k)}<div class="sub">${o.q} ${o.q === 1 ? "item" : "itens"}</div></td><td class="r num">${n(o.v)}</td><td class="r num muted">${pct(o.v)}</td></tr>`).join("")}</tbody></table></div>
-      <div class="label" style="margin:14px 0 6px">Por categoria</div>
-      ${cats.slice(0, 10).map(([k, v]) => `<div class="cat"><span>${esc(k)}</span><span class="num">${brl(v)} <span class="muted">${pct(v)}</span></span><div class="track"><span style="width:${(v / maxc * 100).toFixed(1)}%"></span></div></div>`).join("")}
-      ${cats.length > 10 ? `<p class="sub" style="margin:0">Mais ${cats.length - 10} categorias, somando ${brl(sum(cats.slice(10), c => c[1]))}.</p>` : ""}
+      <div class="gm-cats-topo"><div class="label">Por categoria</div>${cats.length ? `<button type="button" class="btn-link" data-gm-tudo>${cats.every(([k]) => GM_ABERTAS.has(k)) ? "Recolher tudo" : "Expandir tudo"}</button>` : ""}</div>
+      <div class="gm-cats">${cats.map(([k, v]) => categoriaExpansivel(k, v, g.itens.filter(i => i.cat === k), pct, maxc)).join("")}</div>
       ${g.parcelas.length ? `<details class="gm-parcelas"><summary>Parcelas que vencem na fatura ${esc(g.rotulo)}: ${brl(somaParc)} (${g.parcelas.length})</summary>
         <div class="scroll"><table><tbody>${g.parcelas.map(p => `<tr><td>${esc(p.desc)}<div class="sub">${esc(p.cat)}${p.parcela ? ` · parcela ${esc(p.parcela)}` : ""}</div></td><td class="r num">${n(p.valor)}</td></tr>`).join("")}</tbody></table></div></details>` : ""}`
       : `<p class="muted" style="margin:0">Nenhum gasto em ${esc(m.rotulo)}.</p>`}
       ${doTrabalho.length ? `<div class="gm-trabalho"><div class="label">Entradas do trabalho de ${esc(m.rotulo)}</div>
         ${doTrabalho.map(e => `<div class="gm-linha"><span>${esc(e.desc)}<span class="sub"> · ${e.st === "previsto" ? `previsto para ${e.data ? dataLonga(e.data) : "o mês seguinte"}` : `recebido ${e.data ? `em ${dataLonga(e.data)}` : "no mês"}`}</span></span><span class="num">${brl(e.valor)}</span></div>`).join("")}
         <div class="gm-linha total"><span>Entradas do trabalho menos gastos do mês</span><span class="num${totTrabalho - g.total < 0 ? " neg" : ""}">${brl(totTrabalho - g.total)}</span></div></div>` : ""}`;
+  }
+
+  // ---------- Visão geral: compras feitas no mês (valor inteiro de cada compra) ----------
+  function renderComprasMes(m) {
+    const c = comprasDoMes(m.chave);
+    const box = $id("compras-mes");
+    box.hidden = !c.itens.length;
+    if (box.hidden) return;
+    const avista = c.total - c.parcelado;
+    box.innerHTML = `
+      <h2>Comprado em ${esc(m.rotulo)}</h2>
+      <div class="tv-big num">${brl(c.total)}</div>
+      <p class="sub" style="margin:2px 0 12px">Tudo o que foi comprado no mês pelo valor inteiro: a compra parcelada entra com o total, não só com a parcela. Nos gastos do mês, ela entra uma parcela por mês.</p>
+      <div class="scroll"><table><tbody>
+        <tr><td>À vista (Pix, débito, dinheiro e cartão à vista)<div class="sub">${c.itens.length - c.parceladas.length} ${c.itens.length - c.parceladas.length === 1 ? "compra" : "compras"}</div></td><td class="r num">${n(avista)}</td></tr>
+        <tr><td>Parcelado no cartão<div class="sub">${c.parceladas.length} ${c.parceladas.length === 1 ? "compra" : "compras"}${c.parceladas.length ? ` · ${brl(c.noMes)} por mês nas faturas` : ""}</div></td><td class="r num">${n(c.parcelado)}</td></tr>
+      </tbody></table></div>
+      ${c.parceladas.length ? `<div class="label" style="margin:14px 0 6px">Compras parceladas</div>
+      <ul class="gm-itens cm-parceladas">${c.parceladas.sort((a, b) => b.valor - a.valor).map(i => `<li><span>${esc(i.desc)}<span class="sub"> · ${dBR(i.data)} · ${i.parcela.n}x de ${n(i.parcela.valor)}${i.parcela.fatura ? ` · 1ª na fatura ${esc(i.parcela.fatura)}` : ""}</span></span><span class="num">${n(i.valor)}</span></li>`).join("")}</ul>` : ""}
+      <details class="gm-parcelas"><summary>Ver todas as compras de ${esc(m.rotulo)} (${c.itens.length})</summary>
+        <ul class="gm-itens">${[...c.itens].sort((a, b) => String(a.data).localeCompare(String(b.data))).map(i => `<li><span>${esc(i.desc)}<span class="sub"> · ${[i.data ? dBR(i.data) : "", esc(i.cat), esc(i.grupo)].filter(Boolean).join(" · ")}</span></span><span class="num">${n(i.valor)}</span></li>`).join("")}</ul></details>`;
   }
 
   // Previsão x hoje pelo caixa: a fatura que vence no mês contra a sua previsão para o cartão
@@ -891,20 +979,44 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       <p class="muted" style="font-size:.85rem;margin:10px 0 0">Pelo caixa: sai inteira a fatura que vence no mês, e as compras no cartão de ${esc(m.rotulo)} vão para a fatura ${esc(m.fatura)}. A sua previsão é ${brl(META)} por fatura e ${brl(INV)} de investimento por mês. A sobra aqui não conta o saldo do início do mês.</p>`;
   }
 
+  // Pagamentos recorrentes do mês: marcar como pago lança o gasto (com o valor para conferir); desmarcar apaga esse
+  // gasto. O valor de um recorrente do site pode ser mudado só no mês (conta de luz, por exemplo).
+  let REC_TELA = {mes: null, lista: []};
+  const formaDoProjeto = f => (/pix/i.test(f || "") ? "pix" : /d[ée]bito/i.test(f || "") ? "debito" : card(f) ? "cartao" : /dinheiro/i.test(f || "") ? "dinheiro" : "outro");
   function renderRecorrentes(m, c) {
-    $id("recorrentes").hidden = !c.rec.length; // o painel só de faturas não tem gastos fixos do projeto
-    if (!c.rec.length) return;
+    const box = $id("recorrentes");
+    box.hidden = !c.rec.length && !aoEditarRecorrente; // o painel só de faturas não tem gastos fixos do projeto
+    if (box.hidden) return;
+    REC_TELA = {mes: m.chave, lista: c.rec};
+    const feito = r => !!r.pago || !!r.st.auto;
+    const valorDe = r => (r.pago ? r.pago.valor : r.valor);
+    const pagos = sum(c.rec.filter(feito), valorDe), pendentes = sum(c.rec, r => r.pendente);
     const semValor = c.rec.filter(r => r.valor == null).length;
-    $id("recorrentes").innerHTML = `
-      <h2>Gastos fixos do mês</h2>
-      <div class="scroll"><table><thead><tr><th>Item</th><th>Situação</th><th class="r">Valor</th></tr></thead><tbody>
-      ${c.rec.map(r => `<tr><td>${esc(r.nome)}<div class="muted" style="font-size:.8rem">${esc(r.categoria)} · ${esc(r.forma)}${r.origem ? ` · ${esc(r.origem)}` : ""}</div></td>
-        <td><span class="chip ${r.st.c}">${esc(r.st.t)}</span></td><td class="r num">${n(r.valor)}</td></tr>`).join("")}
-      <tr class="total"><td>Total previsto</td><td></td><td class="r num">${n(sum(c.rec, r => r.valor))}</td></tr>
-      </tbody></table></div>
+    const linhas = c.rec.map((r, i) => {
+      const ok = feito(r);
+      const check = aoPagarRecorrente && !r.variavel
+        ? `<input type="checkbox" data-rec-pago="${i}"${ok ? " checked" : ""}${r.st.auto ? " disabled" : ""} aria-label="${esc(r.nome)}: ${ok ? (r.st.auto ? "já lançado" : "pago, desmarcar") : "marcar como pago"}">` : "";
+      const valor = r.site && !ok && aoValorRecorrente
+        ? `<input class="rec-valor" data-rec-valor="${i}" inputmode="decimal" autocomplete="off" value="${r.valor != null ? n(r.valor) : ""}" aria-label="Valor de ${esc(r.nome)} em ${esc(m.rotulo)}">${r.editado ? '<div class="sub">só neste mês</div>' : ""}`
+        : n(valorDe(r));
+      const detalhe = [r.categoria, r.forma, r.dia && !r.st.t.includes("dia") ? `dia ${r.dia}` : "", r.site ? "" : r.origem || "projeto Financeiro"].filter(Boolean).map(esc).join(" · ");
+      return `<tr class="${ok ? "rec-ok" : ""}"><td class="rec-check">${check}</td>
+        <td>${esc(r.nome)}${r.site && r.conta && r.conta !== "pessoal" ? ` <span class="chip conta">${esc(nomeDaConta(r.conta))}</span>` : ""}<div class="sub">${detalhe}</div>
+          ${r.site && aoEditarRecorrente ? `<button type="button" class="btn-link" data-rec-editar="${esc(r.id)}">Editar</button>` : ""}</td>
+        <td><span class="chip ${r.st.c}">${esc(r.st.t)}</span></td><td class="r num">${valor}</td></tr>`;
+    }).join("");
+    box.innerHTML = `
+      <div class="panel-topo"><h2>Pagamentos recorrentes</h2>${aoEditarRecorrente ? '<button type="button" class="btn sec mini" data-rec-novo>Novo recorrente</button>' : ""}</div>
+      ${c.rec.length ? `<p class="sub" style="margin:-4px 0 10px">${brl(pagos)} ${c.rec.filter(feito).length === 1 ? "pago" : "pagos"} · ${brl(pendentes)} ${pendentes ? "pendentes" : "pendente"} em ${esc(m.rotulo)}.${aoPagarRecorrente ? " Marque quando o pagamento for feito." : ""}</p>
+      <div class="scroll"><table class="rec-tabela"><thead><tr><th class="rec-check"><span class="sr-only">Pago</span></th><th>Pagamento</th><th>Situação</th><th class="r">Valor</th></tr></thead><tbody>
+      ${linhas}
+      <tr class="total"><td></td><td>Total do mês</td><td></td><td class="r num">${n(sum(c.rec, r => valorDe(r) || 0))}</td></tr>
+      </tbody></table></div>` : `<p class="muted" style="margin:0">Nenhum pagamento recorrente. Cadastre aluguel, condomínio, escola, plano de saúde ou assinaturas: cada mês ele fica pendente até você marcar como pago.</p>`}
+      <p class="erro" role="alert" hidden></p>
       ${semValor || INV ? `<p class="muted" style="font-size:.85rem;margin:10px 0 0">${semValor ? "Falta o valor de algum gasto fixo. " : ""}${INV ? `O investimento de ${brl(INV)} aparece separado, no saldo.` : ""}</p>` : ""}`;
   }
-
+  // Data sugerida para o pagamento: hoje no mês atual; nos outros meses, o dia do vencimento
+  const dataDoPagamento = (r, chave) => (chave === hojeKey ? hojeIso : diaDe(chave, r.dia || (chave < hojeKey ? diasDoMes(chave) : 1)));
   function renderAtalhos(m, c) {
     const gastos = sum(m.lancamentos, l => l.valor);
     const tiles = [];
@@ -940,7 +1052,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   const mediaForaCartao = () => {
     const fechados = D.meses.filter(m => m.chave < hojeKey);
     const base = fechados.length ? fechados : D.meses.filter(m => m.chave === hojeKey);
-    return base.length ? sum(base, m => sum(m.lancamentos.filter(l => !card(l.forma)), l => l.valor)) / base.length : 0;
+    return base.length ? sum(base, m => sum(m.lancamentos.filter(l => !card(l.forma) && !ehInvestimento(l)), l => l.valor)) / base.length : 0;
   };
 
   function renderPrevisao() {
@@ -1125,7 +1237,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     L.forEach(l => (porData[l.data] ||= []).push(l));
     const datas = Object.keys(porData).sort().reverse();
     $id("g-itens").innerHTML = L.length ? datas.map(d => `<div class="dgroup"><div class="dhead"><span>${dBR(d)} · ${diaSemana(d)}</span><span class="num">${brl(sum(porData[d], l => l.valor))}</span></div>
-      <table><tbody>${porData[d].map(l => { const e = ef(l); return `<tr><td>${esc(l.desc)}${ehAjuste(l) ? ' <span class="chip neutral">ajuste</span>' : ""}${l.origem === "site" ? ' <span class="chip info">lançado no site</span>' : ""}${chipConf(l)}
+      <table><tbody>${porData[d].map(l => { const e = ef(l); return `<tr><td>${esc(l.desc)}${ehAjuste(l) ? ' <span class="chip neutral">ajuste</span>' : ""}${l.origem === "site" ? ' <span class="chip info">lançado no site</span>' : ""}${l.recorrente ? ' <span class="chip neutral">recorrente</span>' : ""}${chipConf(l)}
         ${e.complemento ? `<div class="compl">${esc(e.complemento)}</div>` : ""}
         <div class="sub">${esc(catDe(l))}${e.subcategoria && !ehAjuste(l) ? ` › ${esc(e.subcategoria)}` : ""} · ${esc(l.forma || "")}${l.parcelas ? ` · parcela ${esc(l.parcelas)}` : ""}${ehAjuste(l) ? "" : rotuloEssencial(e)}${chipConta(e)}${l.obs && !ehAjuste(l) && l.origem !== "site" ? ` · ${esc(l.obs)}` : ""}${confDe(l) === "conferido" ? ` · conferido na fatura ${esc(l.naFatura)}` : ""}</div></td>
         <td class="r num">${n(l.valor)}<div class="acoes-lanc">${aoClassificar && !ehAjuste(l) ? `<button type="button" class="btn sec mini" data-classificar-g="${indice.get(l)}">Classificar</button>` : ""}${l.origem === "site" && aoApagarGasto ? `<button type="button" class="btn sec mini" data-apagar-gasto="${esc(l.id)}">Apagar</button>` : ""}</div></td></tr>`; }).join("")}</tbody></table></div>`).join("")
@@ -1487,6 +1599,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     seguro("g-termometro", () => renderTermometro(atual));
     seguro("hero", () => renderHero(atual));
     seguro("gastos-mes", () => renderGastosMes(atual));
+    seguro("compras-mes", () => renderComprasMes(atual));
     seguro("comparativo", () => renderComparativo(atual));
     seguro("recorrentes", () => renderRecorrentes(atual, c));
     seguro("atalhos", () => renderAtalhos(atual, c));
@@ -1522,6 +1635,49 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const v = numeroDigitado(f.elements.saldo.value);
     if (!Number.isFinite(v)) { f.elements.saldo.focus(); return; }
     salvarSaldo(f.dataset.saldoForm, v, f);
+  });
+
+  // Pagamentos recorrentes: marcar e desmarcar como pago, valor do mês, editar e novo
+  const REC_BOX = $id("recorrentes");
+  REC_BOX.addEventListener("change", e => {
+    const r = REC_TELA.lista[Number((e.target.dataset || {}).recPago ?? (e.target.dataset || {}).recValor)];
+    if (!r) return;
+    const mes = REC_TELA.mes;
+    if (e.target.matches("[data-rec-pago]")) {
+      e.target.checked = !e.target.checked; // a marca muda quando o gasto for lançado ou apagado
+      if (r.pago) { if (aoDesmarcarRecorrente) aoDesmarcarRecorrente(r.pago.id, r.nome); }
+      else aoPagarRecorrente({chave: `${r.chave}|${mes}`, nome: r.nome, valor: r.valor, data: dataDoPagamento(r, mes), forma: r.formaSite || formaDoProjeto(r.forma),
+        categoria: r.categoria || null, subcategoria: r.subcategoria || null, conta: r.conta || null, mes, rotulo: rotuloDe(mes)});
+    } else if (e.target.matches("[data-rec-valor]") && aoValorRecorrente) {
+      const t = e.target.value.trim(), v = numeroDigitado(t);
+      if (t && !(v > 0)) { e.target.focus(); return; }
+      Promise.resolve(aoValorRecorrente(r.id, mes, t ? Math.round(v * 100) / 100 : null)).catch(err => {
+        const p = $id("recorrentes").querySelector(".erro");
+        p.textContent = "Não foi possível salvar o valor: " + err.message;
+        p.hidden = false;
+      });
+    }
+  });
+  REC_BOX.addEventListener("click", e => {
+    const ed = e.target.closest("[data-rec-editar]");
+    if (ed && aoEditarRecorrente) aoEditarRecorrente(ed.dataset.recEditar);
+    if (e.target.closest("[data-rec-novo]") && aoEditarRecorrente) aoEditarRecorrente(null);
+  });
+  REC_BOX.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.matches("[data-rec-valor]")) { e.preventDefault(); e.target.blur(); } });
+
+  // Gastos do mês: categorias e subcategorias abertas, e o botão de expandir ou recolher tudo
+  const GM_BOX = $id("gastos-mes");
+  GM_BOX.addEventListener("toggle", e => {
+    const d = e.target;
+    if (!d.dataset || d.dataset.gm == null) return;
+    if (d.open) GM_ABERTAS.add(d.dataset.gm); else GM_ABERTAS.delete(d.dataset.gm);
+  }, true);
+  GM_BOX.addEventListener("click", e => {
+    const b = e.target.closest("[data-gm-tudo]");
+    if (!b) return;
+    const abrir = [...GM_BOX.querySelectorAll("details.gm-cat")].some(d => !d.open);
+    GM_BOX.querySelectorAll("details.gm-cat, details.gm-sub").forEach(d => { d.open = abrir; });
+    b.textContent = abrir ? "Recolher tudo" : "Expandir tudo";
   });
 
   // Filtros das listas e o botão da lista de categorias
@@ -1565,6 +1721,11 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       if (cs) CONTAS = cs;
       if (COM_MESES) seguro(null, render);
       mostrarQuem();
+    },
+    // Depois de cadastrar, mudar ou apagar um pagamento recorrente
+    atualizarRecorrentes(lista) {
+      REC_SITE = lista || [];
+      if (COM_MESES) seguro(null, render);
     },
     // Depois de informar ou apagar o saldo do início de um mês
     atualizarCaixa(c) {
