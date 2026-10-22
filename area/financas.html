@@ -11,9 +11,9 @@
   <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@500;600;700;800&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../styles.css?v=12bc86b1">
   <link rel="stylesheet" href="area.css?v=827164a0">
-  <link rel="stylesheet" href="financas.css?v=bf6be1a9">
-  <script type="importmap" data-versoes>{"imports": {"./art.js": "./art.js?v=67208bf7", "./config-area.js": "./config-area.js?v=c77553f2", "./conta.js": "./conta.js?v=fdce23ea", "./dados.js": "./dados.js?v=8a5e7f7d", "./demandas.js": "./demandas.js?v=19d8f618", "./financas-casal.js": "./financas-casal.js?v=88c0c986", "./financas-classificacao.js": "./financas-classificacao.js?v=584b64c6", "./financas-desejos.js": "./financas-desejos.js?v=7175e284", "./financas-extrato.js": "./financas-extrato.js?v=6a8ecce9", "./financas-faturas.js": "./financas-faturas.js?v=fb323307", "./financas-importar.js": "./financas-importar.js?v=71dfaaa4", "./financas-painel.js": "./financas-painel.js?v=7d3b4423", "./financas-previa.js": "./financas-previa.js?v=bfb16e3d", "./financas.js": "./financas.js?v=b262ae54", "./financeiro.js": "./financeiro.js?v=832a8c7e", "./inicio.js": "./inicio.js?v=36840010", "./leitores.js": "./leitores.js?v=2d72bdc2", "./login.js": "./login.js?v=f434d5fc", "./modulos.js": "./modulos.js?v=fac7935d", "./painel.js": "./painel.js?v=f606b3b3", "./pdf-texto.js": "./pdf-texto.js?v=b5de895d", "./regras-gestao.js": "./regras-gestao.js?v=351037e5", "./regras.js": "./regras.js?v=3eaec5e4", "./sessao.js": "./sessao.js?v=c9d6a0d9", "./ui.js": "./ui.js?v=efb69f88", "./usuarios.js": "./usuarios.js?v=6966c106", "./vendor/pdf.min.mjs": "./vendor/pdf.min.mjs?v=f548e26b", "./vendor/pdf.worker.min.mjs": "./vendor/pdf.worker.min.mjs?v=8860b503"}}</script>
-  <script type="module" src="financas.js?v=b262ae54"></script>
+  <link rel="stylesheet" href="financas.css?v=e72faebc">
+  <script type="importmap" data-versoes>{"imports": {"./art.js": "./art.js?v=67208bf7", "./config-area.js": "./config-area.js?v=c77553f2", "./conta.js": "./conta.js?v=fdce23ea", "./dados.js": "./dados.js?v=9cc4396a", "./demandas.js": "./demandas.js?v=19d8f618", "./financas-casal.js": "./financas-casal.js?v=88c0c986", "./financas-classificacao.js": "./financas-classificacao.js?v=584b64c6", "./financas-desejos.js": "./financas-desejos.js?v=7175e284", "./financas-extrato.js": "./financas-extrato.js?v=6a8ecce9", "./financas-faturas.js": "./financas-faturas.js?v=fb323307", "./financas-importar.js": "./financas-importar.js?v=71dfaaa4", "./financas-investimentos.js": "./financas-investimentos.js?v=b239c889", "./financas-painel.js": "./financas-painel.js?v=0178765b", "./financas-previa.js": "./financas-previa.js?v=bfb16e3d", "./financas.js": "./financas.js?v=c1e0f368", "./financeiro.js": "./financeiro.js?v=832a8c7e", "./inicio.js": "./inicio.js?v=36840010", "./leitores.js": "./leitores.js?v=2d72bdc2", "./login.js": "./login.js?v=f434d5fc", "./modulos.js": "./modulos.js?v=fac7935d", "./painel.js": "./painel.js?v=f606b3b3", "./pdf-texto.js": "./pdf-texto.js?v=b5de895d", "./regras-gestao.js": "./regras-gestao.js?v=351037e5", "./regras.js": "./regras.js?v=3eaec5e4", "./sessao.js": "./sessao.js?v=c9d6a0d9", "./ui.js": "./ui.js?v=efb69f88", "./usuarios.js": "./usuarios.js?v=6966c106", "./vendor/pdf.min.mjs": "./vendor/pdf.min.mjs?v=f548e26b", "./vendor/pdf.worker.min.mjs": "./vendor/pdf.worker.min.mjs?v=8860b503"}}</script>
+  <script type="module" src="financas.js?v=c1e0f368"></script>
 </head>
 <body class="area">
 
@@ -261,7 +261,8 @@
       </div>
 
       <div id="view-inv" role="tabpanel" aria-labelledby="tab-inv" hidden>
-        <div class="cj"><div class="wrap" id="cj-app"></div></div>
+        <div class="fin" id="inv-pessoal-raiz" hidden><div class="wrap inv-pessoal" id="inv-pessoal"></div></div>
+        <div class="cj" id="cj-raiz"><div class="wrap" id="cj-app"></div></div>
       </div>
     </div>
   </main>
@@ -544,6 +545,88 @@
         <button class="btn btn-perigo esquerda" type="button" id="btn-apagar-recorrente" hidden>Apagar</button>
         <button class="btn btn-claro" type="button" data-fechar>Cancelar</button>
         <button class="btn btn-primary" type="submit">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ============ INVESTIMENTO INDIVIDUAL ============ -->
+  <dialog class="dialogo dialogo-gasto" id="dlg-investimento" aria-labelledby="titulo-investimento">
+    <form id="form-investimento" novalidate>
+      <div class="dlg-cab">
+        <h2 id="titulo-investimento">Novo investimento</h2>
+        <button class="btn-link" type="button" data-fechar>Fechar</button>
+      </div>
+      <div class="dlg-corpo">
+        <div class="campos">
+          <label class="c6">Nome, como aparece no banco<input name="nome" maxlength="120" autocomplete="off" required placeholder="ex.: LCA Banco X CDI 90% 25/06/2031"></label>
+          <label class="c3">Tipo<select name="tipo"></select></label>
+          <label class="c3">Instituição<input name="instituicao" maxlength="60" autocomplete="off" placeholder="ex.: Itaú"></label>
+          <label class="c2">Indexador<select name="indexador"></select></label>
+          <label class="c2">Taxa<input name="taxa" maxlength="60" autocomplete="off" placeholder="ex.: 90% do CDI"></label>
+          <label class="c2">Vencimento<input name="vencimento" type="date"></label>
+          <label class="c3" data-campo-conta hidden>Conta (de quem é o dinheiro)<select name="conta"></select></label>
+        </div>
+        <p class="dica">O tipo, o indexador, a taxa e o vencimento são preenchidos pelo nome quando ele vem como no app do banco; confira.</p>
+        <fieldset class="bloco" data-so-novo>
+          <legend>Saldo</legend>
+          <div class="campos">
+            <label class="c3">Saldo de hoje (R$)<input name="saldo" inputmode="decimal" autocomplete="off" placeholder="1.017,13"></label>
+            <label class="c3">Data do saldo<input name="data" type="date"></label>
+          </div>
+          <label class="opcao-linha"><input type="checkbox" name="nova"> É uma aplicação nova: lançar a saída no caixa</label>
+          <label class="campo-parcelas" data-campo-forma-nova hidden>Como saiu da conta<select name="forma"><option value="pix">Pix ou transferência</option><option value="debito">Débito</option><option value="outro">Boleto ou outro</option></select></label>
+        </fieldset>
+        <p class="erro" id="erro-investimento" role="alert" hidden></p>
+      </div>
+      <div class="dlg-rodape">
+        <button class="btn btn-perigo esquerda" type="button" id="btn-apagar-investimento" hidden>Apagar</button>
+        <button class="btn btn-claro" type="button" data-fechar>Cancelar</button>
+        <button class="btn btn-primary" type="submit">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="dialogo dialogo-gasto" id="dlg-inv-movimento" aria-labelledby="titulo-inv-movimento">
+    <form id="form-inv-movimento" novalidate>
+      <div class="dlg-cab">
+        <h2 id="titulo-inv-movimento">Aplicar</h2>
+        <button class="btn-link" type="button" data-fechar>Fechar</button>
+      </div>
+      <div class="dlg-corpo">
+        <div class="campos">
+          <label class="c3">Valor (R$)<input name="valor" inputmode="decimal" autocomplete="off" required placeholder="1.250,00"></label>
+          <label class="c3">Data<input name="data" type="date"></label>
+          <label class="c3" data-campo-forma>Como saiu da conta<select name="forma"><option value="pix">Pix ou transferência</option><option value="debito">Débito</option><option value="outro">Boleto ou outro</option></select></label>
+        </div>
+        <label class="opcao-linha"><input type="checkbox" name="caixa" checked> <span id="rotulo-inv-caixa">Lançar no caixa</span></label>
+        <p class="dica" id="dica-inv-movimento"></p>
+        <p class="erro" id="erro-inv-movimento" role="alert" hidden></p>
+      </div>
+      <div class="dlg-rodape">
+        <button class="btn btn-claro" type="button" data-fechar>Cancelar</button>
+        <button class="btn btn-primary" type="submit">Registrar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="dialogo largo" id="dlg-inv-saldos" aria-labelledby="titulo-inv-saldos">
+    <form id="form-inv-saldos" novalidate>
+      <div class="dlg-cab">
+        <h2 id="titulo-inv-saldos">Atualizar saldos</h2>
+        <button class="btn-link" type="button" data-fechar>Fechar</button>
+      </div>
+      <div class="dlg-corpo">
+        <div class="campos">
+          <label class="c2">Mês<input name="mes" type="month"></label>
+          <label class="c2">Data dos saldos<input name="data" type="date"></label>
+        </div>
+        <p class="dica">Copie o saldo de cada investimento do app do banco. O rendimento do mês sai da diferença para o saldo anterior (sem contar aplicações e resgates); se o app mostrar quanto rendeu no mês, dá para informar. Em branco, o saldo continua o anterior.</p>
+        <div class="scroll"><table class="inv-saldos"><thead><tr><th>Investimento</th><th>Saldo</th><th>Rendeu no mês</th></tr></thead><tbody id="lista-inv-saldos"></tbody></table></div>
+        <p class="erro" id="erro-inv-saldos" role="alert" hidden></p>
+      </div>
+      <div class="dlg-rodape">
+        <button class="btn btn-claro" type="button" data-fechar>Cancelar</button>
+        <button class="btn btn-primary" type="submit">Salvar saldos</button>
       </div>
     </form>
   </dialog>

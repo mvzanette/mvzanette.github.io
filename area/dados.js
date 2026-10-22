@@ -517,7 +517,7 @@ function armazemDemo() {
       async salvarPreferencias(perfilId, campos) {
         exigirDono(perfilId);
         const todos = lerJson(PREFS, {});
-        todos[perfilId] = { perfil_id: perfilId, categorias: {}, plano: {}, contas: {}, caixa: {}, recorrentes: [], ...todos[perfilId], ...soCampos(campos, ["categorias", "plano", "contas", "caixa", "recorrentes"]),
+        todos[perfilId] = { perfil_id: perfilId, categorias: {}, plano: {}, contas: {}, caixa: {}, recorrentes: [], investimentos: [], ...todos[perfilId], ...soCampos(campos, ["categorias", "plano", "contas", "caixa", "recorrentes", "investimentos"]),
           atualizado_em: new Date().toISOString() };
         gravarJson(PREFS, todos);
         return structuredClone(todos[perfilId]);
@@ -809,11 +809,11 @@ async function armazemSupabase(url, chave) {
       async salvarPreferencias(perfilId, campos) {
         const { data, error } = await sb
           .from("financas_preferencias")
-          .upsert({ perfil_id: perfilId, ...soCampos(campos, ["categorias", "plano", "contas", "caixa", "recorrentes"]) }, { onConflict: "perfil_id" })
+          .upsert({ perfil_id: perfilId, ...soCampos(campos, ["categorias", "plano", "contas", "caixa", "recorrentes", "investimentos"]) }, { onConflict: "perfil_id" })
           .select()
           .single();
         if (error) throw new Error(error.code === "42501" || error.code === "PGRST116" ? "Sem permissão para alterar estas preferências."
-          : /contas|caixa|recorrentes/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+          : /contas|caixa|recorrentes|investimentos/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
         return data;
       },
       async ajustes(perfilId) {

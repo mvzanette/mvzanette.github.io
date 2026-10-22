@@ -42,7 +42,7 @@ function completar(dados) {
 export function desenharFinancas({ dados, carteira = null, modo = "completo", nome = "", linkClaude = null,
   gastosSite = [], aoLancarGasto = null, aoApagarGasto = null, aoImportarExtrato = null,
   entradasSite = [], aoLancarEntrada = null, aoApagarEntrada = null,
-  categorias = null, ajustes = [], contas = [], aoClassificar = null, aoEditarCategorias = null, comDesejos = false,
+  categorias = null, ajustes = [], contas = [], aoClassificar = null, aoEditarCategorias = null, comDesejos = false, comInvestimentos = false,
   comMeses = false, somenteCalculo = false, caixa: caixaPrefs = null, aoSalvarSaldo = null, aoMudarRecebimento = null,
   recorrentes: recorrentesSite = [], aoPagarRecorrente = null, aoDesmarcarRecorrente = null, aoEditarRecorrente = null, aoValorRecorrente = null }) {
   const D = completar(dados);
@@ -1466,7 +1466,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   const ABAS = ["geral", "gastos", "cartao", "investimentos", "desejos", "cadastros"];
   function irPara(aba, rolar) {
     if (!COM_MESES && !["investimentos", "desejos", "cadastros"].includes(aba)) aba = "cartao";
-    if (!ABAS.includes(aba) || (aba === "investimentos" && !CARTEIRA) || (aba === "desejos" && !comDesejos) || (aba === "cadastros" && !aoEditarCategorias)) aba = COM_MESES ? "geral" : "cartao";
+    if (!ABAS.includes(aba) || (aba === "investimentos" && !CARTEIRA && !comInvestimentos) || (aba === "desejos" && !comDesejos) || (aba === "cadastros" && !aoEditarCategorias)) aba = COM_MESES ? "geral" : "cartao";
     document.querySelectorAll("#fin-abas [role=tab]").forEach(t => {
       const sel = t.dataset.aba === aba;
       t.setAttribute("aria-selected", String(sel));
@@ -1475,7 +1475,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     ["geral", "gastos", "cartao", "desejos", "cadastros"].forEach(k => { $id("view-" + k).hidden = k !== aba; });
     $id("fin-root").hidden = aba === "investimentos";
     $id("view-inv").hidden = aba !== "investimentos";
-    if (COM_MESES || CARTEIRA || comDesejos || aoEditarCategorias) {
+    if (COM_MESES || CARTEIRA || comInvestimentos || comDesejos || aoEditarCategorias) {
       guardar("aba", aba);
       try { if (location.hash !== "#" + aba) history.replaceState(null, "", "#" + aba); } catch (e) { /* sem histórico */ }
     }
@@ -1487,16 +1487,19 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   function iniciarAbas() {
     const barra = $id("fin-abas");
     const tabs = [...barra.querySelectorAll("[role=tab]")];
-    const quem = {geral: DONO, gastos: DONO, cartao: OUTRA ? `${DONO} e ${OUTRA.nome}` : DONO, investimentos: TITULARES || DONO, desejos: "Prioridades e projeção", cadastros: "Categorias e contas"};
+    const quem = {geral: DONO, gastos: DONO, cartao: OUTRA ? `${DONO} e ${OUTRA.nome}` : DONO, investimentos: comInvestimentos && CARTEIRA ? `${DONO} e carteira conjunta` : TITULARES || DONO, desejos: "Prioridades e projeção", cadastros: "Categorias e contas"};
     tabs.forEach(t => { const s = t.querySelector("small"); if (s) s.textContent = quem[t.dataset.aba]; });
-    $id("tab-inv").hidden = !CARTEIRA;
+    $id("tab-inv").hidden = !CARTEIRA && !comInvestimentos;
+    // Aba Investimentos: os investimentos individuais de quem é o painel e, embaixo, a carteira conjunta do projeto
+    $id("inv-pessoal-raiz").hidden = !comInvestimentos;
+    $id("cj-raiz").hidden = !CARTEIRA;
     $id("tab-desejos").hidden = !comDesejos;
     $id("tab-cadastros").hidden = !aoEditarCategorias;
     document.querySelectorAll("[data-dono]").forEach(el => { el.textContent = DONO; });
     if (!COM_MESES) {
       $id("tab-geral").hidden = true;
       $id("tab-gastos").hidden = true;
-      if (!CARTEIRA && !comDesejos && !aoEditarCategorias) { barra.hidden = true; irPara("cartao", false); return; }
+      if (!CARTEIRA && !comInvestimentos && !comDesejos && !aoEditarCategorias) { barra.hidden = true; irPara("cartao", false); return; }
     }
     const visiveis = () => tabs.filter(t => !t.hidden);
     tabs.forEach(t => t.addEventListener("click", () => irPara(t.dataset.aba, true)));

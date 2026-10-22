@@ -12,6 +12,7 @@ import { linkFinancas, pode } from "./modulos.js";
 import { lerArquivoFinancas, outrasPessoas, soFaturas } from "./financas-importar.js";
 import { desenharFinancas } from "./financas-painel.js";
 import { desenharDesejos } from "./financas-desejos.js";
+import { desenharInvestimentosPessoais } from "./financas-investimentos.js";
 import { mostrarCasal } from "./financas-casal.js";
 import { categoriaDe, chavesFatura, chavesGastos, contasDisponiveis, juntarCategorias, lerCategorias, lerContas, normalizarCategoria } from "./financas-classificacao.js";
 import { aplicarFatura, herdarClassificacao, historicoDeCategorias, lerFaturaPdf, manterFaturasDoSite, montarFatura } from "./financas-faturas.js";
@@ -394,6 +395,25 @@ function prepararRecorrentes() {
     const b = e.target.closest("[data-editar-rec]");
     if (b) abrirRecorrente(b.dataset.editarRec);
   });
+}
+
+// ---------------------------------------------------------------- investimentos individuais no caixa
+// Aplicação: gasto na categoria Investimentos (sai como investimento no fluxo de caixa, não como gasto do mês), com o
+// tipo como subcategoria. Resgate: entrada avulsa.
+async function lancarInvestimentoNoCaixa({ data, descricao, valor, forma, subcategoria, conta }) {
+  const categoria = (cats.lista.find((c) => /^investiment/i.test(semAcento(c.nome))) || {}).nome || "Investimentos";
+  const salvo = await armazem.financas.salvarGasto({ perfil_id: dono.id, data, descricao, valor, forma: forma || "pix", parcelas: 1, categoria, subcategoria: subcategoria || null,
+    conta: conta || null, essencial: null, observacao: null });
+  gastos.push(salvo);
+  await guardarNaLista(categoria, subcategoria).catch(() => {});
+  painel.atualizarGastos(gastos);
+  painel.atualizarClassificacao({ categorias: cats });
+}
+
+async function lancarResgateNoCaixa({ data, descricao, liquido, conta }) {
+  const salvo = await armazem.financas.salvarEntrada({ perfil_id: dono.id, tipo: "outro", data, descricao, liquido, conta: conta || null, recebimento: "avulso", repete: false });
+  entradas.push(salvo);
+  painel.atualizarEntradas(entradas);
 }
 
 // ---------------------------------------------------------------- entradas: salário (holerite) e outros recebimentos
@@ -1843,6 +1863,19 @@ async function iniciar() {
     aoClassificar: abrirClassificacao,
     aoEditarCategorias: abrirCategorias,
     comDesejos: !!desejos,
+    comInvestimentos: true,
+  });
+  desenharInvestimentosPessoais({
+    raiz: $("#inv-pessoal"),
+    lista: Array.isArray(prefs && prefs.investimentos) ? prefs.investimentos : [],
+    nomeDono: dono.id !== perfil.id ? `Investimentos de ${dono.nome}` : "Seus investimentos",
+    contas: () => contas,
+    salvar: async (lista) => {
+      prefs = await armazem.financas.salvarPreferencias(dono.id, { investimentos: lista });
+      return Array.isArray(prefs && prefs.investimentos) ? prefs.investimentos : lista;
+    },
+    lancarGasto: lancarInvestimentoNoCaixa,
+    lancarEntrada: lancarResgateNoCaixa,
   });
   recomecarCategorias();
   recomecarContas();

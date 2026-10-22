@@ -291,6 +291,12 @@ alter table public.financas_preferencias add column if not exists caixa jsonb no
 alter table public.financas_preferencias add column if not exists recorrentes jsonb not null default '[]'::jsonb
   check (jsonb_typeof(recorrentes) = 'array');
 
+-- Investimentos individuais de cada pessoa (aba Investimentos): [{ "id", "nome", "tipo", "instituicao", "indexador",
+-- "taxa", "vencimento", "conta", "meses": { "AAAA-MM": { "data", "saldo", "aplicado", "resgatado", "rendeu" } } }].
+-- O saldo de cada mês vem da atualização dos saldos; o rendimento do mês é o informado ou a diferença dos saldos
+alter table public.financas_preferencias add column if not exists investimentos jsonb not null default '[]'::jsonb
+  check (jsonb_typeof(investimentos) = 'array');
+
 -- Classificação feita no site para os lançamentos que vêm do projeto Financeiro (gastos do dia a dia e
 -- lançamentos das faturas): categoria, subcategoria, essencial, conta e um complemento de texto.
 -- A chave identifica o lançamento (data, valor e descrição) e continua valendo depois de cada importação.
