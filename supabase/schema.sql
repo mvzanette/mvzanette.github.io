@@ -122,6 +122,13 @@ end $$;
 alter table public.arts drop constraint if exists arts_user_id_numero_key;
 create unique index if not exists arts_numero_key on public.arts (numero);
 
+-- Ação planejada para a ART vencida ou perto de vencer: encerrar a obra ou o serviço e dar baixa, emitir ART
+-- substituta ou emitir ART complementar
+alter table public.arts add column if not exists acao text check (acao is null or acao in ('baixa', 'substituta', 'complementar'));
+-- Baixa por substituição: a ART foi substituída por outra, que fica vinculada a ela (anterior_id)
+alter table public.arts drop constraint if exists arts_baixa_motivo_check;
+alter table public.arts add constraint arts_baixa_motivo_check check (baixa_motivo in ('conclusao', 'interrupcao', 'substituicao'));
+
 -- ------------------------------------------------------------
 -- Usuários: perfil de acesso e histórico
 -- ------------------------------------------------------------

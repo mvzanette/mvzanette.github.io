@@ -2,6 +2,7 @@
 // Usado pela área restrita (navegador) e pela rotina diária de e-mails (Node).
 
 export const AVISO_DIAS = 30; // primeiro alerta
+export const HORIZONTE_DIAS = 90; // "a vencer" no resumo dos vencimentos (três meses)
 export const MARCOS_ANTES = [30, 7, 0]; // dias antes do fim previsto em que há alerta
 export const INTERVALO_ATRASO = 7; // depois de vencida, um alerta por semana até a baixa
 
@@ -33,6 +34,51 @@ export function situacao(art, hoje = hojeISO()) {
   if (dias <= AVISO_DIAS) return "vencendo";
   return "ativa";
 }
+
+// Faixa do resumo dos vencimentos: vencida, vence em até 30 dias, vence em 31 a 90 dias (ou null: baixada, sem
+// data ou com o fim mais longe). A ART baixada já teve a obra ou o serviço concluído: não vence mais.
+export function faixaVencimento(art, hoje = hojeISO()) {
+  if (art.baixa_data) return null;
+  const dias = diasAte(art.fim, hoje);
+  if (dias === null) return null;
+  if (dias < 0) return "vencida";
+  if (dias <= AVISO_DIAS) return "30";
+  if (dias <= HORIZONTE_DIAS) return "90";
+  return null;
+}
+
+export function resumoVencimentos(arts, hoje = hojeISO()) {
+  const r = { vencidas: [], ate30: [], ate90: [] };
+  for (const a of arts) {
+    const f = faixaVencimento(a, hoje);
+    if (f === "vencida") r.vencidas.push(a);
+    else if (f === "30") r.ate30.push(a);
+    else if (f === "90") r.ate90.push(a);
+  }
+  const porFim = (x, y) => String(x.fim).localeCompare(String(y.fim));
+  r.vencidas.sort(porFim); r.ate30.sort(porFim); r.ate90.sort(porFim);
+  r.semAcao = [...r.vencidas, ...r.ate30].filter((a) => !a.acao).length;
+  return r;
+}
+
+// Ação escolhida para a ART vencida ou perto de vencer
+export const ACOES = {
+  baixa: "Encerrar a obra ou serviço e dar baixa",
+  substituta: "Emitir ART substituta",
+  complementar: "Emitir ART complementar",
+};
+export const PASSOS_ACAO = {
+  baixa: ["Concluir a obra ou o serviço", "Dar baixa por conclusão no portal do CREA", "Registrar aqui a data da baixa"],
+  substituta: [
+    "Emitir a ART substituta no portal do CREA (use “Copiar dados para nova ART”)",
+    "Importar aqui a ART substituta com “Importar nova ART vinculada”: esta ART fica baixada por substituição",
+  ],
+  complementar: [
+    "Emitir a ART complementar no portal do CREA (use “Copiar dados para nova ART”), com o prazo, o valor ou as atividades a mais",
+    "Importar aqui a ART complementar com “Importar nova ART vinculada”",
+    "No fim da obra ou do serviço, dar baixa nesta ART e na complementar",
+  ],
+};
 
 export const ROTULO_SITUACAO = {
   ativa: "Ativa",
@@ -77,50 +123,6 @@ export function alertasPendentes(arts, jaTratados = new Set(), hoje = hojeISO())
     lista.push({ chave, art, marco, mensagem: mensagem(art, marco, hoje), dias: diasAte(art.fim, hoje) });
   }
   return lista.sort((a, b) => a.dias - b.dias);
-}
-
-// ---------------------------------------------------------------- tipo de serviço
-const CONTINUO = /pmoc|plano de manuten|manuten[çc][ãa]o preventiva|contrato de manuten|responsabilidade t[ée]cnica|execu[çc][ãa]o de manuten/i;
-
-export function tipoServicoSugerido(art) {
-  if (art.tipo_servico) return art.tipo_servico;
-  if ((art.tos || []).includes("16.2.2")) return "continuo";
-  const texto = [art.observacao, art.contrato, ...(art.atividades || []).map((a) => `${a.atividade} ${a.descricao}`)].join(" ");
-  return CONTINUO.test(texto) ? "continuo" : "pontual";
-}
-
-// Ação recomendada quando a ART se aproxima do fim (ou já passou).
-// pontual: pergunta se o serviço foi concluído; contínuo: pergunta se o contrato foi renovado.
-export function recomendacao(tipo, resposta) {
-  if (resposta === undefined || resposta === null) return null;
-  if (tipo === "continuo") {
-    return resposta
-      ? {
-          acao: "Dar baixa da ART atual e emitir nova ART para o novo período",
-          passos: [
-            "Dar baixa por conclusão da ART atual no portal do CREA, com a data de fim do período",
-            "Emitir nova ART para o novo período do contrato (use “Copiar dados para nova ART”)",
-            "Cadastrar aqui a nova ART e vinculá-la a esta",
-          ],
-        }
-      : {
-          acao: "Dar baixa por conclusão",
-          passos: ["Dar baixa por conclusão no portal do CREA", "Registrar aqui a data da baixa"],
-        };
-  }
-  return resposta
-    ? {
-        acao: "Dar baixa por conclusão",
-        passos: ["Dar baixa por conclusão no portal do CREA", "Registrar aqui a data da baixa"],
-      }
-    : {
-        acao: "Ajustar a data da ART ou dar baixa por interrupção",
-        passos: [
-          "Se o serviço continua: ajustar a data de término da ART conforme as regras do CREA (retificação)",
-          "Se o serviço foi encerrado sem conclusão: dar baixa por interrupção, informando a fase em que parou",
-          "Registrar aqui o que foi feito",
-        ],
-      };
 }
 
 // Texto para colar no portal do CREA ao emitir uma nova ART a partir de uma anterior.

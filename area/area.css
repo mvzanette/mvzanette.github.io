@@ -2192,3 +2192,44 @@ label.aprovar input { width: 18px; height: 18px; accent-color: var(--graphite-90
 .itens-doc summary { cursor: pointer; font-weight: 600; font-size: 0.9rem; }
 .area .aprovar-linha { display: flex; align-items: center; gap: 8px; margin-top: 14px; text-transform: none; letter-spacing: 0; font-weight: 600; }
 .area .aprovar-linha input { width: 18px; height: 18px; accent-color: var(--graphite-900); }
+
+/* ---------- Controle de ART: resumo dos vencimentos, ação e análise ---------- */
+.resumo:has(> .indicador:nth-child(5)) { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+@media (max-width: 900px) { .resumo:has(> .indicador:nth-child(5)) { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.filtros-art { margin-top: -6px; }
+.filtros-art .btn { justify-self: start; }
+.area select.sel-acao { min-width: 200px; padding: 6px 8px; font-size: 0.85rem; }
+.area select.sel-acao.sem-acao { border-color: var(--erro); background: #fbe5e3; }
+.acao-cel { white-space: nowrap; }
+.venc-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 12px 0 16px; }
+@media (max-width: 640px) { .venc-cards { grid-template-columns: minmax(0, 1fr); } }
+.venc-card { display: grid; gap: 4px; text-align: left; padding: 16px 18px; background: var(--white); border: 1px solid var(--gray-200); border-top: 5px solid var(--gray-300); font: inherit; cursor: pointer; }
+.venc-card:disabled { cursor: default; opacity: 0.6; }
+.venc-card strong { font: 700 2.2rem/1 var(--font-head); color: var(--graphite-900); }
+.venc-card span { font: 600 0.78rem var(--font-head); letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.venc-card.vc-vencida { border-top-color: var(--erro); }
+.venc-card.vc-vencida strong { color: var(--erro); }
+.venc-card.vc-30 { border-top-color: var(--yellow); }
+.venc-card.vc-90 { border-top-color: #e0a100; }
+.venc-card:not(:disabled):hover { box-shadow: 0 6px 18px rgba(17, 18, 20, 0.08); }
+.venc-aviso { margin: 0 0 14px; padding: 10px 12px; background: #fbe5e3; border-left: 3px solid var(--erro); font-size: 0.9rem; }
+.venc-ok { margin: 0 0 14px; padding: 10px 12px; background: #e8f5e9; border-left: 3px solid var(--ok); }
+.venc-grupo { margin-top: 12px; border: 1px solid var(--gray-200); }
+.venc-grupo > summary { cursor: pointer; padding: 10px 14px; font: 700 0.9rem var(--font-head); letter-spacing: 0.04em; text-transform: uppercase; background: var(--gray-100); }
+.venc-grupo > summary small { font-weight: 600; color: var(--erro); text-transform: none; letter-spacing: 0; margin-left: 6px; }
+.venc-grupo.vg-vencida > summary { border-left: 4px solid var(--erro); }
+.venc-grupo.vg-30 > summary { border-left: 4px solid var(--yellow); }
+.venc-grupo.vg-90 > summary { border-left: 4px solid #e0a100; }
+.venc-n { display: inline-block; min-width: 26px; padding: 1px 7px; margin-left: 6px; background: var(--graphite-900); color: var(--white); text-align: center; }
+.venc-grupo .tabela-wrap { margin: 0; }
+.opcoes-coluna { flex-direction: column; align-items: flex-start; gap: 8px; }
+.analise-art { margin-top: 28px; }
+.analise-grade { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
+@media (max-width: 900px) { .analise-grade { grid-template-columns: minmax(0, 1fr); } }
+.analise-bloco { min-width: 0; }
+.analise-bloco h3 { margin: 0 0 8px; font: 700 0.85rem var(--font-head); letter-spacing: 0.08em; text-transform: uppercase; }
+tr.clicavel-cliente { cursor: pointer; }
+tr.clicavel-cliente:hover td { background: #fffbea; }
+tr.clicavel-cliente:focus-visible { outline: 2px solid var(--graphite-900); outline-offset: -2px; }
+.barra-analise { display: block; height: 4px; margin-top: 4px; background: var(--gray-200); }
+.barra-analise span { display: block; height: 100%; background: var(--graphite-900); }

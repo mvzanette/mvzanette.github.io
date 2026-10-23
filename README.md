@@ -317,14 +317,16 @@ O dinheiro da engenharia que você faz por conta própria (autônomo). Os lança
 ## Controle de ART
 
 - **Importa PDFs com leitura automática** (só PDF, até 20 MB por arquivo): ART individual do CREA-MG e do CREA-RJ, e o relatório "ARTs (Todas)" do CREA-MG (várias ARTs de uma vez). O CREA-SP ainda não tem leitor (falta um PDF de exemplo); por enquanto, cadastre manualmente.
-- **Quadro de ARTs:** ativas, que vencem em até 30 dias, vencidas sem baixa e baixadas, com busca e filtros por CREA, situação e para quem foi tirada.
+- **Resumo dos vencimentos ao entrar:** sempre que o Controle de ART abre, uma janela mostra quantas ARTs estão **vencidas sem baixa**, quantas **vencem nos próximos 30 dias** e quantas **vencem em 31 a 90 dias** (três meses), com a lista de cada grupo e quantas ainda estão sem ação definida. Cada número leva para a lista filtrada; o botão **Vencimentos** reabre a janela. A ART baixada não entra: a obra ou o serviço foi concluído e ela não vence mais.
+- **Ação para cada ART vencida ou a vencer:** uma caixa de seleção, na lista, na janela dos vencimentos e na ficha da ART, com **encerrar a obra ou serviço e dar baixa**, **emitir ART substituta** ou **emitir ART complementar**, e os passos de cada uma. A sem ação aparece em destaque. Importada como "nova ART vinculada" de uma ART marcada como substituta, a nova deixa a anterior **baixada por substituição**.
+- **Quadro de ARTs:** vencidas sem baixa, que vencem em até 30 dias, em 31 a 90 dias, ativas e baixadas, com busca e filtros por CREA, situação, para quem foi tirada, **cliente**, **ano de registro** e **ação** (inclusive "sem ação definida").
+- **Análise**, que segue os filtros: ARTs **por cliente** (a matriz e as filiais juntas pela raiz do CNPJ, com as vencidas, as baixadas e o valor dos contratos; clicar no cliente filtra a lista), **por ano de registro** e CREA, as **atividades (TOS) mais frequentes** e para quem foram tiradas. A exportação em planilha leva a ação e segue os filtros.
 - **Tirada para:** uma **empresa** cadastrada (ela paga a taxa; os lançamentos da ART vão para a página da empresa) ou um **cliente particular** seu (o serviço e a taxa ficam no Controle financeiro da engenharia). Aparece na coluna "Para", no filtro, na exportação e, na importação de PDFs, dá para marcar todas as ARTs do arquivo de uma vez.
 - **Alertas** na plataforma (sino) e por e-mail, com base no **fim previsto** da ART:
   - 30 dias antes: "Daqui a 30 dias a ART nº … do cliente … vencerá (fim previsto em …)."
   - 7 dias antes e no dia;
   - depois de vencida, uma vez por semana até a baixa ser registrada.
-- **Ajuda na decisão:** para serviço pontual (laudo, vistoria, projeto), pergunta se foi concluído; para serviço contínuo (PMOC, manutenção), pergunta se o contrato foi renovado. Indica se é caso de dar baixa, de emitir nova ART ou de ajustar a data.
-- **Registro de baixa**, vínculo entre a ART anterior e a nova (renovação) e **"Copiar dados para nova ART"**, para colar no portal do CREA.
+- **Registro de baixa** (conclusão, interrupção ou substituição), vínculo entre a ART anterior e a nova (renovação, substituta ou complementar) e **"Copiar dados para nova ART"**, para colar no portal do CREA.
 - **Exportação em planilha (CSV)**, que também serve como cópia de segurança.
 
 A emissão e a baixa da ART continuam sendo feitas no portal de cada CREA. Nenhum dos três CREAs oferece integração oficial para sistemas externos; por isso a plataforma trabalha com os PDFs.

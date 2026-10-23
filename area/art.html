@@ -10,10 +10,10 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@500;600;700;800&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../styles.css?v=12bc86b1">
-  <link rel="stylesheet" href="area.css?v=711ae988">
+  <link rel="stylesheet" href="area.css?v=49dd9543">
   <script src="../tos-mecanica.js?v=5864da19"></script>
-  <script type="importmap" data-versoes>{"imports": {"./art.js": "./art.js?v=67208bf7", "./caixa-documentos.js": "./caixa-documentos.js?v=7c2bf156", "./caixa.js": "./caixa.js?v=bfa6e7c8", "./config-area.js": "./config-area.js?v=c77553f2", "./conta.js": "./conta.js?v=fdce23ea", "./dados.js": "./dados.js?v=7a82cb33", "./demandas.js": "./demandas.js?v=19d8f618", "./financas-casal.js": "./financas-casal.js?v=88c0c986", "./financas-classificacao.js": "./financas-classificacao.js?v=584b64c6", "./financas-desejos.js": "./financas-desejos.js?v=7175e284", "./financas-extrato.js": "./financas-extrato.js?v=6a8ecce9", "./financas-faturas.js": "./financas-faturas.js?v=fb323307", "./financas-importar.js": "./financas-importar.js?v=71dfaaa4", "./financas-investimentos.js": "./financas-investimentos.js?v=b239c889", "./financas-painel.js": "./financas-painel.js?v=0178765b", "./financas-previa.js": "./financas-previa.js?v=bfb16e3d", "./financas.js": "./financas.js?v=c1e0f368", "./financeiro.js": "./financeiro.js?v=6de87fd0", "./inicio.js": "./inicio.js?v=e80c4066", "./leitores.js": "./leitores.js?v=2d72bdc2", "./login.js": "./login.js?v=f434d5fc", "./modulos.js": "./modulos.js?v=d8afcfe0", "./painel.js": "./painel.js?v=f606b3b3", "./pdf-texto.js": "./pdf-texto.js?v=b5de895d", "./planilha.js": "./planilha.js?v=ce3e0414", "./regras-gestao.js": "./regras-gestao.js?v=351037e5", "./regras.js": "./regras.js?v=3eaec5e4", "./sessao.js": "./sessao.js?v=ff1b532e", "./ui.js": "./ui.js?v=efb69f88", "./usuarios.js": "./usuarios.js?v=6966c106", "./vendor/pdf.min.mjs": "./vendor/pdf.min.mjs?v=f548e26b", "./vendor/pdf.worker.min.mjs": "./vendor/pdf.worker.min.mjs?v=8860b503"}}</script>
-  <script type="module" src="art.js?v=67208bf7"></script>
+  <script type="importmap" data-versoes>{"imports": {"./art.js": "./art.js?v=a8565d07", "./caixa-documentos.js": "./caixa-documentos.js?v=7c2bf156", "./caixa.js": "./caixa.js?v=bfa6e7c8", "./config-area.js": "./config-area.js?v=c77553f2", "./conta.js": "./conta.js?v=fdce23ea", "./dados.js": "./dados.js?v=7259ba53", "./demandas.js": "./demandas.js?v=19d8f618", "./financas-casal.js": "./financas-casal.js?v=88c0c986", "./financas-classificacao.js": "./financas-classificacao.js?v=584b64c6", "./financas-desejos.js": "./financas-desejos.js?v=7175e284", "./financas-extrato.js": "./financas-extrato.js?v=6a8ecce9", "./financas-faturas.js": "./financas-faturas.js?v=fb323307", "./financas-importar.js": "./financas-importar.js?v=71dfaaa4", "./financas-investimentos.js": "./financas-investimentos.js?v=b239c889", "./financas-painel.js": "./financas-painel.js?v=0178765b", "./financas-previa.js": "./financas-previa.js?v=bfb16e3d", "./financas.js": "./financas.js?v=c1e0f368", "./financeiro.js": "./financeiro.js?v=6de87fd0", "./inicio.js": "./inicio.js?v=e80c4066", "./leitores.js": "./leitores.js?v=7eec42d0", "./login.js": "./login.js?v=f434d5fc", "./modulos.js": "./modulos.js?v=d8afcfe0", "./painel.js": "./painel.js?v=f606b3b3", "./pdf-texto.js": "./pdf-texto.js?v=b5de895d", "./planilha.js": "./planilha.js?v=ce3e0414", "./regras-gestao.js": "./regras-gestao.js?v=351037e5", "./regras.js": "./regras.js?v=4810a2f4", "./sessao.js": "./sessao.js?v=ff1b532e", "./ui.js": "./ui.js?v=efb69f88", "./usuarios.js": "./usuarios.js?v=6966c106", "./vendor/pdf.min.mjs": "./vendor/pdf.min.mjs?v=f548e26b", "./vendor/pdf.worker.min.mjs": "./vendor/pdf.worker.min.mjs?v=8860b503"}}</script>
+  <script type="module" src="art.js?v=a8565d07"></script>
 </head>
 <body class="area">
 
@@ -49,6 +49,7 @@
         <h1>Controle de ART</h1>
         <div class="area-acoes">
           <button class="btn btn-primary" id="btn-importar" type="button">Importar PDF</button>
+          <button class="btn btn-claro" id="btn-vencimentos" type="button">Vencimentos</button>
           <button class="btn btn-claro" id="btn-nova" type="button">Cadastrar manualmente</button>
           <button class="btn btn-claro" id="btn-exportar" type="button">Exportar planilha</button>
         </div>
@@ -70,12 +71,19 @@
         <select id="filtro-situacao" aria-label="Situação">
           <option value="">Todas as situações</option>
           <option value="vencendo">Vence em até 30 dias</option>
+          <option value="vence90">Vence em 31 a 90 dias</option>
           <option value="vencida">Vencida sem baixa</option>
           <option value="ativa">Ativa</option>
           <option value="baixada">Baixada</option>
           <option value="sem-data">Sem data de término</option>
         </select>
         <select id="filtro-para" aria-label="Tirada para"></select>
+      </div>
+      <div class="filtros filtros-4 filtros-art">
+        <select id="filtro-cliente" aria-label="Cliente"></select>
+        <select id="filtro-ano" aria-label="Ano de registro"></select>
+        <select id="filtro-acao" aria-label="Ação"></select>
+        <button class="btn btn-claro" id="btn-limpar-filtros" type="button">Limpar filtros</button>
       </div>
 
       <div class="tabela-wrap">
@@ -90,12 +98,25 @@
               <th>Início</th>
               <th>Fim previsto</th>
               <th>Situação</th>
+              <th>Ação</th>
             </tr>
           </thead>
           <tbody></tbody>
         </table>
         <p class="vazio" id="vazio" hidden>Nenhuma ART cadastrada ainda. Use <b>Importar PDF</b> para subir uma ART ou o relatório do CREA.</p>
       </div>
+
+      <!-- Compilado para análise: segue os filtros acima -->
+      <section class="analise-art" id="analise" hidden>
+        <h2 class="subtitulo-area">Análise</h2>
+        <p class="dica" id="analise-dica"></p>
+        <div class="analise-grade">
+          <div class="analise-bloco"><h3>ARTs por cliente</h3><div id="analise-clientes"></div></div>
+          <div class="analise-bloco"><h3>ARTs por ano de registro</h3><div id="analise-anos"></div></div>
+          <div class="analise-bloco"><h3>Atividades mais frequentes (TOS)</h3><div id="analise-tos"></div></div>
+          <div class="analise-bloco"><h3>Tiradas para</h3><div id="analise-para"></div></div>
+        </div>
+      </section>
     </section>
   </main>
 
@@ -107,6 +128,9 @@
     </div>
     <div id="lista-alertas"></div>
   </aside>
+
+  <!-- ============ RESUMO DOS VENCIMENTOS (abre ao entrar) ============ -->
+  <dialog class="dialogo largo" id="dlg-vencimentos" aria-labelledby="titulo-vencimentos"></dialog>
 
   <!-- ============ DETALHE DA ART ============ -->
   <dialog class="dialogo" id="dlg-art"></dialog>

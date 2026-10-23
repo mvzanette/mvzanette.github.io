@@ -167,7 +167,7 @@ const CABECALHO_RELATORIO = [
   /^--- fim da página/,
   /^Conselho Regional de Engenharia e Agronomia de Minas Gerais$/i,
   /^Avenida Alvares Cabral/i,
-  /^Tel: 0800/i,
+  /^Tel:\s*0800/i,
 ];
 
 export function lerRelatorioMG(linhas) {

@@ -21,8 +21,30 @@ let armazem;
 let arts = [];
 let empresas = []; // empresas cadastradas (os nomes vêm do banco)
 let tratados = new Set();
-const filtro = { busca: "", crea: "", situacao: "", para: "" };
+const filtro = { busca: "", crea: "", situacao: "", para: "", cliente: "", ano: "", acao: "" };
 const hoje = R.hojeISO();
+const semAcento = (s) => String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
+
+// Cliente da ART: pelo CNPJ (a raiz, que junta matriz e filiais) ou pelo CPF; sem documento, pelo nome. O nome
+// mostrado é o da ART mais recente do cliente.
+const chaveCliente = (a) => {
+  const d = String(a.contratante_doc || "").replace(/\D/g, "");
+  return d.length === 14 ? `cnpj:${d.slice(0, 8)}` : d.length === 11 ? `cpf:${d}` : `nome:${semAcento(a.contratante || "não informado")}`;
+};
+const anoDe = (a) => (a.registrada || a.inicio || "").slice(0, 4) || null;
+let clientes = new Map(); // chave → { nome, data, n }
+function montarClientes() {
+  clientes = new Map();
+  for (const a of arts) {
+    const k = chaveCliente(a), data = a.registrada || a.inicio || "";
+    const c = clientes.get(k) || { nome: a.contratante || "Não informado", data: "", n: 0 };
+    c.n++;
+    if (data >= c.data && a.contratante) { c.nome = a.contratante; c.data = data; }
+    clientes.set(k, c);
+  }
+}
+const nomeCliente = (k) => (clientes.get(k) || {}).nome || "Não informado";
 
 // Para quem a ART foi tirada: uma empresa (que paga a taxa) ou um cliente particular
 const nomeEmpresa = (id) => (empresas.find((e) => e.id === id) || {}).nome || null;
@@ -64,7 +86,31 @@ function textoDias(art) {
 function etiqueta(art) {
   const s = R.situacao(art, hoje);
   const dias = textoDias(art);
-  return `<span class="etiqueta s-${s}">${esc(R.ROTULO_SITUACAO[s])}${dias ? `<small>${esc(dias)}</small>` : ""}</span>`;
+  const rotulo = s === "baixada" && art.baixa_motivo === "substituicao" ? "Substituída" : R.ROTULO_SITUACAO[s];
+  return `<span class="etiqueta s-${s}">${esc(rotulo)}${dias ? `<small>${esc(dias)}</small>` : ""}</span>`;
+}
+
+// Caixa de seleção da ação, para a ART vencida ou que vence nos próximos 90 dias
+function selectAcao(art) {
+  const faixa = R.faixaVencimento(art, hoje);
+  if (!faixa) return art.acao && !art.baixa_data ? `<small>${esc(R.ACOES[art.acao])}</small>` : '<span class="dica">—</span>';
+  // sem ação, fica em destaque na vencida e na que vence em até 30 dias
+  return `<select class="sel-acao${art.acao || faixa === "90" ? "" : " sem-acao"}" data-acao="${esc(art.id)}" aria-label="Ação para a ART ${esc(art.numero)}">
+    <option value="">Definir ação…</option>${Object.entries(R.ACOES).map(([v, t]) => `<option value="${v}"${art.acao === v ? " selected" : ""}>${esc(t)}</option>`).join("")}</select>`;
+}
+
+async function salvarAcao(id, acao) {
+  const art = arts.find((a) => a.id === id);
+  if (!art) return;
+  try {
+    const salvo = await armazem.salvar({ ...art, acao: acao || null });
+    arts = arts.map((a) => (a.id === id ? { ...a, ...salvo } : a));
+    renderizar();
+    if ($("#dlg-vencimentos").open) renderVencimentos();
+    avisar(acao ? `ART ${art.numero}: ${R.ACOES[acao].toLowerCase()}.` : `ART ${art.numero}: ação desmarcada.`);
+  } catch (err) {
+    avisar("Não foi possível salvar a ação: " + err.message);
+  }
 }
 
 const ORDEM = { vencida: 0, vencendo: 1, ativa: 2, "sem-data": 3, baixada: 4 };
@@ -85,6 +131,7 @@ async function iniciar() {
   armazem = sessao.armazem;
   $("#tela-painel").hidden = false;
   await recarregar();
+  abrirVencimentos(true); // sempre ao entrar, quando houver ART vencida ou a vencer em 90 dias
 }
 
 async function recarregar() {
@@ -93,10 +140,21 @@ async function recarregar() {
   filtroPara.innerHTML = [["", "Empresas e particulares"], ["empresas", "Todas as empresas"], ...empresas.map((e) => [`e:${e.id}`, e.nome]),
     ["particular", "Clientes particulares"], ["sem", "Não informado"]]
     .map(([v, r]) => `<option value="${esc(v)}"${v === filtro.para ? " selected" : ""}>${esc(r)}</option>`).join("");
+  montarClientes();
   renderizar();
 }
 
+function renderFiltros() {
+  const op = (lista, atual) => lista.map(([v, r]) => `<option value="${esc(v)}"${v === atual ? " selected" : ""}>${esc(r)}</option>`).join("");
+  const cls = [...clientes.entries()].sort((a, b) => b[1].n - a[1].n || a[1].nome.localeCompare(b[1].nome, "pt-BR"));
+  $("#filtro-cliente").innerHTML = op([["", "Todos os clientes"], ...cls.map(([k, c]) => [k, `${c.nome} (${c.n})`])], filtro.cliente);
+  const anos = [...new Set(arts.map(anoDe).filter(Boolean))].sort().reverse();
+  $("#filtro-ano").innerHTML = op([["", "Todos os anos"], ...anos.map((a) => [a, `Registradas em ${a}`])], filtro.ano);
+  $("#filtro-acao").innerHTML = op([["", "Todas as ações"], ["sem", "Sem ação definida"], ...Object.entries(R.ACOES)], filtro.acao);
+}
+
 function renderizar() {
+  renderFiltros();
   renderResumo();
   renderTabela();
   renderAlertas();
@@ -104,13 +162,14 @@ function renderizar() {
 
 // ---------------------------------------------------------------- resumo e tabela
 function renderResumo() {
-  const conta = { ativa: 0, vencendo: 0, vencida: 0, baixada: 0, "sem-data": 0 };
-  arts.forEach((a) => conta[R.situacao(a, hoje)]++);
+  const conta = { ativa: 0, vencendo: 0, vencida: 0, baixada: 0, "sem-data": 0, vence90: 0 };
+  arts.forEach((a) => { conta[R.situacao(a, hoje)]++; if (R.faixaVencimento(a, hoje) === "90") conta.vence90++; });
   const cards = [
-    ["ativa", "Ativas", "var(--ok)"],
-    ["vencendo", "Vencem em até 30 dias", "var(--yellow)"],
     ["vencida", "Vencidas sem baixa", "var(--erro)"],
-    ["baixada", "Baixadas", "var(--gray-500)"],
+    ["vencendo", "Vencem em até 30 dias", "var(--yellow)"],
+    ["vence90", "Vencem em 31 a 90 dias", "#e0a100"],
+    ["ativa", "Ativas (fim em mais de 30 dias)", "var(--ok)"],
+    ["baixada", "Baixadas (concluídas)", "var(--gray-500)"],
   ];
   $("#resumo").innerHTML = cards
     .map(
@@ -125,7 +184,12 @@ function filtradas() {
   const termo = filtro.busca.toLowerCase();
   return arts.filter((a) => {
     if (filtro.crea && a.crea !== filtro.crea) return false;
-    if (filtro.situacao && R.situacao(a, hoje) !== filtro.situacao) return false;
+    if (filtro.situacao === "vence90") { if (R.faixaVencimento(a, hoje) !== "90") return false; }
+    else if (filtro.situacao && R.situacao(a, hoje) !== filtro.situacao) return false;
+    if (filtro.cliente && chaveCliente(a) !== filtro.cliente) return false;
+    if (filtro.ano && anoDe(a) !== filtro.ano) return false;
+    if (filtro.acao === "sem" && (a.acao || !R.faixaVencimento(a, hoje))) return false;
+    if (filtro.acao && filtro.acao !== "sem" && a.acao !== filtro.acao) return false;
     if (filtro.para === "empresas" && a.vinculo !== "empresa") return false;
     if (filtro.para === "particular" && a.vinculo !== "particular") return false;
     if (filtro.para === "sem" && a.vinculo) return false;
@@ -149,12 +213,86 @@ function renderTabela() {
         <td class="data">${R.dataBR(a.inicio)}</td>
         <td class="data">${R.dataBR(a.fim)}</td>
         <td>${etiqueta(a)}</td>
+        <td class="acao-cel">${selectAcao(a)}</td>
       </tr>`
     )
     .join("");
   const vazio = $("#vazio");
   vazio.hidden = lista.length > 0;
   if (!lista.length && arts.length) vazio.textContent = "Nenhuma ART encontrada com esses filtros.";
+  renderAnalise(lista);
+}
+
+// ---------------------------------------------------------------- análise (segue os filtros)
+function renderAnalise(lista) {
+  const box = $("#analise");
+  box.hidden = !arts.length;
+  if (!arts.length) return;
+  const filtrado = lista.length !== arts.length;
+  $("#analise-dica").textContent = `${plural(lista.length, "ART", "ARTs")}${filtrado ? ` de ${arts.length}, com os filtros acima` : " no total"}. Clique num cliente para ver só as ARTs dele.`;
+  const soma = (xs) => xs.reduce((t, a) => t + (Number(a.valor) || 0), 0);
+  // Por cliente
+  const porCliente = new Map();
+  for (const a of lista) { const k = chaveCliente(a); porCliente.set(k, [...(porCliente.get(k) || []), a]); }
+  const cl = [...porCliente.entries()].sort((a, b) => b[1].length - a[1].length || soma(b[1]) - soma(a[1]));
+  const max = Math.max(1, ...cl.map(([, xs]) => xs.length));
+  const conta = (xs, f) => xs.filter(f).length;
+  $("#analise-clientes").innerHTML = cl.length ? `<div class="tabela-wrap"><table class="tabela compacta"><thead><tr><th>Cliente</th><th class="num">ARTs</th><th class="num">Vencidas</th><th class="num">Baixadas</th><th class="num">Valor dos contratos</th></tr></thead><tbody>
+    ${cl.map(([k, xs]) => `<tr class="clicavel-cliente" data-cliente="${esc(k)}" tabindex="0"><td>${esc(nomeCliente(k))}<span class="barra-analise"><span style="width:${(xs.length / max * 100).toFixed(1)}%"></span></span></td>
+      <td class="num">${xs.length}</td><td class="num">${conta(xs, (a) => R.situacao(a, hoje) === "vencida") || "—"}</td><td class="num">${conta(xs, (a) => a.baixa_data) || "—"}</td><td class="num">${moeda(soma(xs))}</td></tr>`).join("")}
+    </tbody><tfoot><tr><th>Total</th><th class="num">${lista.length}</th><th class="num">${conta(lista, (a) => R.situacao(a, hoje) === "vencida")}</th><th class="num">${conta(lista, (a) => a.baixa_data)}</th><th class="num">${moeda(soma(lista))}</th></tr></tfoot></table></div>` : '<p class="dica">Nenhuma ART.</p>';
+  // Por ano
+  const anos = [...new Set(lista.map((a) => anoDe(a) || "sem data"))].sort().reverse();
+  const creas = [...new Set(lista.map((a) => a.crea))].sort();
+  $("#analise-anos").innerHTML = anos.length ? `<div class="tabela-wrap"><table class="tabela compacta"><thead><tr><th>Ano</th>${creas.map((c) => `<th class="num">CREA-${esc(c)}</th>`).join("")}<th class="num">Total</th><th class="num">Valor</th></tr></thead><tbody>
+    ${anos.map((y) => { const xs = lista.filter((a) => (anoDe(a) || "sem data") === y); return `<tr><td>${esc(y)}</td>${creas.map((c) => `<td class="num">${conta(xs, (a) => a.crea === c) || "—"}</td>`).join("")}<td class="num">${xs.length}</td><td class="num">${moeda(soma(xs))}</td></tr>`; }).join("")}
+    </tbody></table></div>` : "";
+  // Atividades (cada ART conta uma vez por código)
+  const tos = new Map();
+  for (const a of lista) for (const c of new Set(a.tos || [])) tos.set(c, (tos.get(c) || 0) + 1);
+  const topo = [...tos.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
+  $("#analise-tos").innerHTML = topo.length ? `<div class="tabela-wrap"><table class="tabela compacta"><tbody>${topo.map(([c, n]) => {
+    const d = TOS_DESC.get(c) || ((lista.flatMap((a) => a.atividades || []).find((x) => x.tos === c) || {}).descricao) || "";
+    return `<tr><td><b>${esc(c)}</b> ${esc(d.charAt(0).toUpperCase() + d.slice(1))}</td><td class="num">${n}</td></tr>`; }).join("")}</tbody></table></div>` : '<p class="dica">Sem atividades informadas.</p>';
+  // Tiradas para
+  const para = new Map();
+  for (const a of lista) { const k = a.vinculo === "empresa" ? nomeEmpresa(a.empresa_id) || "Empresa removida" : a.vinculo === "particular" ? "Clientes particulares" : "Não informado"; para.set(k, [...(para.get(k) || []), a]); }
+  $("#analise-para").innerHTML = `<div class="tabela-wrap"><table class="tabela compacta"><tbody>${[...para.entries()].sort((a, b) => b[1].length - a[1].length).map(([k, xs]) => `<tr><td>${esc(k)}</td><td class="num">${xs.length}</td><td class="num">${moeda(soma(xs))}</td></tr>`).join("")}</tbody></table></div>`;
+}
+
+// ---------------------------------------------------------------- resumo dos vencimentos (pop-up ao entrar)
+function abrirVencimentos(automatico = false) {
+  const r = R.resumoVencimentos(arts, hoje);
+  if (automatico && !(r.vencidas.length + r.ate30.length + r.ate90.length)) return;
+  renderVencimentos();
+  $("#dlg-vencimentos").showModal();
+}
+
+function renderVencimentos() {
+  const r = R.resumoVencimentos(arts, hoje);
+  const linha = (a) => `<tr><td class="numero">${esc(a.numero)}<br><small class="dica">CREA-${esc(a.crea)}</small></td>
+      <td>${esc(a.contratante || "—")}<br><small class="dica">${esc((a.observacao || "").slice(0, 70))}${(a.observacao || "").length > 70 ? "…" : ""}</small></td>
+      <td class="data">${R.dataBR(a.fim)}<br><small class="dica">${esc(textoDias(a))}</small></td>
+      <td>${selectAcao(a)}</td><td><button class="btn-link" type="button" data-ver="${esc(a.id)}">Abrir</button></td></tr>`;
+  const grupo = (titulo, lista, classe, aberto) => (lista.length ? `<details class="venc-grupo ${classe}"${aberto ? " open" : ""}><summary>${titulo} <span class="venc-n">${lista.length}</span>${lista.filter((a) => !a.acao).length ? ` <small>${lista.filter((a) => !a.acao).length} sem ação</small>` : ""}</summary>
+      <div class="tabela-wrap"><table class="tabela compacta"><thead><tr><th>ART</th><th>Cliente</th><th>Fim previsto</th><th>Ação</th><th></th></tr></thead><tbody>${lista.map(linha).join("")}</tbody></table></div></details>` : "");
+  const card = (faixa, n, rotulo, classe) => `<button type="button" class="venc-card ${classe}" data-ver-faixa="${faixa}"${n ? "" : " disabled"}><strong>${n}</strong><span>${rotulo}</span></button>`;
+  const nada = !(r.vencidas.length + r.ate30.length + r.ate90.length);
+  $("#dlg-vencimentos").innerHTML = `<div class="dlg-cab"><h2 id="titulo-vencimentos">Vencimentos das ARTs</h2><button class="btn-link" data-fechar type="button">Fechar</button></div>
+    <div class="dlg-corpo">
+      <p class="dica">Situação em ${R.dataBR(hoje)}. As ARTs baixadas não entram: a obra ou o serviço já foi concluído e elas não vencem mais.</p>
+      <div class="venc-cards">
+        ${card("vencida", r.vencidas.length, r.vencidas.length === 1 ? "ART vencida sem baixa" : "ARTs vencidas sem baixa", "vc-vencida")}
+        ${card("vencendo", r.ate30.length, "vencem nos próximos 30 dias", "vc-30")}
+        ${card("vence90", r.ate90.length, "vencem em 31 a 90 dias (3 meses)", "vc-90")}
+      </div>
+      ${nada ? '<p class="venc-ok">Nenhuma ART vencida nem a vencer nos próximos 90 dias.</p>' : ""}
+      ${r.semAcao ? `<p class="venc-aviso"><b>${plural(r.semAcao, "ART vencida ou a vencer em 30 dias está", "ARTs vencidas ou a vencer em 30 dias estão")} sem ação definida.</b> Escolha para cada uma: encerrar a obra ou serviço e dar baixa, emitir ART substituta ou emitir ART complementar.</p>` : ""}
+      ${grupo("Vencidas sem baixa", r.vencidas, "vg-vencida", true)}
+      ${grupo("Vencem nos próximos 30 dias", r.ate30, "vg-30", true)}
+      ${grupo("Vencem em 31 a 90 dias", r.ate90, "vg-90", !r.vencidas.length && !r.ate30.length)}
+    </div>
+    <div class="dlg-rodape"><button class="btn btn-primary" type="button" data-fechar>Entendi</button></div>`;
 }
 
 // ---------------------------------------------------------------- alertas
@@ -228,32 +366,22 @@ function campoHtml([nome, rotulo, cls, tipo], art) {
   return `<label class="${cls}">${rotulo}${input}</label>`;
 }
 
-function blocoDecisao(art) {
-  const tipo = R.tipoServicoSugerido(art);
-  return `<div class="bloco destaque" id="bloco-decisao">
-    <h3>O que fazer com esta ART</h3>
-    <div class="opcoes" role="radiogroup" aria-label="Tipo de serviço">
-      <label><input type="radio" name="tipo_servico" value="pontual"${tipo === "pontual" ? " checked" : ""}> Serviço pontual (laudo, vistoria, projeto)</label>
-      <label><input type="radio" name="tipo_servico" value="continuo"${tipo === "continuo" ? " checked" : ""}> Serviço contínuo (PMOC, manutenção, consultoria mensal)</label>
-    </div>
-    <p class="dica" id="pergunta-decisao"></p>
-    <div class="opcoes" role="radiogroup" aria-labelledby="pergunta-decisao">
-      <label><input type="radio" name="resposta" value="sim"> Sim</label>
-      <label><input type="radio" name="resposta" value="nao"> Não</label>
-    </div>
-    <div id="recomendacao"></div>
+// Ação para a ART que não foi baixada: encerrar e dar baixa, emitir ART substituta ou complementar
+function blocoAcao(art) {
+  const f = R.faixaVencimento(art, hoje);
+  const quando = f === "vencida" ? `Venceu ${textoDias(art)}.` : f ? `Vence ${textoDias(art)}.` : `Fim previsto em ${R.dataBR(art.fim)}.`;
+  return `<div class="bloco destaque" id="bloco-acao">
+    <h3>Ação para esta ART</h3>
+    <p class="dica">${esc(quando)} O que vai ser feito?</p>
+    <div class="opcoes opcoes-coluna" role="radiogroup" aria-label="Ação">${[["", "Ainda não definido"], ...Object.entries(R.ACOES)]
+      .map(([v, t]) => `<label><input type="radio" name="acao" value="${v}"${(art.acao || "") === v ? " checked" : ""}> ${esc(t)}</label>`).join("")}</div>
+    <div id="passos-acao"></div>
   </div>`;
 }
 
-function atualizarDecisao(dlg) {
-  const tipo = $("input[name=tipo_servico]:checked", dlg)?.value || "pontual";
-  const resp = $("input[name=resposta]:checked", dlg)?.value;
-  $("#pergunta-decisao", dlg).textContent =
-    tipo === "continuo" ? "O contrato foi renovado para um novo período?" : "O serviço foi concluído?";
-  const rec = R.recomendacao(tipo, resp === undefined ? null : resp === "sim");
-  $("#recomendacao", dlg).innerHTML = rec
-    ? `<div class="recomendacao"><strong>${esc(rec.acao)}</strong><ol>${rec.passos.map((p) => `<li>${esc(p)}</li>`).join("")}</ol></div>`
-    : "";
+function atualizarPassos(dlg) {
+  const acao = ($("input[name=acao]:checked", dlg) || {}).value;
+  $("#passos-acao", dlg).innerHTML = acao ? `<div class="recomendacao"><ol>${R.PASSOS_ACAO[acao].map((p) => `<li>${esc(p)}</li>`).join("")}</ol></div>` : "";
 }
 
 // Lançamentos da ART: tirada para uma empresa, vão para a página da empresa (ela paga a taxa: reembolso);
@@ -306,15 +434,15 @@ function abrirArt(id, opcoes = {}) {
         </div>
       </div>
 
-      ${existente && s !== "baixada" && art.fim ? blocoDecisao(art) : ""}
+      ${existente && s !== "baixada" && art.fim ? blocoAcao(art) : ""}
 
       ${existente ? `<div class="bloco"><h3>Baixa</h3>
         ${s === "baixada"
-          ? `<p>Baixa registrada em <b>${R.dataBR(art.baixa_data)}</b> (${art.baixa_motivo === "interrupcao" ? "interrupção" : "conclusão"}).</p>
+          ? `<p>Baixa registrada em <b>${R.dataBR(art.baixa_data)}</b> (${{ interrupcao: "interrupção", substituicao: "substituída por outra ART" }[art.baixa_motivo] || "conclusão"}).</p>
              <button class="btn btn-claro" type="button" id="btn-desfazer-baixa">Desfazer baixa</button>`
           : `<div class="linha-acoes">
               <label>Data da baixa<input type="date" name="baixa_data_nova" value="${hoje}"></label>
-              <label>Motivo<select name="baixa_motivo_novo"><option value="conclusao">Conclusão</option><option value="interrupcao">Interrupção</option></select></label>
+              <label>Motivo<select name="baixa_motivo_novo"><option value="conclusao">Conclusão</option><option value="interrupcao">Interrupção</option><option value="substituicao">Substituição</option></select></label>
               <button class="btn btn-dark" type="button" id="btn-baixa">Registrar baixa</button>
             </div>
             <p class="dica">Registre aqui depois de dar a baixa no portal do CREA.</p>`}
@@ -340,9 +468,9 @@ function abrirArt(id, opcoes = {}) {
   </form>`;
 
   const form = $("#form-art", dlg);
-  if ($("#bloco-decisao", dlg)) {
-    atualizarDecisao(dlg);
-    $("#bloco-decisao", dlg).addEventListener("change", () => atualizarDecisao(dlg));
+  if ($("#bloco-acao", dlg)) {
+    atualizarPassos(dlg);
+    $("#bloco-acao", dlg).addEventListener("change", () => atualizarPassos(dlg));
   }
 
   const lerFormulario = () => {
@@ -354,8 +482,7 @@ function abrirArt(id, opcoes = {}) {
       dados[nome] = v === "" ? null : tipo === "number" ? Number(v) : v;
     }
     Object.assign(dados, vinculoDe(String(f.get("para") || "")));
-    const tipoServico = f.get("tipo_servico");
-    if (tipoServico) dados.tipo_servico = tipoServico;
+    if ($("#bloco-acao", dlg)) dados.acao = f.get("acao") || null;
     return dados;
   };
 
@@ -469,7 +596,13 @@ function abrirImportacao({ anterior = null } = {}) {
   $("#btn-confirmar-importacao").disabled = true;
   const dica = $("#dica-vinculo");
   dica.hidden = !anterior;
-  if (anterior) dica.textContent = `As ARTs importadas agora serão vinculadas como renovação da ART ${anterior.numero}.`;
+  if (anterior) {
+    dica.textContent = anterior.acao === "substituta"
+      ? `A ART importada agora fica vinculada como substituta da ART ${anterior.numero}, que passa a constar como baixada por substituição.`
+      : anterior.acao === "complementar"
+        ? `A ART importada agora fica vinculada como complementar da ART ${anterior.numero}, que continua até a baixa.`
+        : `As ARTs importadas agora serão vinculadas à ART ${anterior.numero} (renovação, substituta ou complementar).`;
+  }
   dlg.showModal();
 }
 
@@ -553,6 +686,12 @@ async function confirmarImportacao() {
       return r;
     });
     const salvos = await armazem.salvarVarios(registros);
+    // ART substituta importada: a anterior fica baixada por substituição
+    const ant = importacao.anterior && arts.find((a) => a.id === importacao.anterior.id);
+    if (ant && ant.acao === "substituta" && !ant.baixa_data && registros.some((r) => !arts.some((a) => a.numero === r.numero))) {
+      const novas = registros.filter((r) => !arts.some((a) => a.numero === r.numero)).map((r) => r.numero).join(", ");
+      await armazem.salvar({ ...ant, baixa_data: hoje, baixa_motivo: "substituicao", notas: [ant.notas, `Substituída pela ART ${novas}.`].filter(Boolean).join("\n") });
+    }
     for (const i of escolhidos) {
       const c = importacao.candidatos[i];
       if (!c.arquivo) continue;
@@ -570,13 +709,13 @@ async function confirmarImportacao() {
 
 // ---------------------------------------------------------------- exportação
 function exportarCsv() {
-  const cab = ["Número", "CREA", "Contratante", "Tirada para", "CPF/CNPJ", "Local", "Serviço", "TOS", "Valor", "Início", "Fim previsto", "Situação", "Dias para o fim", "Baixa", "Motivo da baixa"];
+  const cab = ["Número", "CREA", "Contratante", "Tirada para", "CPF/CNPJ", "Local", "Serviço", "TOS", "Valor", "Início", "Fim previsto", "Situação", "Dias para o fim", "Ação", "Baixa", "Motivo da baixa"];
   const tiradaPara = (a) => (a.vinculo === "empresa" ? nomeEmpresa(a.empresa_id) || "Empresa removida" : a.vinculo === "particular" ? "Cliente particular" : "");
-  const linhas = ordenar(arts).map((a) => [
+  const linhas = ordenar(filtradas()).map((a) => [
     a.numero, a.crea, a.contratante, tiradaPara(a), a.contratante_doc, a.local, a.observacao, (a.tos || []).join(", "),
     a.valor == null ? "" : String(a.valor).replace(".", ","), R.dataBR(a.inicio), R.dataBR(a.fim),
-    R.ROTULO_SITUACAO[R.situacao(a, hoje)], R.diasAte(a.fim, hoje) ?? "", a.baixa_data ? R.dataBR(a.baixa_data) : "",
-    a.baixa_motivo === "interrupcao" ? "Interrupção" : a.baixa_motivo ? "Conclusão" : "",
+    R.ROTULO_SITUACAO[R.situacao(a, hoje)], R.diasAte(a.fim, hoje) ?? "", a.acao ? R.ACOES[a.acao] : "", a.baixa_data ? R.dataBR(a.baixa_data) : "",
+    { interrupcao: "Interrupção", substituicao: "Substituição", conclusao: "Conclusão" }[a.baixa_motivo] || "",
   ]);
   const csv = [cab, ...linhas].map((l) => l.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(";")).join("\r\n");
   const url = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
@@ -587,9 +726,21 @@ function exportarCsv() {
 
 // ---------------------------------------------------------------- eventos
 document.addEventListener("click", async (e) => {
-  const alvo = e.target.closest("button, tr.clicavel");
+  if (e.target.closest("select")) return; // a caixa de seleção da ação não abre a ART
+  const alvo = e.target.closest("button, tr.clicavel, tr.clicavel-cliente");
   if (!alvo) return;
   if (alvo.matches("[data-fechar]")) alvo.closest("dialog").close();
+  else if (alvo.matches("tr.clicavel-cliente")) {
+    filtro.cliente = filtro.cliente === alvo.dataset.cliente ? "" : alvo.dataset.cliente;
+    renderizar();
+    $("#tabela").scrollIntoView({ behavior: "smooth", block: "start" });
+  } else if (alvo.matches("[data-ver-faixa]")) {
+    filtro.situacao = alvo.dataset.verFaixa;
+    $("#filtro-situacao").value = filtro.situacao;
+    $("#dlg-vencimentos").close();
+    renderizar();
+    $("#tabela").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
   else if (alvo.matches("tr.clicavel")) abrirArt(alvo.dataset.id);
   else if (alvo.matches("[data-situacao]")) {
     filtro.situacao = filtro.situacao === alvo.dataset.situacao ? "" : alvo.dataset.situacao;
@@ -598,6 +749,7 @@ document.addEventListener("click", async (e) => {
     renderTabela();
   } else if (alvo.matches("[data-ver]")) {
     alternarAlertas(false);
+    if ($("#dlg-vencimentos").open) $("#dlg-vencimentos").close();
     $("#dlg-art").open && $("#dlg-art").close();
     abrirArt(alvo.dataset.ver);
   } else if (alvo.matches("[data-lido]")) {
@@ -610,7 +762,12 @@ document.addEventListener("click", async (e) => {
   } else if (alvo.matches("[data-abrir-alertas]")) alternarAlertas(true);
 });
 
+document.addEventListener("keydown", (e) => {
+  const cl = e.target.closest && e.target.closest("tr.clicavel-cliente");
+  if (cl && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); cl.click(); }
+});
 $("#tabela").addEventListener("keydown", (e) => {
+  if (e.target.closest("select")) return;
   const tr = e.target.closest("tr.clicavel");
   if (tr && (e.key === "Enter" || e.key === " ")) {
     e.preventDefault();
@@ -639,6 +796,17 @@ $("#filtro-para").addEventListener("change", (e) => {
   filtro.para = e.target.value;
   renderTabela();
 });
+for (const [id, k] of [["#filtro-cliente", "cliente"], ["#filtro-ano", "ano"], ["#filtro-acao", "acao"]]) {
+  $(id).addEventListener("change", (e) => { filtro[k] = e.target.value; renderTabela(); });
+}
+$("#btn-limpar-filtros").addEventListener("click", () => {
+  Object.assign(filtro, { busca: "", crea: "", situacao: "", para: "", cliente: "", ano: "", acao: "" });
+  $("#busca").value = ""; $("#filtro-crea").value = ""; $("#filtro-situacao").value = ""; $("#filtro-para").value = "";
+  renderizar();
+});
+// Ação escolhida na lista ou no resumo dos vencimentos
+document.addEventListener("change", (e) => { if (e.target.matches("select[data-acao]")) salvarAcao(e.target.dataset.acao, e.target.value); });
+$("#btn-vencimentos").addEventListener("click", () => abrirVencimentos(false));
 
 $("#btn-importar").addEventListener("click", () => abrirImportacao());
 $("#btn-nova").addEventListener("click", () => abrirArt(null));
