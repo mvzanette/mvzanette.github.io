@@ -394,8 +394,9 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   // entradas pela data de recebimento; a fatura do cartão inteira na data de vencimento (as compras no cartão só
   // mexem no caixa quando a fatura é paga); Pix, débito e dinheiro na data do gasto; os fixos fora do cartão e o
   // investimento do mês. Realizado é o que tem data até hoje (ou é de mês que já passou); o resto é previsto.
-  // Gastos do mês: as compras pela data e a compra parcelada no cartão com cada parcela no mês da fatura em que ela
-  // vence. O pagamento da fatura não conta como gasto (as compras dela já contam).
+  // Gastos pagos no mês: a mesma base do fluxo de caixa, sem o investimento. A fatura que vence no mês entra com os
+  // lançamentos dela (as mesmas categorias da aba Cartão e faturas), mais Pix, débito, dinheiro e fixos fora do cartão.
+  // As compras feitas no mês (pela data, o que no cartão vai para a fatura seguinte) ficam em "Comprado em".
   const hojeIso = `${hojeKey}-${String(hoje.getDate()).padStart(2, "0")}`;
   const diasDoMes = chave => { const [a, m] = chave.split("-").map(Number); return new Date(a, m, 0).getDate(); };
   const rotuloDe = chave => { const [a, m] = chave.split("-").map(Number); return lbl(a, m); };
@@ -541,26 +542,55 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   }
   const subDe = l => (ehAjuste(l) ? null : ef(l).subcategoria || null);
 
+  // Lançamentos da fatura que vence no mês. Fechada ou com a prévia do app: os lançamentos dela. Ainda aberta: as
+  // compras no cartão do mês da compra, as parcelas de compras antigas e os fixos no cartão que vão cair. O que o total
+  // da fatura tem a mais (o valor visto no app, sem o detalhe, como o ajuste do projeto) fica como "não detalhado".
+  const NAO_DETALHADO = "Não detalhado";
+  function itensDaFatura(rot, fat) {
+    if (!fat || !(fat.valor > 0)) return [];
+    const itens = [];
+    const fk = FATURAS.get(rot);
+    if (fk && fk.itens.length) {
+      fk.itens.forEach(l => { const e = ef(l); const parc = l.parc && l.parc.n > 1;
+        itens.push({desc: l.nome, valor: l.valor, cat: e.categoria, sub: e.subcategoria || null, data: l.data, parcela: parc ? `${l.parc.k}/${l.parc.n}` : null, grupo: parc ? "Cartão parcelado" : "Cartão à vista"}); });
+    } else {
+      const mm = D.meses.find(x => x.fatura === rot);
+      for (const l of mm ? mm.lancamentos : []) {
+        if (!card(l.forma) || ehAjuste(l) || l.origem === "fatura" || ehInvestimento(l)) continue;
+        const parc = compraParcelada(l);
+        itens.push({desc: l.desc, valor: l.valor, cat: catDe(l), sub: subDe(l), data: l.data, parcela: parc ? l.parcelas : null, grupo: parc ? "Cartão parcelado" : "Cartão à vista"});
+      }
+      parcelasAgendadas(rot).forEach(p => itens.push({...p, ...(p.parcela ? categoriaPeloNome(p.desc) : {cat: "Parcelas agendadas", sub: null}), grupo: "Cartão parcelado"}));
+      if (mm) statusRecorrentes(mm).filter(r => card(r.forma) && r.pendente > 0).forEach(r => itens.push({desc: r.nome, valor: r.pendente, cat: r.categoria || "Fixos", sub: r.subcategoria || null, data: null, grupo: "Fixo no cartão a cair"}));
+    }
+    const resto = Math.round((fat.valor - sum(itens, i => i.valor)) * 100) / 100;
+    if (resto > 0.5) itens.push({desc: fat.situacao === "fechada" ? "Lançamentos da fatura sem detalhe" : "Compras no cartão sem detalhe (o total visto no app menos o que está anotado)",
+      valor: resto, cat: NAO_DETALHADO, sub: null, data: null, grupo: "Cartão à vista", semDetalhe: true});
+    return itens;
+  }
+
   function gastosDoMes(chave) {
     const m = D.meses.find(x => x.chave === chave);
     const rot = rotuloDe(chave);
-    const itens = [];
+    const fatura = faturaDoCartao(rot);
+    const cartao = itensDaFatura(rot, fatura);
+    const itens = [...cartao];
     const investimentos = [];
     for (const l of m ? m.lancamentos : []) {
+      if (card(l.forma)) continue;
       if (ehInvestimento(l)) investimentos.push({desc: l.desc, valor: l.valor, data: l.data});
-      else if (!compraParcelada(l)) itens.push({desc: l.desc, valor: l.valor, grupo: card(l.forma) ? "Cartão à vista" : FORMA_CAIXA(l.forma), cat: catDe(l), sub: subDe(l), data: l.data});
+      else itens.push({desc: l.desc, valor: l.valor, grupo: FORMA_CAIXA(l.forma), cat: catDe(l), sub: subDe(l), data: l.data});
     }
-    // Parcelas que vencem na fatura deste mês: as da fatura conhecida ou, sem ela, as compras parceladas do mês
-    // anterior (1ª parcela) e as parcelas agendadas de compras mais antigas
-    const parcelas = [];
+    // Fixos fora do cartão ainda não pagos (os mesmos do fluxo de caixa)
+    caixa(chave).saidas.filter(x => x.tipo === "fixo").forEach(x => itens.push({desc: x.desc, valor: x.valor, grupo: "Fixos fora do cartão", cat: (x.r && x.r.categoria) || "Fixos", sub: (x.r && x.r.subcategoria) || null, data: x.data}));
     const fk = FATURAS.get(rot);
-    if (fk) fk.itens.filter(l => l.parc && l.parc.n > 1).forEach(l => { const e = ef(l); parcelas.push({desc: l.nome, valor: l.valor, parcela: `${l.parc.k}/${l.parc.n}`, cat: e.categoria, sub: e.subcategoria || null, data: l.data}); });
-    const mm = D.meses.find(x => x.fatura === rot);
-    for (const l of mm ? mm.lancamentos : []) if (compraParcelada(l) && l.origem !== "fatura" && !l.naFatura) parcelas.push({desc: l.desc, valor: l.valor, parcela: l.parcelas, cat: catDe(l), sub: subDe(l), data: l.data});
-    if (!fk) parcelasAgendadas(rot).forEach(p => parcelas.push({...p, ...(p.parcela ? categoriaPeloNome(p.desc) : {cat: "Parcelas agendadas", sub: null})}));
-    parcelas.forEach(p => itens.push({...p, grupo: "Cartão parcelado"}));
-    return {chave, rotulo: rot, itens, parcelas, investimentos, total: Math.round(sum(itens, i => i.valor) * 100) / 100};
+    return {chave, rotulo: rot, fatura, periodo: fk && fk.fechada && fk.periodo && fk.periodo.inicio ? fk.periodo : null, itens, cartao,
+      parcelas: cartao.filter(i => i.parcela), semDetalhe: sum(cartao.filter(i => i.semDetalhe), i => i.valor), investimentos,
+      totalCartao: Math.round(sum(cartao, i => i.valor) * 100) / 100, total: Math.round(sum(itens, i => i.valor) * 100) / 100};
   }
+
+  // Compras lançadas no mês pela data (o que no cartão vai para a fatura seguinte), sem os investimentos
+  const comprasLancadas = m => sum(m.lancamentos.filter(l => !ehInvestimento(l)), l => l.valor);
 
   // Compras feitas no mês, pelo valor inteiro: a parcelada no cartão entra com o total da compra (10x de 100 = 1.000)
   // no mês em que foi comprada. Investimentos não são compras.
@@ -577,8 +607,10 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     }
     const parceladas = itens.filter(i => i.parcela);
     const total = Math.round(sum(itens, i => i.valor) * 100) / 100;
+    const ajustes = (m ? m.lancamentos : []).filter(ehAjuste);
     return {itens, parceladas, total, parcelado: Math.round(sum(parceladas, i => i.valor) * 100) / 100,
-      noMes: Math.round(sum(parceladas, i => i.parcela.valor) * 100) / 100};
+      noMes: Math.round(sum(parceladas, i => i.parcela.valor) * 100) / 100,
+      ajuste: Math.round(sum(ajustes, l => l.valor) * 100) / 100, ajustes: ajustes.map(l => l.desc.replace(/^ajuste:\s*/i, ""))};
   }
 
   const porcento = v => `${Math.round(v * 100).toLocaleString("pt-BR")}%`;
@@ -646,7 +678,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   function renderTermometro(m) {
     const box = $id("g-termometro");
     const botao = !aoLancarGasto ? "" : `<div class="termometro-acoes"><button type="button" class="btn" id="btn-lancar-gasto">Lançar gasto ou Pix</button>${aoImportarExtrato ? '<button type="button" class="btn btn-claro" id="btn-extrato-gastos">Importar extrato</button>' : ""}</div>`;
-    const cx = caixa(m.chave), g = gastosDoMes(m.chave);
+    const cx = caixa(m.chave);
     const corrente = m.chave === hojeKey, futuro = m.chave > hojeKey, neg = cx.fim < 0;
     const entra = cx.ent.realizado + cx.ent.previsto, sai = cx.sai.realizado + cx.sai.previsto;
     const disponivel = (cx.inicial ?? 0) + entra;
@@ -655,7 +687,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const kpis = `<div class="fech-kpis">
         ${kpi("Entradas no caixa", brl(entra), cx.ent.previsto ? `${brl(cx.ent.realizado)} recebidos · ${brl(cx.ent.previsto)} previstos` : `${cx.entradas.length} ${cx.entradas.length === 1 ? "recebimento" : "recebimentos"} no mês`)}
         ${kpi("Saídas do caixa", brl(sai), cx.sai.previsto ? `${brl(cx.sai.realizado)} pagos · ${brl(cx.sai.previsto)} previstos` : "fatura, Pix, débito, dinheiro e fixos")}
-        ${kpi("Gastos do mês", brl(g.total), `${g.itens.length} ${g.itens.length === 1 ? "gasto" : "gastos"} · pela data da compra`)}
+        ${kpi("Compras do mês", brl(comprasLancadas(m)), `${m.lancamentos.length} ${m.lancamentos.length === 1 ? "lançamento" : "lançamentos"} · pela data da compra${m.fatura ? ` · no cartão, vão para a fatura ${esc(m.fatura)}` : ""}`)}
       </div>`;
     const doSite = m.lancamentos.filter(l => l.origem === "site").length;
     const daFatura = m.lancamentos.filter(l => l.origem === "fatura").length;
@@ -858,18 +890,23 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const cel = (v, st, alvo) => (st === alvo ? brl(v) : "");
     const linha = (rotulo, sub, valor, st) => `<tr><td>${rotulo}${sub ? `<div class="sub">${sub}</div>` : ""}</td><td class="r num">${cel(valor, st, "realizado")}</td><td class="r num prev">${cel(valor, st, "previsto")}</td></tr>`;
     const grupo = (rotulo, a, b) => `<tr class="cx-grupo"><th scope="row">${rotulo}</th><td class="r num">${brl(a)}</td><td class="r num prev">${b ? brl(b) : "—"}</td></tr>`;
-    // Saídas: a fatura, os gastos fora do cartão juntos por forma de pagamento, os fixos e o investimento
+    // Saídas em dois grupos: os gastos pagos no mês (a fatura, Pix, débito e dinheiro por forma de pagamento e os fixos
+    // fora do cartão, a mesma conta do quadro "Gastos pagos") e o investimento
     const saidas = [];
     for (const s of cx.saidas.filter(x => x.tipo === "fatura")) {
       const f = s.fatura;
       const quando = f.venc ? (s.st === "realizado" ? `paga em ${dBR(f.venc)}` : `vence em ${dataDoMes(f.venc, m.chave)}`) : "vence no mês";
-      saidas.push(linha(esc(s.desc), `${f.situacao === "fechada" ? "fechada" : f.situacao === "aberta" ? "aberta, valor até agora" : "prevista: parcelas, compras lançadas e fixos"} · ${quando}`, s.valor, s.st));
+      const per = (FATURAS.get(f.rotulo) || {}).periodo;
+      const compras = f.situacao === "fechada" && per && per.inicio ? `compras de ${dBR(per.inicio)} a ${dBR(per.fim)}` : f.situacao === "aberta" ? "aberta, valor até agora" : "prevista: parcelas, compras lançadas e fixos";
+      saidas.push(linha(esc(s.desc), `${compras} · ${quando}`, s.valor, s.st));
     }
     const porForma = new Map();
     cx.saidas.filter(x => x.tipo === "dia").forEach(s => { const k = `${s.forma}|${s.st}`; const o = porForma.get(k) || {forma: s.forma, st: s.st, v: 0, q: 0}; o.v += s.valor; o.q++; porForma.set(k, o); });
     [...porForma.values()].sort((a, b) => b.v - a.v).forEach(o => saidas.push(linha(esc(o.forma), `${o.q} ${o.q === 1 ? "gasto" : "gastos"}${o.st === "previsto" ? " com data futura" : ""}`, o.v, o.st)));
     cx.saidas.filter(x => x.tipo === "fixo").forEach(s => saidas.push(linha(esc(s.desc), `${s.r && s.r.site ? "recorrente ainda não pago" : "fixo fora do cartão"}${s.data ? ` · dia ${dBR(s.data)}` : ""}`, s.valor, s.st)));
-    cx.saidas.filter(x => x.tipo === "investimento").forEach(s => saidas.push(linha(esc(s.desc), s.l ? `investimento lançado${s.data ? ` em ${dBR(s.data)}` : ""}` : investido(cx) ? "previsão de investimento do mês, menos o já lançado" : "investimento do mês", s.valor, s.st)));
+    const investimentos = cx.saidas.filter(x => x.tipo === "investimento").map(s => linha(esc(s.desc), s.l ? `investimento lançado${s.data ? ` em ${dBR(s.data)}` : ""}` : investido(cx) ? "previsão de investimento do mês, menos o já lançado" : "investimento do mês", s.valor, s.st));
+    const somaSt = (tipos, st) => Math.round(sum(cx.saidas.filter(x => tipos.includes(x.tipo) && x.st === st), x => x.valor) * 100) / 100;
+    const GASTOS = ["fatura", "dia", "fixo"];
     // Saldo do início do mês: informado, continuação do mês anterior ou ainda sem valor
     const ini = cx.ini;
     const editavel = !!aoSalvarSaldo;
@@ -881,23 +918,24 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const prox = cx.proxima, mesSeguinte = rotuloDe(somarChave(m.chave, 1));
     const titulo = passado ? "Saldo no fim do mês" : "Saldo previsto no fim do mês";
     $id("hero").innerHTML = `
-      <div class="label">Fluxo de caixa de ${esc(m.rotulo)}</div>
+      <div class="label">Balanço de ${esc(m.rotulo)} · o que entra e sai da conta</div>
       <div class="big num ${cx.fim < 0 ? "neg" : ""}">${brl(cx.fim)}</div>
-      <div class="sub">${titulo}${cx.inicial == null ? " (sem o saldo do início do mês)" : ""}${!passado && !futuro ? ` · hoje na conta: ${brl(cx.hoje)}` : ""}</div>
+      <div class="sub">${titulo}${cx.inicial == null ? " (sem o saldo do início do mês)" : ""}${!passado && !futuro ? ` · até hoje entrou ${brl(cx.ent.realizado)} e saiu ${brl(cx.sai.realizado)}` : ""}</div>
       <div class="scroll"><table class="calc caixa-tabela" style="margin-top:14px">
         <thead><tr><th>${esc(m.rotulo)}</th><th class="r">Realizado</th><th class="r">Previsto</th></tr></thead>
         <tbody>
           ${inicial}
           ${grupo("Entradas", cx.ent.realizado, cx.ent.previsto)}
           ${cx.entradas.map(e => linhaEntrada(e, m.chave)).join("") || `<tr><td class="muted" colspan="3">Nenhuma entrada no mês.</td></tr>`}
-          ${grupo("(−) Saídas", cx.sai.realizado, cx.sai.previsto)}
-          ${saidas.join("") || `<tr><td class="muted" colspan="3">Nenhuma saída no mês.</td></tr>`}
+          ${grupo("(−) Gastos pagos no mês", somaSt(GASTOS, "realizado"), somaSt(GASTOS, "previsto"))}
+          ${saidas.join("") || `<tr><td class="muted" colspan="3">Nenhum gasto pago no mês.</td></tr>`}
+          ${investimentos.length ? `${grupo("(−) Investimento", somaSt(["investimento"], "realizado"), somaSt(["investimento"], "previsto"))}${investimentos.join("")}` : ""}
           <tr class="total"><td>(=) Saldo do mês</td><td class="r num">${brl(cx.ent.realizado - cx.sai.realizado)}</td><td class="r num prev">${brl(cx.ent.previsto - cx.sai.previsto)}</td></tr>
           <tr class="total cx-fim"><td>${titulo}</td><td class="r num${cx.fim < 0 ? " neg" : ""}" colspan="2">${brl(cx.fim)}</td></tr>
         </tbody>
       </table></div>
       ${aoLancarEntrada ? '<div class="acoes-lanc" style="margin-top:10px"><button type="button" class="btn sec mini" data-lancar-entrada>Lançar entrada</button></div>' : ""}
-      ${prox && prox.valor > 0 ? `<p class="sub" style="margin:10px 0 0">As compras no cartão de ${esc(m.rotulo)} entram na fatura ${esc(prox.rotulo)}${prox.venc ? `, que vence em ${dataLonga(prox.venc)}` : ""} (${prox.situacao === "fechada" ? "fechada em" : "prevista em"} ${brl(prox.valor)} até agora). Ela sai do caixa de ${esc(mesSeguinte)}.</p>` : ""}
+      <p class="sub" style="margin:10px 0 0">O cartão entra no balanço pela fatura paga no mês${cx.fatura ? ` (${esc(cx.fatura.rotulo)})` : ""}, com os lançamentos dela no quadro “Gastos pagos em ${esc(m.rotulo)}”.${prox && prox.valor > 0 ? ` As compras no cartão feitas em ${esc(m.rotulo)} vão para a fatura ${esc(prox.rotulo)}${prox.venc ? `, que vence em ${dataLonga(prox.venc)}` : ""} (${prox.situacao === "fechada" ? "fechada em" : "até agora"} ${brl(prox.valor)}), e entram no balanço de ${esc(mesSeguinte)}.` : ""}</p>
       ${cx.inicial == null && editavel ? `<div class="note"><b>Informe o saldo da conta em ${dia1}.</b> O Pix do começo do mês sai do que sobrou do mês anterior; com o saldo do início, o caixa mostra quanto há de verdade.</div>` : ""}
       ${entradasRepetidas ? `<p class="sub" style="margin:8px 0 0">${entradasRepetidas === 1 ? "Uma entrada lançada pelo site já estava" : `${entradasRepetidas} entradas lançadas pelo site já estavam`} no projeto Financeiro e não contou de novo.</p>` : ""}
       ${!cx.entradas.length ? `<div class="note"><b>Nenhuma entrada em ${esc(m.rotulo)}.</b> ${aoLancarEntrada ? "Lance o salário ou outro recebimento pelo botão Lançar entrada." : "As receitas entram pelo projeto Financeiro."}</div>` : ""}
@@ -924,31 +962,38 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   function renderGastosMes(m) {
     const g = gastosDoMes(m.chave);
     const pct = v => (g.total > 0 ? `${Math.round(v / g.total * 100)}%` : "—");
+    const f = g.fatura;
+    // Por forma de pagamento: a fatura do cartão numa linha só (com as parcelas e o sem detalhe) e o resto por forma
     const porGrupo = new Map();
-    g.itens.forEach(i => { const o = porGrupo.get(i.grupo) || {v: 0, q: 0}; o.v += i.valor; o.q++; porGrupo.set(i.grupo, o); });
+    g.itens.filter(i => !g.cartao.includes(i)).forEach(i => { const o = porGrupo.get(i.grupo) || {v: 0, q: 0}; o.v += i.valor; o.q++; porGrupo.set(i.grupo, o); });
+    const linhasForma = [];
+    if (g.cartao.length) {
+      const parc = sum(g.parcelas, p => p.valor);
+      const partes = [`${g.cartao.length} ${g.cartao.length === 1 ? "lançamento" : "lançamentos"}`, f.situacao === "fechada" ? "fechada" : f.situacao === "aberta" ? "aberta, até agora" : "prevista"];
+      if (parc) partes.push(`parcelas ${n(parc)}`);
+      if (g.semDetalhe) partes.push(`sem detalhe ${n(g.semDetalhe)}`);
+      linhasForma.push([`Fatura ${f.rotulo} do cartão`, partes.join(" · "), g.totalCartao]);
+    }
+    [...porGrupo.entries()].sort((a, b) => b[1].v - a[1].v).forEach(([k, o]) => linhasForma.push([k, `${o.q} ${o.q === 1 ? "item" : "itens"}`, o.v]));
     const porCat = new Map();
     g.itens.forEach(i => porCat.set(i.cat, (porCat.get(i.cat) || 0) + i.valor));
-    const cats = [...porCat.entries()].sort((a, b) => b[1] - a[1]);
+    const cats = [...porCat.entries()].sort((a, b) => (a[0] === NAO_DETALHADO) - (b[0] === NAO_DETALHADO) || b[1] - a[1]);
     const maxc = Math.max(1, ...cats.map(c => c[1]));
     const somaParc = sum(g.parcelas, p => p.valor);
-    // Entradas do trabalho deste mês (mês de referência), recebidas neste mês ou no seguinte
-    const doTrabalho = [caixa(m.chave), caixa(somarChave(m.chave, 1))].flatMap(c => c.entradas).filter(e => e.ref === m.chave);
-    const totTrabalho = sum(doTrabalho, e => e.valor);
+    const periodo = g.periodo ? `, com as compras de ${dBR(g.periodo.inicio)} a ${dBR(g.periodo.fim)}` : "";
     $id("gastos-mes").innerHTML = `
-      <h2>Gastos de ${esc(m.rotulo)}</h2>
+      <h2>Gastos pagos em ${esc(m.rotulo)}</h2>
       <div class="tv-big num">${brl(g.total)}</div>
-      <p class="sub" style="margin:2px 0 12px">Pela data da compra. Na compra parcelada no cartão, cada parcela entra no mês da fatura em que vence. O pagamento da fatura não conta aqui, porque as compras dela já estão contadas.${g.investimentos.length ? ` O que foi lançado em Investimentos (${brl(sum(g.investimentos, i => i.valor))} no mês) também não é gasto: aparece como investimento no fluxo de caixa.` : ""}</p>
+      <p class="sub" style="margin:2px 0 12px">O que sai da conta em ${esc(m.rotulo)}, sem o investimento (a mesma conta do balanço): ${f ? `a fatura ${esc(f.rotulo)} do cartão${periodo}, com os lançamentos e as categorias da aba Cartão e faturas, ` : ""}mais o Pix, o débito, o dinheiro e os fixos fora do cartão do mês.${m.fatura ? ` As compras no cartão feitas em ${esc(m.rotulo)} vão para a fatura ${esc(m.fatura)}: estão em “Comprado em ${esc(m.rotulo)}”.` : ""}${g.investimentos.length ? ` O que foi lançado em Investimentos (${brl(sum(g.investimentos, i => i.valor))} no mês) não é gasto: aparece como investimento no balanço.` : ""}</p>
       ${g.itens.length ? `<div class="label">Por forma de pagamento</div>
-      <div class="scroll"><table><tbody>${[...porGrupo.entries()].sort((a, b) => b[1].v - a[1].v).map(([k, o]) =>
-        `<tr><td>${esc(k)}<div class="sub">${o.q} ${o.q === 1 ? "item" : "itens"}</div></td><td class="r num">${n(o.v)}</td><td class="r num muted">${pct(o.v)}</td></tr>`).join("")}</tbody></table></div>
+      <div class="scroll"><table><tbody>${linhasForma.map(([k, sub, v]) =>
+        `<tr><td>${esc(k)}<div class="sub">${esc(sub)}</div></td><td class="r num">${n(v)}</td><td class="r num muted">${pct(v)}</td></tr>`).join("")}</tbody></table></div>
       <div class="gm-cats-topo"><div class="label">Por categoria</div>${cats.length ? `<button type="button" class="btn-link" data-gm-tudo>${cats.every(([k]) => GM_ABERTAS.has(k)) ? "Recolher tudo" : "Expandir tudo"}</button>` : ""}</div>
       <div class="gm-cats">${cats.map(([k, v]) => categoriaExpansivel(k, v, g.itens.filter(i => i.cat === k), pct, maxc)).join("")}</div>
-      ${g.parcelas.length ? `<details class="gm-parcelas"><summary>Parcelas que vencem na fatura ${esc(g.rotulo)}: ${brl(somaParc)} (${g.parcelas.length})</summary>
+      ${g.semDetalhe ? `<div class="note"><b>${brl(g.semDetalhe)} da fatura ${esc(f.rotulo)} sem detalhe.</b> ${f.situacao === "fechada" ? "A fatura fechada tem lançamentos que não vieram no arquivo." : "É o total que o app mostrou para a fatura menos as compras e as parcelas que estão anotadas. Some quando a fatura (ou a prévia do app) for importada com os lançamentos."}</div>` : ""}
+      ${g.parcelas.length ? `<details class="gm-parcelas"><summary>Parcelas na fatura ${esc(f.rotulo)}: ${brl(somaParc)} (${g.parcelas.length})</summary>
         <div class="scroll"><table><tbody>${g.parcelas.map(p => `<tr><td>${esc(p.desc)}<div class="sub">${esc(p.cat)}${p.parcela ? ` · parcela ${esc(p.parcela)}` : ""}</div></td><td class="r num">${n(p.valor)}</td></tr>`).join("")}</tbody></table></div></details>` : ""}`
-      : `<p class="muted" style="margin:0">Nenhum gasto em ${esc(m.rotulo)}.</p>`}
-      ${doTrabalho.length ? `<div class="gm-trabalho"><div class="label">Entradas do trabalho de ${esc(m.rotulo)}</div>
-        ${doTrabalho.map(e => `<div class="gm-linha"><span>${esc(e.desc)}<span class="sub"> · ${e.st === "previsto" ? `previsto para ${e.data ? dataLonga(e.data) : "o mês seguinte"}` : `recebido ${e.data ? `em ${dataLonga(e.data)}` : "no mês"}`}</span></span><span class="num">${brl(e.valor)}</span></div>`).join("")}
-        <div class="gm-linha total"><span>Entradas do trabalho menos gastos do mês</span><span class="num${totTrabalho - g.total < 0 ? " neg" : ""}">${brl(totTrabalho - g.total)}</span></div></div>` : ""}`;
+      : `<p class="muted" style="margin:0">Nenhum gasto pago em ${esc(m.rotulo)}.</p>`}`;
   }
 
   // ---------- Visão geral: compras feitas no mês (valor inteiro de cada compra) ----------
@@ -961,7 +1006,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     box.innerHTML = `
       <h2>Comprado em ${esc(m.rotulo)}</h2>
       <div class="tv-big num">${brl(c.total)}</div>
-      <p class="sub" style="margin:2px 0 12px">Tudo o que foi comprado no mês pelo valor inteiro: a compra parcelada entra com o total, não só com a parcela. Nos gastos do mês, ela entra uma parcela por mês.</p>
+      <p class="sub" style="margin:2px 0 12px">Tudo o que foi comprado no mês, pela data da compra e pelo valor inteiro (a parcelada entra com o total). O que foi no cartão vai para a fatura ${esc(m.fatura || "seguinte")} e entra nos gastos pagos do mês em que ela vence, uma parcela por fatura.</p>
+      ${c.ajuste ? `<div class="note"><b>Inclui ${brl(c.ajuste)} de compras no cartão sem detalhe</b> (ajuste ${esc(c.ajustes.map(a => `“${a}”`).join("; "))}). O projeto Financeiro somou de uma vez as compras que apareciam na fatura aberta do app e não estavam anotadas uma a uma. Some quando a fatura ${esc(m.fatura || "")} for importada com os lançamentos.</div>` : ""}
       <div class="scroll"><table><tbody>
         <tr><td>À vista (Pix, débito, dinheiro e cartão à vista)<div class="sub">${c.itens.length - c.parceladas.length} ${c.itens.length - c.parceladas.length === 1 ? "compra" : "compras"}</div></td><td class="r num">${n(avista)}</td></tr>
         <tr><td>Parcelado no cartão<div class="sub">${c.parceladas.length} ${c.parceladas.length === 1 ? "compra" : "compras"}${c.parceladas.length ? ` · ${brl(c.noMes)} por mês nas faturas` : ""}</div></td><td class="r num">${n(c.parcelado)}</td></tr>
