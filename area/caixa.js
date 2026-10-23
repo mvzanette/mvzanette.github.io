@@ -1,8 +1,10 @@
 // Área restrita – Caixa das empresas: o adiantamento que as empresas escolhidas mandam, num caixa só. Cada despesa
 // sai classificada para uma delas (RDV, o relatório de despesas de viagem, ou ficha de custo), mas o saldo é um.
-// O painel mostra o saldo das empresas com você, o que está em caixa, a conta separada do caixa (a diferença é o
-// que foi usado no pessoal), o que está com os colaboradores e o que falta aprovar. RDV e fichas de custo em planilha
-// são lidos no navegador; o arquivo fica anexado e a despesa só conta no saldo depois de marcada como aprovada.
+// O painel mostra o saldo estimado das empresas (o que deveria estar na conta mais o antecipado a colaboradores), o
+// antecipado a cada colaborador, a conta separada do caixa, o que foi usado no pessoal (a diferença para o que deveria
+// estar na conta) e o que falta aprovar. RDV e fichas de custo em planilha são lidos no navegador; o arquivo fica
+// anexado e a despesa só conta no saldo depois de marcada como aprovada. A lista mostra o caixa atual (desde o saldo
+// inicial); o que é de antes fica no filtro "Caixa anterior".
 // Os nomes das empresas e dos colaboradores vêm do banco.
 import { abrirPagina, paginaEmpresa } from "./sessao.js";
 import { dataBR, hojeISO } from "./regras.js";
@@ -76,14 +78,18 @@ function renderKpis(r) {
   const nomeP = PERIODOS.find(([k]) => k === filtro.periodo)[1].toLowerCase();
   const porTipo = (cl) => r.periodo.despesas.filter((g) => g.classificacao === cl).reduce((t, g) => t + g.total, 0);
   const dif = r.diferenca;
+  // Uso pessoal: a diferença entre o que deveria estar na conta (saldo estimado − antecipado) e o saldo informado
+  const pessoal = r.conta == null ? kpi("Usado no pessoal", "—", "informe o saldo da conta separada", { acao: "conta" })
+    : Math.abs(dif) < 0.005 ? kpi("Conta em dia", moeda(0), "a conta tem o que deveria ter", { acao: "conta" })
+    : dif < 0 ? kpi("Usado no pessoal, a repor", moeda(-dif), `a conta tem ${moeda(r.conta)} e deveria ter ${moeda(r.emCaixa)}`, { classe: "kpi-alerta", acao: "conta" })
+    : kpi("A mais na conta", moeda(dif), `a conta tem ${moeda(r.conta)} e deveria ter ${moeda(r.emCaixa)}`, { acao: "conta" });
   $("#caixa-kpis").innerHTML = [
-    kpi("Saldo das empresas com você", moeda(r.saldoEmpresas), `em caixa ${moeda(r.emCaixa)} + com colaboradores ${moeda(r.comColaboradores)}${r.aReembolsar ? ` − a reembolsar ${moeda(r.aReembolsar)}` : ""}`, { classe: "kpi-destaque" }),
-    kpi("Em caixa (estimado)", moeda(r.emCaixa), `saldo inicial ${moeda(r.inicial)}${r.desde ? ` em ${dataBR(r.desde)}` : ""}, entradas, despesas aprovadas e adiantamentos`),
+    kpi("Saldo estimado das empresas", moeda(r.saldoEmpresas), `${moeda(r.comColaboradores)} antecipados a colaboradores + ${moeda(r.emCaixa)} que deveriam estar na conta${r.aReembolsar ? ` − a reembolsar ${moeda(r.aReembolsar)}` : ""}`, { classe: "kpi-destaque" }),
+    kpi("Antecipado a colaboradores", moeda(r.comColaboradores), comColab.length ? comColab.map((p) => `${esc(p.nome)} ${moeda(p.saldo)}`).join(" · ") + (r.aReembolsar ? ` · a reembolsar ${moeda(r.aReembolsar)}` : "") : r.aReembolsar ? `a reembolsar ${moeda(r.aReembolsar)}` : "nada antecipado"),
     kpi("Na conta do caixa", r.conta == null ? "—" : moeda(r.conta),
-      r.conta == null ? "informe o saldo da conta separada" : `${r.dataConta ? `informado em ${dataBR(r.dataConta)} · ` : ""}${Math.abs(dif) < 0.005 ? "bate com o estimado" : dif < 0 ? `${moeda(-dif)} usados no pessoal: a repor` : `${moeda(dif)} a mais que o estimado`}`,
-      { classe: r.conta != null && dif < -0.005 ? "kpi-alerta" : "", acao: "conta" }),
-    kpi("Com colaboradores", moeda(r.comColaboradores), comColab.length ? comColab.map((p) => `${esc(p.nome)} ${moeda(p.saldo)}`).join(" · ") + (r.aReembolsar ? ` · a reembolsar ${moeda(r.aReembolsar)}` : "") : r.aReembolsar ? `a reembolsar ${moeda(r.aReembolsar)}` : "nada adiantado"),
-    kpi("A aprovar", moeda(r.aAprovar.total), r.aAprovar.n ? `${plural(r.aAprovar.n, "documento", "documentos")} fora do saldo até aprovar` : "nada pendente", { classe: r.aAprovar.n ? "kpi-alerta" : "", acao: r.aAprovar.n ? "pendentes" : "" }),
+      r.conta == null ? "informe o saldo da conta separada" : `deveria ter ${moeda(r.emCaixa)}${r.dataConta ? ` · informado em ${dataBR(r.dataConta)}` : ""}`, { acao: "conta" }),
+    pessoal,
+    kpi("A aprovar", moeda(r.aAprovar.total), r.aAprovar.n ? `${plural(r.aAprovar.n, "documento", "documentos")} fora do saldo até aprovar` : "nenhuma nota de RDV ou FC pendente", { classe: r.aAprovar.n ? "kpi-alerta" : "", acao: r.aAprovar.n ? "pendentes" : "" }),
     kpi(`Gastos ${nomeP}`, moeda(r.periodo.totalDespesas), `RDV ${moeda(porTipo("rdv"))} · FC ${moeda(porTipo("fc"))}${porTipo("outro") ? ` · outros ${moeda(porTipo("outro"))}` : ""}`),
   ].join("");
 }
@@ -149,6 +155,8 @@ function filtrados() {
       if (cl && cl !== "outro" && m.empresa_id !== emp) return false;
     }
     if (filtro.empresa && m.empresa_id !== filtro.empresa) return false;
+    // A lista é a do caixa atual; o que é de antes do saldo inicial fica no filtro "Caixa anterior"
+    if ((filtro.situacao === "anterior") !== doAnterior(m)) return false;
     if (filtro.situacao === "aprovado" && m.tipo === "despesa" && !m.aprovado) return false;
     if (filtro.situacao === "pendente" && !(m.tipo === "despesa" && !m.aprovado)) return false;
     if (termo && ![m.descricao, m.colaborador, m.documento_nome, m.observacao, rotuloMovimento(m, sig)].join(" ").toLowerCase().includes(termo)) return false;
@@ -156,9 +164,14 @@ function filtrados() {
   }).sort((a, b) => b.data.localeCompare(a.data) || String(b.criado_em || "").localeCompare(String(a.criado_em || "")));
 }
 
+const doAnterior = (m) => !!(config && config.data_inicial && m.data < config.data_inicial);
+
 function renderTabela() {
   const saldos = saldoApos(config, movimentos);
   const lista = filtrados();
+  const anteriores = filtro.situacao === "anterior" ? 0 : movimentos.filter(doAnterior).length;
+  $("#nota-anterior").hidden = !anteriores;
+  $("#nota-anterior").textContent = anteriores ? `${plural(anteriores, "movimento do caixa anterior fica", "movimentos do caixa anterior ficam")} fora desta lista (antes do saldo inicial, não contam): escolha “Caixa anterior” em Situação para ver.` : "";
   const sinal = (m) => (m.tipo === "entrada" || m.tipo === "devolucao" ? "+" : m.tipo === "despesa" && m.colaborador ? "" : "−");
   $("#tabela tbody").innerHTML = lista.map((m) => {
     const s = saldos.get(m.id);
@@ -174,6 +187,7 @@ function renderTabela() {
     </tr>`;
   }).join("");
   $("#vazio").hidden = lista.length > 0;
+  $("#vazio").textContent = filtro.situacao === "anterior" ? "Nenhum movimento antes do saldo inicial." : "Nenhum movimento com estes filtros.";
 }
 
 // ---------------------------------------------------------------- lançar e editar

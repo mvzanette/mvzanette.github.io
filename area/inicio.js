@@ -46,10 +46,10 @@ async function resumos(armazem, perfil, empresas) {
   // Caixa das empresas: o card dele fica no lugar dos cards das empresas que fazem parte dele
   if (caixaConfig && (caixaConfig.empresas || []).length) {
     const c = resumoCaixa(caixaConfig, caixaMov || []);
-    const partes = [`${moeda(c.emCaixa)} em caixa`];
-    if (c.comColaboradores) partes.push(`${moeda(c.comColaboradores)} com colaboradores`);
+    const partes = [`Saldo estimado ${moeda(c.saldoEmpresas)}`];
+    if (c.comColaboradores) partes.push(`${moeda(c.comColaboradores)} antecipados a colaboradores`);
     if (c.aAprovar.n) partes.push(`${plural(c.aAprovar.n, "documento", "documentos")} a aprovar`);
-    if (c.diferenca != null && c.diferenca < -0.005) partes.push(`${moeda(-c.diferenca)} a repor na conta`);
+    if (c.diferenca != null && c.diferenca < -0.005) partes.push(`${moeda(-c.diferenca)} de uso pessoal a repor na conta`);
     r.caixa = { empresas: caixaConfig.empresas, texto: partes.join(" · "), alerta: c.aAprovar.n > 0 || (c.diferenca != null && c.diferenca < -0.005) };
     r.tarefas.push(tarefaCaixa(c.aAprovar.n, c.aAprovar.total));
   }
