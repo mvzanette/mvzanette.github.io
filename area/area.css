@@ -2233,3 +2233,52 @@ tr.clicavel-cliente:hover td { background: #fffbea; }
 tr.clicavel-cliente:focus-visible { outline: 2px solid var(--graphite-900); outline-offset: -2px; }
 .barra-analise { display: block; height: 4px; margin-top: 4px; background: var(--gray-200); }
 .barra-analise span { display: block; height: 100%; background: var(--graphite-900); }
+
+/* ---------- Controle de ART: indicador de baixa ou ação, arquivadas e seleção em lote ---------- */
+.indicador-acao { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 28px; margin-bottom: 14px; padding: 16px 20px; background: var(--white); border: 1px solid var(--gray-200); border-left: 6px solid var(--ok); }
+.indicador-acao.com-pendencia { border-left-color: var(--erro); background: #fff8f7; }
+.ind-numero { display: flex; align-items: center; gap: 12px; }
+.ind-numero strong { font: 700 2.6rem/1 var(--font-head); color: var(--erro); }
+.ind-numero span { max-width: 17ch; font: 700 0.88rem/1.25 var(--font-head); letter-spacing: 0.05em; text-transform: uppercase; color: var(--graphite-900); }
+.ind-partes { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0; padding: 0; list-style: none; font-size: 0.92rem; }
+.ind-partes b { font-family: var(--font-head); font-size: 1.05rem; }
+.ind-botoes { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.ind-ok { margin: 0; color: var(--ok); font-weight: 600; }
+.venc-indicador { margin: 0 0 14px; }
+.s-arquivada { color: var(--gray-500); border-style: dashed; }
+.sel-cel { width: 36px; text-align: center; cursor: default; }
+.area .sel-cel input { width: 18px; height: 18px; margin: 0; padding: 0; accent-color: var(--graphite-900); }
+tr.marcada td { background: #fffbea; }
+.barra-lote { position: sticky; top: 0; z-index: 3; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 10px; padding: 10px 14px; background: var(--graphite-900); color: var(--white); }
+.barra-lote #lote-n { font: 700 0.9rem var(--font-head); letter-spacing: 0.03em; }
+.area .barra-lote select { width: auto; min-width: 0; max-width: 100%; }
+.barra-lote .btn-link { color: var(--yellow); }
+.area .opcao-campo { display: flex; align-items: center; gap: 8px; align-self: end; min-height: 44px; text-transform: none; letter-spacing: 0; font-weight: 600; }
+.area .opcao-campo input { width: 18px; height: 18px; padding: 0; accent-color: var(--graphite-900); }
+
+/* ---------- Finanças: lançamentos a classificar ---------- */
+.area-main .a-classificar { margin: 0 0 22px; padding: 18px 20px; background: #fff8f7; border: 1px solid var(--gray-200); border-left: 6px solid var(--erro); }
+.area-main .a-classificar:has(.cl-ok) { background: #f3faf3; border-left-color: var(--ok); }
+.cl-topo { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px 20px; margin-bottom: 12px; }
+.cl-topo h2 { margin: 0 0 4px; font: 700 1.15rem var(--font-head); text-transform: uppercase; letter-spacing: 0.03em; }
+.cl-topo .dica { margin: 0; max-width: 70ch; }
+.cl-linha { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.2fr) minmax(0, 1.2fr) auto; gap: 10px 14px; align-items: end; padding: 12px 0; border-top: 1px solid var(--gray-200); }
+.cl-info { display: grid; gap: 2px; min-width: 0; }
+.cl-info b { overflow-wrap: anywhere; }
+.cl-info span { font-variant-numeric: tabular-nums; }
+.cl-info small { color: var(--muted); }
+.cl-botoes { display: flex; align-items: center; gap: 10px; padding-bottom: 2px; }
+.cl-ok { margin: 0; color: var(--ok); font-weight: 600; }
+@media (max-width: 760px) { .cl-linha { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .cl-info, .cl-botoes { grid-column: 1 / -1; } }
+
+/* ---------- Tarefas pendentes (janela ao entrar e faixa no início) ---------- */
+.tarefas-lista { display: grid; gap: 12px; margin: 12px 0 0; padding: 0; list-style: none; }
+.tarefa { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px 16px; padding: 14px 16px; background: var(--white); border: 1px solid var(--gray-200); border-left: 5px solid var(--erro); }
+.tarefa-arts { border-left-color: var(--yellow); }
+.tarefa-caixa { border-left-color: var(--graphite-900); }
+.tarefa-n { min-width: 48px; font: 700 2rem/1 var(--font-head); color: var(--graphite-900); text-align: center; font-variant-numeric: tabular-nums; }
+.tarefa-texto b { font: 700 1rem var(--font-head); text-transform: uppercase; letter-spacing: 0.03em; }
+.tarefa-texto p { margin: 4px 0 0; color: var(--muted); font-size: 0.92rem; }
+@media (max-width: 560px) { .tarefa { grid-template-columns: auto minmax(0, 1fr); } .tarefa .btn { grid-column: 1 / -1; justify-self: start; } }
+.faixa-tarefas { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin: 0 0 20px; padding: 12px 16px; background: #fff8f7; border: 1px solid var(--gray-200); border-left: 5px solid var(--erro); }
+.faixa-tarefas p { margin: 0; }

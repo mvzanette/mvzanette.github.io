@@ -522,6 +522,8 @@ async function iniciar() {
   prepararEventos();
   try {
     await recarregar();
+    // Vindo das tarefas pendentes (caixa.html#caixa-pendentes): direto para os documentos a aprovar
+    if (location.hash === "#caixa-pendentes" && !$("#caixa-pendentes").hidden) $("#caixa-pendentes").scrollIntoView({ block: "start" });
   } catch (err) {
     $("main").insertAdjacentHTML("afterbegin", `<p class="cartao erro-geral" role="alert">${esc(err.message)}</p>`);
   }

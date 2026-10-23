@@ -6,6 +6,7 @@ import * as R from "./regras.js";
 import * as G from "./regras-gestao.js";
 import { resumoCaixa } from "./caixa-documentos.js";
 import { $, esc, moeda, moedaCurta } from "./ui.js";
+import { contarAClassificar, faixaTarefas, mostrarTarefas, tarefaArts, tarefaCaixa, tarefaClassificar } from "./tarefas.js";
 
 const hoje = R.hojeISO();
 const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
@@ -32,7 +33,7 @@ function cabecalho(perfil) {
 // Resumo de cada módulo: { texto, alerta }. Só consulta o que o perfil pode ver.
 async function resumos(armazem, perfil, empresas) {
   const tem = (m) => pode(perfil, m);
-  const r = {};
+  const r = { tarefas: [] }; // tarefas pendentes (janela ao entrar)
   const [arts, tratados, todosLanc, demandas, usuarios, caixaConfig, caixaMov] = await Promise.all([
     tem("art") ? armazem.listar() : null,
     tem("art") ? armazem.tratados() : null,
@@ -50,6 +51,7 @@ async function resumos(armazem, perfil, empresas) {
     if (c.aAprovar.n) partes.push(`${plural(c.aAprovar.n, "documento", "documentos")} a aprovar`);
     if (c.diferenca != null && c.diferenca < -0.005) partes.push(`${moeda(-c.diferenca)} a repor na conta`);
     r.caixa = { empresas: caixaConfig.empresas, texto: partes.join(" · "), alerta: c.aAprovar.n > 0 || (c.diferenca != null && c.diferenca < -0.005) };
+    r.tarefas.push(tarefaCaixa(c.aAprovar.n, c.aAprovar.total));
   }
   // Controle financeiro e painel: só a engenharia; os lançamentos com empresa ficam nos cards das empresas
   const lancamentos = todosLanc && tem("financeiro") ? todosLanc.filter((l) => !l.empresa_id) : null;
@@ -66,8 +68,11 @@ async function resumos(armazem, perfil, empresas) {
 
   if (arts && tratados) {
     const alertas = R.alertasPendentes(arts, tratados, hoje).length;
-    const proximas = arts.filter((a) => !a.baixa_data && a.fim && R.diasAte(a.fim, hoje) >= 0 && R.diasAte(a.fim, hoje) <= G.PRAZO_ART_PAINEL).length;
-    r.art = alertas ? { texto: plural(alertas, "alerta pendente", "alertas pendentes"), alerta: true }
+    const proximas = arts.filter((a) => !R.encerrada(a) && a.fim && R.diasAte(a.fim, hoje) >= 0 && R.diasAte(a.fim, hoje) <= G.PRAZO_ART_PAINEL).length;
+    const acoes = R.resumoAcoes(arts, hoje).total;
+    r.tarefas.push(tarefaArts(acoes));
+    r.art = acoes ? { texto: plural(acoes, "ART precisa de baixa ou ação", "ARTs precisam de baixa ou ação"), alerta: true }
+      : alertas ? { texto: plural(alertas, "alerta pendente", "alertas pendentes"), alerta: true }
       : proximas ? { texto: `${plural(proximas, "ART vence", "ARTs vencem")} nos próximos ${G.PRAZO_ART_PAINEL} dias`, alerta: true }
       : { texto: "Nenhuma ART pedindo atenção" };
   }
@@ -154,7 +159,21 @@ async function iniciar() {
 
   renderizar(perfil, empresas);
   $("#conteudo").hidden = false;
-  renderizar(perfil, empresas, await resumos(armazem, perfil, empresas));
+  const resumo = await resumos(armazem, perfil, empresas);
+  renderizar(perfil, empresas, resumo);
+
+  // Tarefas pendentes: lançamentos a classificar no próprio painel de finanças, ARTs que precisam de baixa ou ação e
+  // documentos do caixa a aprovar. A janela abre ao entrar (uma vez por sessão); a faixa fica no início.
+  const aClassificar = pode(perfil, "financas")
+    ? await contarAClassificar(armazem, perfil.id).catch((err) => { console.warn("Tarefas: não deu para contar os lançamentos a classificar.", err); return 0; })
+    : 0;
+  if (aClassificar) {
+    resumo.financas = { texto: `${aClassificar} ${aClassificar === 1 ? "lançamento a classificar" : "lançamentos a classificar"}`, alerta: true };
+    renderizar(perfil, empresas, resumo);
+  }
+  const tarefas = [tarefaClassificar(aClassificar), ...resumo.tarefas];
+  faixaTarefas($("#faixa-tarefas"), tarefas, { perfil });
+  mostrarTarefas(tarefas, { perfil, automatico: true });
 }
 
 iniciar();

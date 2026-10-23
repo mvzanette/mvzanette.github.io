@@ -101,7 +101,7 @@ export function historicoDeCategorias(fontes, ajustes = new Map(), cats = null) 
   const mapa = new Map();
   const guardar = (nome, e) => {
     const k = chaveNome(nome);
-    if (k && e.categoria && e.categoria !== "Outros") mapa.set(k, { cat: e.categoria, sub: e.subcategoria || null });
+    if (k && e.categoria && !e.pendente && e.categoria !== "Outros") mapa.set(k, { cat: e.categoria, sub: e.subcategoria || null });
   };
   for (const f of fontes) {
     for (const m of f.meses || []) {

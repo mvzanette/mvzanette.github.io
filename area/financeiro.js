@@ -136,15 +136,16 @@ function renderArtsEmpresa() {
   const lista = arts.filter((a) => a.empresa_id === empresa.id).sort((a, b) => (b.registrada || b.inicio || "").localeCompare(a.registrada || a.inicio || ""));
   const lancadas = new Set(lancamentos.filter((l) => l.art_id).map((l) => l.art_id));
   const taxas = lista.reduce((t, a) => t + (Number(a.taxa) || 0), 0);
+  const pagas = lista.filter((a) => a.taxa_paga).length;
   box.hidden = false;
   box.innerHTML = `<h2 class="subtitulo-area">ARTs tiradas para ${esc(empresa.nome)}</h2>
     <p class="dica">${lista.length
-      ? `${plural(lista.length, "ART", "ARTs")}, com taxas que somam ${moeda(taxas)}. A empresa paga a taxa; se você pagou, lance o reembolso.`
+      ? `${plural(lista.length, "ART", "ARTs")}, com taxas que somam ${moeda(taxas)}${pagas === lista.length ? ", todas já pagas" : pagas ? ` (${pagas} já ${pagas === 1 ? "paga" : "pagas"})` : ""}. A empresa paga a taxa; se você pagou e ainda não foi reembolsado, lance o reembolso.`
       : "Nenhuma ART marcada para esta empresa. No Controle de ART, abra a ART e escolha a empresa em “Tirada para”."}</p>
     ${lista.length ? `<div class="tabela-wrap"><table class="tabela compacta"><thead><tr><th>ART</th><th>Contratante</th><th>Fim previsto</th><th>Situação</th><th class="num">Taxa</th><th></th></tr></thead><tbody>
       ${lista.map((a) => `<tr><td class="numero">${esc(a.numero)}</td><td>${esc(a.contratante || "—")}</td><td class="data">${dataBR(a.fim)}</td>
         <td>${esc(ROTULO_SITUACAO[situacaoArt(a, hoje)])}</td><td class="num">${a.taxa == null ? "—" : moeda(Number(a.taxa))}</td>
-        <td>${lancadas.has(a.id) ? '<span class="dica">lançada</span>' : `<button class="btn-link" type="button" data-lancar-art="${esc(a.id)}">Lançar reembolso</button>`}</td></tr>`).join("")}
+        <td>${lancadas.has(a.id) ? '<span class="dica">lançada</span>' : a.taxa_paga ? '<span class="dica">taxa paga</span>' : `<button class="btn-link" type="button" data-lancar-art="${esc(a.id)}">Lançar reembolso</button>`}</td></tr>`).join("")}
     </tbody></table></div>` : ""}`;
 }
 

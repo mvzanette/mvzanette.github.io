@@ -44,12 +44,28 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   entradasSite = [], aoLancarEntrada = null, aoApagarEntrada = null,
   categorias = null, ajustes = [], contas = [], aoClassificar = null, aoEditarCategorias = null, comDesejos = false, comInvestimentos = false,
   comMeses = false, somenteCalculo = false, caixa: caixaPrefs = null, aoSalvarSaldo = null, aoMudarRecebimento = null,
-  recorrentes: recorrentesSite = [], aoPagarRecorrente = null, aoDesmarcarRecorrente = null, aoEditarRecorrente = null, aoValorRecorrente = null }) {
+  recorrentes: recorrentesSite = [], aoPagarRecorrente = null, aoDesmarcarRecorrente = null, aoEditarRecorrente = null, aoValorRecorrente = null,
+  aoMudarPendencias = null }) {
   const D = completar(dados);
   let CATS = categorias || lerCategorias(null, dados);
   let AJ = new Map(ajustes.map(a => [a.chave, a]));
   let CONTAS = contas;
-  const ef = l => efetivo(l, AJ.get(l.chave), CATS);
+  // Compra da fatura conferida com um gasto do dia a dia (chave de um → o outro): os dois são o mesmo lançamento
+  let PAR = new Map();
+  // Classificação que vale para o lançamento. Na compra conferida com um gasto vale a mesma para os dois: a feita no
+  // site (a mais recente, se houver nas duas), depois a do gasto lançado no site, depois a que não está pendente;
+  // empatadas, a do gasto do dia a dia.
+  const ef = l => {
+    const proprio = efetivo(l, AJ.get(l.chave), CATS);
+    const p = l.chave ? PAR.get(l.chave) : null;
+    if (!p) return proprio;
+    const doPar = efetivo(p, AJ.get(p.chave), CATS);
+    const peso = (x, e) => (AJ.has(x.chave) ? 3 : x.origem === "site" && !e.pendente ? 2 : e.pendente ? 0 : 1);
+    const a = peso(l, proprio), b = peso(p, doPar);
+    const quando = x => String((AJ.get(x.chave) || {}).atualizado_em || "");
+    const vencePar = b > a || (b === a && (a === 3 && quando(p) !== quando(l) ? quando(p) > quando(l) : !!p.naFatura));
+    return vencePar ? {...doPar, ajustado: proprio.ajustado} : proprio;
+  };
   // Conta como aparece no painel: a empresa que entrou numa conta unida (Cadastros) aparece pela conta unida
   const unificada = c => (CONTAS.find(x => x.id === c && x.agrupada) || {}).agrupada || c;
   const nomeDaConta = c => (CONTAS.find(x => x.id === unificada(c)) || {}).nome || nomeConta(c);
@@ -156,7 +172,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   let CONC = null;
   const palavras = s => new Set(semAcento(s).replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(t => t.length > 2));
   function conciliar() {
-    CONC = {faturas: [], daFatura: 0, conferidos: 0, fimConhecido: null, ajustes: 0};
+    CONC = {faturas: [], daFatura: 0, conferidos: 0, fimConhecido: null, ajustes: 0, pares: []};
     if (!COM_MESES || !FATURAS.size) return;
     const periodos = [...FATURAS.values()].map(f => f.periodo).filter(p => p.inicio && p.fim);
     const coberto = d => periodos.some(p => d >= p.inicio && d <= p.fim);
@@ -189,6 +205,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
         }
         if (melhor) {
           usados.add(melhor);
+          CONC.pares.push([melhor, it]);
           melhor.naFatura = f.mes;
           if (!card(melhor.forma)) melhor.outraForma = true;
           r.conferidos++;
@@ -254,6 +271,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     D.meses.forEach(x => x.lancamentos.sort((p, q) => String(p.data).localeCompare(String(q.data))));
     // Chave de cada lançamento, para achar a classificação feita no site
     D.meses.forEach(x => chavesGastos(x.lancamentos).forEach((k, i) => { x.lancamentos[i].chave = k; }));
+    PAR = new Map();
+    for (const [g, it] of (CONC && CONC.pares) || []) if (g.chave && it.chave) { PAR.set(it.chave, g); PAR.set(g.chave, it); }
     if (atual) atual = D.meses.find(x => x.chave === atual.chave) || atual;
     receitasNormais();
   }
@@ -1215,13 +1234,33 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     if (pares.some(([v]) => v === antes)) sel.value = antes;
   }
 
-  // O que vai para o diálogo de classificar um lançamento (página financas.js)
+  // O que vai para o diálogo de classificar um lançamento (página financas.js). par: a compra da fatura ou o gasto
+  // do dia a dia que é o mesmo lançamento (a classificação é gravada nos dois)
   function paraClassificar(l, tipo) {
-    return {chave: l.chave, tipo, site: l.origem === "site", id: l.id || null, titulo: tipo === "fatura" ? l.nome : l.desc,
-      data: l.data || null, valor: l.valor, mes: l.mes || null, forma: l.forma || null, parcela: l.parcela || l.parcelas || null,
+    const p = l.chave ? PAR.get(l.chave) : null;
+    return {chave: l.chave, tipo, site: l.origem === "site", id: l.id || null, titulo: l.nome || l.desc,
+      data: l.data || null, valor: l.valor, mes: l.mes || l.fatura || null, forma: l.forma || null, parcela: l.parcela || l.parcelas || null,
       atual: ef(l), ajuste: AJ.get(l.chave) || null, original: efetivo(l, null, CATS),
-      essencialOriginal: efetivo(l, null, null).semAjuste}; // o que veio do projeto (sem o padrão da categoria)
+      essencialOriginal: efetivo(l, null, null).semAjuste, // o que veio do projeto (sem o padrão da categoria)
+      par: p ? {chave: p.chave, site: p.origem === "site", id: p.id || null, original: efetivo(p, null, CATS), ajuste: AJ.get(p.chave) || null} : null};
   }
+
+  // Lançamentos a classificar (sem categoria ou em Outros, fora do ajuste), cada um uma vez: a compra da fatura que
+  // virou gasto do dia a dia, ou que foi conferida com um, conta uma vez só. Vão para as tarefas pendentes.
+  function pendentes() {
+    const vistos = new Set(), lista = [];
+    const ver = l => {
+      if (!l.chave || vistos.has(l.chave) || ehAjuste(l)) return;
+      vistos.add(l.chave);
+      const p = PAR.get(l.chave);
+      if (p) vistos.add(p.chave);
+      if (ef(l).pendente) lista.push(paraClassificar(l, (l.nome || l.origem === "fatura") ? "fatura" : "gasto"));
+    };
+    D.meses.forEach(m => m.lancamentos.forEach(ver));
+    PESSOAS.dono.cartao.lancamentos.forEach(ver);
+    return lista.sort((a, b) => String(b.data || "").localeCompare(String(a.data || "")));
+  }
+  const avisarPendencias = () => { if (aoMudarPendencias) aoMudarPendencias(pendentes()); };
 
   let listaGastos = [];
   function renderGastosLista(m) {
@@ -1237,7 +1276,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     L.forEach(l => (porData[l.data] ||= []).push(l));
     const datas = Object.keys(porData).sort().reverse();
     $id("g-itens").innerHTML = L.length ? datas.map(d => `<div class="dgroup"><div class="dhead"><span>${dBR(d)} · ${diaSemana(d)}</span><span class="num">${brl(sum(porData[d], l => l.valor))}</span></div>
-      <table><tbody>${porData[d].map(l => { const e = ef(l); return `<tr><td>${esc(l.desc)}${ehAjuste(l) ? ' <span class="chip neutral">ajuste</span>' : ""}${l.origem === "site" ? ' <span class="chip info">lançado no site</span>' : ""}${l.recorrente ? ' <span class="chip neutral">recorrente</span>' : ""}${chipConf(l)}
+      <table><tbody>${porData[d].map(l => { const e = ef(l); return `<tr><td>${esc(l.desc)}${ehAjuste(l) ? ' <span class="chip neutral">ajuste</span>' : ""}${e.pendente ? ' <span class="chip bad">a classificar</span>' : ""}${l.origem === "site" ? ' <span class="chip info">lançado no site</span>' : ""}${l.recorrente ? ' <span class="chip neutral">recorrente</span>' : ""}${chipConf(l)}
         ${e.complemento ? `<div class="compl">${esc(e.complemento)}</div>` : ""}
         <div class="sub">${esc(catDe(l))}${e.subcategoria && !ehAjuste(l) ? ` › ${esc(e.subcategoria)}` : ""} · ${esc(l.forma || "")}${l.parcelas ? ` · parcela ${esc(l.parcelas)}` : ""}${ehAjuste(l) ? "" : rotuloEssencial(e)}${chipConta(e)}${l.obs && !ehAjuste(l) && l.origem !== "site" ? ` · ${esc(l.obs)}` : ""}${confDe(l) === "conferido" ? ` · conferido na fatura ${esc(l.naFatura)}` : ""}</div></td>
         <td class="r num">${n(l.valor)}<div class="acoes-lanc">${aoClassificar && !ehAjuste(l) ? `<button type="button" class="btn sec mini" data-classificar-g="${indice.get(l)}">Classificar</button>` : ""}${l.origem === "site" && aoApagarGasto ? `<button type="button" class="btn sec mini" data-apagar-gasto="${esc(l.id)}">Apagar</button>` : ""}</div></td></tr>`; }).join("")}</tbody></table></div>`).join("")
@@ -1453,7 +1492,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const V = corta ? L.slice(0, 25) : L;
     listaFatura = V;
     $id("f-itens").innerHTML = L.length ? `<div class="scroll"><table><thead><tr><th>Data</th><th>Lançamento</th><th class="r">Valor</th></tr></thead><tbody>${V.map((l, i) => { const e = ef(l); return `<tr><td class="num muted" style="padding-right:10px">${l.data ? dBR(l.data) : ""}</td>
-      <td>${esc(l.nome)}${e.complemento ? `<div class="compl">${esc(e.complemento)}</div>` : ""}<div class="sub">${esc(e.categoria)}${e.subcategoria ? ` › ${esc(e.subcategoria)}` : ""}${l.cidade ? ` · ${esc(l.cidade)}` : ""}${l.parcela ? ` · parcela ${esc(l.parcela)}` : ""}${l.tipo && l.tipo !== "Nacional" ? ` · ${esc(l.tipo)}` : ""}${rotuloEssencial(e)}${chipConta(e)}</div></td>
+      <td>${esc(l.nome)}${e.pendente ? ' <span class="chip bad">a classificar</span>' : ""}${e.complemento ? `<div class="compl">${esc(e.complemento)}</div>` : ""}<div class="sub">${esc(e.categoria)}${e.subcategoria ? ` › ${esc(e.subcategoria)}` : ""}${l.cidade ? ` · ${esc(l.cidade)}` : ""}${l.parcela ? ` · parcela ${esc(l.parcela)}` : ""}${l.tipo && l.tipo !== "Nacional" ? ` · ${esc(l.tipo)}` : ""}${rotuloEssencial(e)}${chipConta(e)}</div></td>
       <td class="r num">${n(l.valor)}${aoClassificar ? `<div class="acoes-lanc"><button type="button" class="btn sec mini" data-classificar-f="${i}">Classificar</button></div>` : ""}</td></tr>`; }).join("")}</tbody></table></div>
       ${corta ? `<button type="button" class="btn sec mini" id="f-todos" style="margin-top:10px">Mostrar todos os ${L.length} lançamentos</button>` : ""}
       <p class="sub" style="margin:10px 0 0">${corta ? `Mostrando os 25 mais recentes de ${L.length}` : `${L.length} ${L.length === 1 ? "lançamento" : "lançamentos"}`} · total da seleção ${brl(sum(L, l => l.valor))}</p>`
@@ -1543,7 +1582,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       fora: tipo("dia"), fixosFora: tipo("fixo"), saldo: cx.saldoMes};
   }
   // Só os números, sem desenhar nada na página (visão do casal)
-  if (somenteCalculo) return {meses: () => D.meses.map(m => ({chave: m.chave, rotulo: m.rotulo})), resumo, investimentos: D.investimentos || null};
+  if (somenteCalculo) return {meses: () => D.meses.map(m => ({chave: m.chave, rotulo: m.rotulo})), resumo, investimentos: D.investimentos || null, pendentes};
 
   iniciarAbas();
 
@@ -1704,10 +1743,13 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     }
   }
 
+  avisarPendencias();
   return {
+    pendentes,
     atualizarGastos(lista) {
       GASTOS_SITE = lista;
       mesclarSite();
+      avisarPendencias();
       if (!COM_MESES) return;
       seguro(null, render);
       seguro("parcelas", renderParcelas);
@@ -1722,6 +1764,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       if (novos) AJ = new Map(novos.map(a => [a.chave, a]));
       if (c) CATS = c;
       if (cs) CONTAS = cs;
+      avisarPendencias();
       if (COM_MESES) seguro(null, render);
       mostrarQuem();
     },

@@ -25,9 +25,13 @@ export function dataBR(iso) {
   return `${d}/${m}/${a}`;
 }
 
-// Situação da ART: baixada | sem-data | vencida | vencendo | ativa
+// ART encerrada: baixada no CREA ou arquivada aqui (sem substituta, complementar ou nova). Não vence mais.
+export const encerrada = (art) => !!art.baixa_data || art.acao === "arquivada";
+
+// Situação da ART: baixada | arquivada | sem-data | vencida | vencendo | ativa
 export function situacao(art, hoje = hojeISO()) {
   if (art.baixa_data) return "baixada";
+  if (art.acao === "arquivada") return "arquivada";
   const dias = diasAte(art.fim, hoje);
   if (dias === null) return "sem-data";
   if (dias < 0) return "vencida";
@@ -36,9 +40,9 @@ export function situacao(art, hoje = hojeISO()) {
 }
 
 // Faixa do resumo dos vencimentos: vencida, vence em até 30 dias, vence em 31 a 90 dias (ou null: baixada, sem
-// data ou com o fim mais longe). A ART baixada já teve a obra ou o serviço concluído: não vence mais.
+// data ou com o fim mais longe). A ART baixada ou arquivada não vence mais.
 export function faixaVencimento(art, hoje = hojeISO()) {
-  if (art.baixa_data) return null;
+  if (encerrada(art)) return null;
   const dias = diasAte(art.fim, hoje);
   if (dias === null) return null;
   if (dias < 0) return "vencida";
@@ -61,14 +65,19 @@ export function resumoVencimentos(arts, hoje = hojeISO()) {
   return r;
 }
 
-// Ação escolhida para a ART vencida ou perto de vencer
+// Ação escolhida para a ART vencida ou perto de vencer. "Arquivar" encerra a ART aqui quando não há outra que a
+// continue (substituta, complementar ou nova): ela sai dos vencimentos e dos alertas.
 export const ACOES = {
-  baixa: "Encerrar a obra ou serviço e dar baixa",
+  baixa: "Dar baixa (obra ou serviço concluído)",
   substituta: "Emitir ART substituta",
   complementar: "Emitir ART complementar",
+  nova: "Emitir nova ART",
+  arquivada: "Arquivar (sem substituta, complementar ou nova)",
 };
+// Ações que ainda pedem alguma coisa: a ART continua no indicador até a baixa, o arquivamento ou a nova ART
+export const ACOES_PENDENTES = ["baixa", "substituta", "complementar", "nova"];
 export const PASSOS_ACAO = {
-  baixa: ["Concluir a obra ou o serviço", "Dar baixa por conclusão no portal do CREA", "Registrar aqui a data da baixa"],
+  baixa: ["Concluir a obra ou o serviço", "Dar baixa por conclusão no portal do CREA", "Registrar aqui a data da baixa ou arquivar a ART"],
   substituta: [
     "Emitir a ART substituta no portal do CREA (use “Copiar dados para nova ART”)",
     "Importar aqui a ART substituta com “Importar nova ART vinculada”: esta ART fica baixada por substituição",
@@ -78,6 +87,11 @@ export const PASSOS_ACAO = {
     "Importar aqui a ART complementar com “Importar nova ART vinculada”",
     "No fim da obra ou do serviço, dar baixa nesta ART e na complementar",
   ],
+  nova: [
+    "Emitir a nova ART no portal do CREA (use “Copiar dados para nova ART”)",
+    "Importar aqui a nova ART com “Importar nova ART vinculada”: esta ART fica arquivada",
+  ],
+  arquivada: ["A ART sai dos vencimentos, dos alertas e do indicador de ação", "Para voltar a acompanhá-la, escolha outra ação"],
 };
 
 export const ROTULO_SITUACAO = {
@@ -85,13 +99,33 @@ export const ROTULO_SITUACAO = {
   vencendo: "Vence em até 30 dias",
   vencida: "Vencida sem baixa",
   baixada: "Baixada",
+  arquivada: "Arquivada",
   "sem-data": "Sem data de término",
 };
+
+// Precisa de baixa ou de alguma ação: não encerrada e vencida, vencendo em até 30 dias ou com ação ainda a fazer
+export function precisaAcao(art, hoje = hojeISO()) {
+  if (encerrada(art)) return false;
+  const f = faixaVencimento(art, hoje);
+  return f === "vencida" || f === "30" || ACOES_PENDENTES.includes(art.acao);
+}
+
+// Indicador das ARTs que precisam de baixa ou ação: sem ação definida, a dar baixa e aguardando outra ART
+export function resumoAcoes(arts, hoje = hojeISO()) {
+  const lista = arts.filter((a) => precisaAcao(a, hoje));
+  return {
+    lista,
+    total: lista.length,
+    semAcao: lista.filter((a) => !a.acao).length,
+    baixa: lista.filter((a) => a.acao === "baixa").length,
+    outraArt: lista.filter((a) => ["substituta", "complementar", "nova"].includes(a.acao)).length,
+  };
+}
 
 // Marco de alerta atingido hoje (ou o mais recente ainda não superado).
 // d30 → entre 30 e 8 dias; d7 → entre 7 e 1 dia; d0 → no dia; atraso-N → N-ésima semana após o fim.
 export function marcoAtual(art, hoje = hojeISO()) {
-  if (art.baixa_data) return null;
+  if (encerrada(art)) return null;
   const dias = diasAte(art.fim, hoje);
   if (dias === null || dias > AVISO_DIAS) return null;
   if (dias > 7) return "d30";

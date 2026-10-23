@@ -21,7 +21,9 @@ let armazem;
 let arts = [];
 let empresas = []; // empresas cadastradas (os nomes vêm do banco)
 let tratados = new Set();
+// situacao vazia: em aberto (sem as baixadas e as arquivadas)
 const filtro = { busca: "", crea: "", situacao: "", para: "", cliente: "", ano: "", acao: "" };
+const selecionadas = new Set(); // ARTs marcadas na lista para mudar a ação de uma vez
 const hoje = R.hojeISO();
 const semAcento = (s) => String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
@@ -76,6 +78,7 @@ function avisar(texto) {
 function textoDias(art) {
   const s = R.situacao(art, hoje);
   if (s === "baixada") return `em ${R.dataBR(art.baixa_data)}`;
+  if (s === "arquivada") return art.arquivada_em ? `em ${R.dataBR(art.arquivada_em)}` : "";
   const d = R.diasAte(art.fim, hoje);
   if (d === null) return "";
   if (d > 0) return `em ${d} dia${d === 1 ? "" : "s"}`;
@@ -90,36 +93,66 @@ function etiqueta(art) {
   return `<span class="etiqueta s-${s}">${esc(rotulo)}${dias ? `<small>${esc(dias)}</small>` : ""}</span>`;
 }
 
-// Caixa de seleção da ação, para a ART vencida ou que vence nos próximos 90 dias
+// Caixa de seleção da ação: na ART vencida, que vence nos próximos 90 dias ou que já tem uma ação (a arquivada
+// também, para voltar a acompanhá-la). A baixada no CREA não tem mais ação.
+const opcoesAcao = (atual, vazio = "Definir ação…") =>
+  `<option value="">${esc(vazio)}</option>${Object.entries(R.ACOES).map(([v, t]) => `<option value="${v}"${atual === v ? " selected" : ""}>${esc(t)}</option>`).join("")}`;
 function selectAcao(art) {
   const faixa = R.faixaVencimento(art, hoje);
-  if (!faixa) return art.acao && !art.baixa_data ? `<small>${esc(R.ACOES[art.acao])}</small>` : '<span class="dica">—</span>';
+  if (art.baixa_data || (!faixa && !art.acao)) return '<span class="dica">—</span>';
   // sem ação, fica em destaque na vencida e na que vence em até 30 dias
-  return `<select class="sel-acao${art.acao || faixa === "90" ? "" : " sem-acao"}" data-acao="${esc(art.id)}" aria-label="Ação para a ART ${esc(art.numero)}">
-    <option value="">Definir ação…</option>${Object.entries(R.ACOES).map(([v, t]) => `<option value="${v}"${art.acao === v ? " selected" : ""}>${esc(t)}</option>`).join("")}</select>`;
+  const destaque = !art.acao && (faixa === "vencida" || faixa === "30");
+  return `<select class="sel-acao${destaque ? " sem-acao" : ""}" data-acao="${esc(art.id)}" aria-label="Ação para a ART ${esc(art.numero)}">${opcoesAcao(art.acao)}</select>`;
 }
+
+// Arquivar guarda o dia; qualquer outra ação tira a ART do arquivo
+const comAcao = (art, acao) => ({ ...art, acao: acao || null, arquivada_em: acao === "arquivada" ? art.arquivada_em || hoje : null });
+const textoAcao = (acao) => (acao === "arquivada" ? "arquivada" : acao ? R.ACOES[acao].toLowerCase() : "ação desmarcada");
 
 async function salvarAcao(id, acao) {
   const art = arts.find((a) => a.id === id);
   if (!art) return;
   try {
-    const salvo = await armazem.salvar({ ...art, acao: acao || null });
+    const salvo = await armazem.salvar(comAcao(art, acao));
     arts = arts.map((a) => (a.id === id ? { ...a, ...salvo } : a));
     renderizar();
     if ($("#dlg-vencimentos").open) renderVencimentos();
-    avisar(acao ? `ART ${art.numero}: ${R.ACOES[acao].toLowerCase()}.` : `ART ${art.numero}: ação desmarcada.`);
+    avisar(`ART ${art.numero}: ${textoAcao(acao)}.`);
   } catch (err) {
     avisar("Não foi possível salvar a ação: " + err.message);
   }
 }
 
-const ORDEM = { vencida: 0, vencendo: 1, ativa: 2, "sem-data": 3, baixada: 4 };
+// Ação escolhida para as ARTs marcadas na lista
+async function aplicarEmLote() {
+  const escolha = $("#lote-acao").value;
+  const lista = arts.filter((a) => selecionadas.has(a.id) && !a.baixa_data);
+  if (!lista.length || !escolha) return;
+  const acao = escolha === "nenhuma" ? null : escolha;
+  const botao = $("#btn-lote-aplicar");
+  botao.disabled = true;
+  try {
+    const salvos = await armazem.salvarVarios(lista.map((a) => comAcao(a, acao)));
+    const porId = new Map(salvos.map((x) => [x.id, x]));
+    arts = arts.map((a) => (porId.has(a.id) ? { ...a, ...porId.get(a.id) } : a));
+    selecionadas.clear();
+    $("#lote-acao").value = "";
+    renderizar();
+    avisar(`${plural(lista.length, "ART", "ARTs")}: ${textoAcao(acao)}.`);
+  } catch (err) {
+    avisar("Não foi possível aplicar a ação: " + err.message);
+  } finally {
+    botao.disabled = !$("#lote-acao").value;
+  }
+}
+
+const ORDEM = { vencida: 0, vencendo: 1, ativa: 2, "sem-data": 3, baixada: 4, arquivada: 5 };
 function ordenar(lista) {
   return [...lista].sort((a, b) => {
     const sa = R.situacao(a, hoje), sb = R.situacao(b, hoje);
     if (sa !== sb) return ORDEM[sa] - ORDEM[sb];
     const fa = a.fim || "9999", fb = b.fim || "9999";
-    return sa === "baixada" ? fb.localeCompare(fa) : fa.localeCompare(fb);
+    return R.encerrada(a) ? fb.localeCompare(fa) : fa.localeCompare(fb);
   });
 }
 
@@ -130,8 +163,11 @@ async function iniciar() {
   if (!sessao) return;
   armazem = sessao.armazem;
   $("#tela-painel").hidden = false;
+  // Vindo das tarefas pendentes (art.html#acao): direto para as ARTs que precisam de baixa ou ação
+  if (location.hash === "#acao") filtro.situacao = "acao";
+  $("#filtro-situacao").value = filtro.situacao;
   await recarregar();
-  abrirVencimentos(true); // sempre ao entrar, quando houver ART vencida ou a vencer em 90 dias
+  if (filtro.situacao !== "acao") abrirVencimentos(true); // sempre ao entrar, quando houver ART vencida ou a vencer em 90 dias
 }
 
 async function recarregar() {
@@ -151,6 +187,10 @@ function renderFiltros() {
   const anos = [...new Set(arts.map(anoDe).filter(Boolean))].sort().reverse();
   $("#filtro-ano").innerHTML = op([["", "Todos os anos"], ...anos.map((a) => [a, `Registradas em ${a}`])], filtro.ano);
   $("#filtro-acao").innerHTML = op([["", "Todas as ações"], ["sem", "Sem ação definida"], ...Object.entries(R.ACOES)], filtro.acao);
+  if (!$("#lote-acao").options.length) {
+    $("#lote-acao").innerHTML = opcoesAcao("", "Escolha a ação…") + '<option value="nenhuma">Tirar a ação</option>';
+    $("#btn-lote-aplicar").disabled = true;
+  }
 }
 
 function renderizar() {
@@ -161,15 +201,30 @@ function renderizar() {
 }
 
 // ---------------------------------------------------------------- resumo e tabela
+// Indicador das ARTs que precisam de baixa ou de alguma ação (vencidas, vencendo em 30 dias ou com ação a fazer)
+function htmlIndicadorAcao(ac) {
+  if (!ac.total) return '<p class="ind-ok">Nenhuma ART precisa de baixa ou ação.</p>';
+  const partes = [[ac.semAcao, "sem ação definida"], [ac.baixa, "a dar baixa"], [ac.outraArt, "aguardando substituta, complementar ou nova ART"]].filter(([n]) => n);
+  return `<div class="ind-numero"><strong>${ac.total}</strong><span>${ac.total === 1 ? "ART precisa" : "ARTs precisam"} de baixa ou ação</span></div>
+    <ul class="ind-partes">${partes.map(([n, t]) => `<li><b>${n}</b> ${t}</li>`).join("")}</ul>`;
+}
+
 function renderResumo() {
-  const conta = { ativa: 0, vencendo: 0, vencida: 0, baixada: 0, "sem-data": 0, vence90: 0 };
+  const ac = R.resumoAcoes(arts, hoje);
+  const ind = $("#indicador-acao");
+  ind.classList.toggle("com-pendencia", ac.total > 0);
+  ind.innerHTML = htmlIndicadorAcao(ac) + (ac.total ? `<div class="ind-botoes">
+      <button class="btn btn-primary" type="button" data-situacao="acao" aria-pressed="${filtro.situacao === "acao"}">Ver ${ac.total === 1 ? "a ART" : `as ${ac.total}`}</button>
+      ${ac.semAcao && ac.semAcao < ac.total ? `<button class="btn btn-claro" type="button" data-so-sem-acao>Só as sem ação</button>` : ""}</div>` : "");
+  const conta = { ativa: 0, vencendo: 0, vencida: 0, baixada: 0, arquivada: 0, "sem-data": 0, vence90: 0 };
   arts.forEach((a) => { conta[R.situacao(a, hoje)]++; if (R.faixaVencimento(a, hoje) === "90") conta.vence90++; });
+  conta.encerrada = conta.baixada + conta.arquivada;
   const cards = [
     ["vencida", "Vencidas sem baixa", "var(--erro)"],
     ["vencendo", "Vencem em até 30 dias", "var(--yellow)"],
     ["vence90", "Vencem em 31 a 90 dias", "#e0a100"],
     ["ativa", "Ativas (fim em mais de 30 dias)", "var(--ok)"],
-    ["baixada", "Baixadas (concluídas)", "var(--gray-500)"],
+    ["encerrada", "Baixadas ou arquivadas", "var(--gray-500)"],
   ];
   $("#resumo").innerHTML = cards
     .map(
@@ -180,12 +235,17 @@ function renderResumo() {
     .join("");
 }
 
-function filtradas() {
+// Na análise, sem situação escolhida, entram também as baixadas e as arquivadas (quantas foram emitidas)
+function filtradas(paraAnalise = false) {
   const termo = filtro.busca.toLowerCase();
   return arts.filter((a) => {
     if (filtro.crea && a.crea !== filtro.crea) return false;
-    if (filtro.situacao === "vence90") { if (R.faixaVencimento(a, hoje) !== "90") return false; }
-    else if (filtro.situacao && R.situacao(a, hoje) !== filtro.situacao) return false;
+    const fs = filtro.situacao;
+    if (fs === "vence90") { if (R.faixaVencimento(a, hoje) !== "90") return false; }
+    else if (fs === "acao") { if (!R.precisaAcao(a, hoje)) return false; }
+    else if (fs === "encerrada") { if (!R.encerrada(a)) return false; }
+    else if (fs && fs !== "todas") { if (R.situacao(a, hoje) !== fs) return false; }
+    else if (!fs && !paraAnalise && R.encerrada(a)) return false;
     if (filtro.cliente && chaveCliente(a) !== filtro.cliente) return false;
     if (filtro.ano && anoDe(a) !== filtro.ano) return false;
     if (filtro.acao === "sem" && (a.acao || !R.faixaVencimento(a, hoje))) return false;
@@ -201,9 +261,13 @@ function filtradas() {
 
 function renderTabela() {
   const lista = ordenar(filtradas());
+  // A seleção vale só para o que está na lista
+  const visiveis = new Set(lista.filter((a) => !a.baixa_data).map((a) => a.id));
+  [...selecionadas].forEach((id) => { if (!visiveis.has(id)) selecionadas.delete(id); });
   $("#tabela tbody").innerHTML = lista
     .map(
-      (a) => `<tr class="clicavel" data-id="${esc(a.id)}" tabindex="0">
+      (a) => `<tr class="clicavel${selecionadas.has(a.id) ? " marcada" : ""}" data-id="${esc(a.id)}" tabindex="0">
+        <td class="sel-cel">${a.baixa_data ? "" : `<input type="checkbox" data-sel="${esc(a.id)}"${selecionadas.has(a.id) ? " checked" : ""} aria-label="Selecionar a ART ${esc(a.numero)}">`}</td>
         <td class="numero">${esc(a.numero)}</td>
         <td>${esc(a.crea)}</td>
         <td>${esc(a.contratante || "—")}<br><small class="dica">${esc(a.local || "")}</small></td>
@@ -220,7 +284,18 @@ function renderTabela() {
   const vazio = $("#vazio");
   vazio.hidden = lista.length > 0;
   if (!lista.length && arts.length) vazio.textContent = "Nenhuma ART encontrada com esses filtros.";
-  renderAnalise(lista);
+  const todas = $("#sel-todas");
+  todas.checked = visiveis.size > 0 && selecionadas.size === visiveis.size;
+  todas.indeterminate = selecionadas.size > 0 && selecionadas.size < visiveis.size;
+  todas.disabled = !visiveis.size;
+  renderLote();
+  renderAnalise(filtradas(true));
+}
+
+function renderLote() {
+  const n = selecionadas.size;
+  $("#barra-lote").hidden = !n;
+  $("#lote-n").textContent = `${plural(n, "ART selecionada", "ARTs selecionadas")}:`;
 }
 
 // ---------------------------------------------------------------- análise (segue os filtros)
@@ -237,10 +312,10 @@ function renderAnalise(lista) {
   const cl = [...porCliente.entries()].sort((a, b) => b[1].length - a[1].length || soma(b[1]) - soma(a[1]));
   const max = Math.max(1, ...cl.map(([, xs]) => xs.length));
   const conta = (xs, f) => xs.filter(f).length;
-  $("#analise-clientes").innerHTML = cl.length ? `<div class="tabela-wrap"><table class="tabela compacta"><thead><tr><th>Cliente</th><th class="num">ARTs</th><th class="num">Vencidas</th><th class="num">Baixadas</th><th class="num">Valor dos contratos</th></tr></thead><tbody>
+  $("#analise-clientes").innerHTML = cl.length ? `<div class="tabela-wrap"><table class="tabela compacta"><thead><tr><th>Cliente</th><th class="num">ARTs</th><th class="num">Vencidas</th><th class="num">Baixadas ou arquivadas</th><th class="num">Valor dos contratos</th></tr></thead><tbody>
     ${cl.map(([k, xs]) => `<tr class="clicavel-cliente" data-cliente="${esc(k)}" tabindex="0"><td>${esc(nomeCliente(k))}<span class="barra-analise"><span style="width:${(xs.length / max * 100).toFixed(1)}%"></span></span></td>
-      <td class="num">${xs.length}</td><td class="num">${conta(xs, (a) => R.situacao(a, hoje) === "vencida") || "—"}</td><td class="num">${conta(xs, (a) => a.baixa_data) || "—"}</td><td class="num">${moeda(soma(xs))}</td></tr>`).join("")}
-    </tbody><tfoot><tr><th>Total</th><th class="num">${lista.length}</th><th class="num">${conta(lista, (a) => R.situacao(a, hoje) === "vencida")}</th><th class="num">${conta(lista, (a) => a.baixa_data)}</th><th class="num">${moeda(soma(lista))}</th></tr></tfoot></table></div>` : '<p class="dica">Nenhuma ART.</p>';
+      <td class="num">${xs.length}</td><td class="num">${conta(xs, (a) => R.situacao(a, hoje) === "vencida") || "—"}</td><td class="num">${conta(xs, R.encerrada) || "—"}</td><td class="num">${moeda(soma(xs))}</td></tr>`).join("")}
+    </tbody><tfoot><tr><th>Total</th><th class="num">${lista.length}</th><th class="num">${conta(lista, (a) => R.situacao(a, hoje) === "vencida")}</th><th class="num">${conta(lista, R.encerrada)}</th><th class="num">${moeda(soma(lista))}</th></tr></tfoot></table></div>` : '<p class="dica">Nenhuma ART.</p>';
   // Por ano
   const anos = [...new Set(lista.map((a) => anoDe(a) || "sem data"))].sort().reverse();
   const creas = [...new Set(lista.map((a) => a.crea))].sort();
@@ -278,16 +353,18 @@ function renderVencimentos() {
       <div class="tabela-wrap"><table class="tabela compacta"><thead><tr><th>ART</th><th>Cliente</th><th>Fim previsto</th><th>Ação</th><th></th></tr></thead><tbody>${lista.map(linha).join("")}</tbody></table></div></details>` : "");
   const card = (faixa, n, rotulo, classe) => `<button type="button" class="venc-card ${classe}" data-ver-faixa="${faixa}"${n ? "" : " disabled"}><strong>${n}</strong><span>${rotulo}</span></button>`;
   const nada = !(r.vencidas.length + r.ate30.length + r.ate90.length);
+  const ac = R.resumoAcoes(arts, hoje);
   $("#dlg-vencimentos").innerHTML = `<div class="dlg-cab"><h2 id="titulo-vencimentos">Vencimentos das ARTs</h2><button class="btn-link" data-fechar type="button">Fechar</button></div>
     <div class="dlg-corpo">
-      <p class="dica">Situação em ${R.dataBR(hoje)}. As ARTs baixadas não entram: a obra ou o serviço já foi concluído e elas não vencem mais.</p>
+      <p class="dica">Situação em ${R.dataBR(hoje)}. As ARTs baixadas ou arquivadas não entram: não vencem mais.</p>
+      ${ac.total ? `<div class="indicador-acao com-pendencia venc-indicador">${htmlIndicadorAcao(ac)}</div>` : ""}
       <div class="venc-cards">
         ${card("vencida", r.vencidas.length, r.vencidas.length === 1 ? "ART vencida sem baixa" : "ARTs vencidas sem baixa", "vc-vencida")}
         ${card("vencendo", r.ate30.length, "vencem nos próximos 30 dias", "vc-30")}
         ${card("vence90", r.ate90.length, "vencem em 31 a 90 dias (3 meses)", "vc-90")}
       </div>
       ${nada ? '<p class="venc-ok">Nenhuma ART vencida nem a vencer nos próximos 90 dias.</p>' : ""}
-      ${r.semAcao ? `<p class="venc-aviso"><b>${plural(r.semAcao, "ART vencida ou a vencer em 30 dias está", "ARTs vencidas ou a vencer em 30 dias estão")} sem ação definida.</b> Escolha para cada uma: encerrar a obra ou serviço e dar baixa, emitir ART substituta ou emitir ART complementar.</p>` : ""}
+      ${r.semAcao ? `<p class="venc-aviso"><b>${plural(r.semAcao, "ART vencida ou a vencer em 30 dias está", "ARTs vencidas ou a vencer em 30 dias estão")} sem ação definida.</b> Escolha para cada uma: dar baixa, emitir ART substituta, complementar ou nova, ou arquivar quando não houver outra ART que a continue.</p>` : ""}
       ${grupo("Vencidas sem baixa", r.vencidas, "vg-vencida", true)}
       ${grupo("Vencem nos próximos 30 dias", r.ate30, "vg-30", true)}
       ${grupo("Vencem em 31 a 90 dias", r.ate90, "vg-90", !r.vencidas.length && !r.ate30.length)}
@@ -348,6 +425,7 @@ const CAMPOS = [
   ["contrato", "Contrato", "c2", "text"],
   ["valor", "Valor do contrato (R$)", "c2", "number"],
   ["taxa", "Taxa da ART (R$)", "c2", "number"],
+  ["taxa_paga", "Taxa já paga", "c2", "checkbox"],
   ["inicio", "Início", "c2", "date"],
   ["fim", "Fim previsto", "c2", "date"],
   ["celebrado", "Celebrado em", "c2", "date"],
@@ -358,6 +436,7 @@ const CAMPOS = [
 function campoHtml([nome, rotulo, cls, tipo], art) {
   const v = art[nome] ?? "";
   let input;
+  if (tipo === "checkbox") return `<label class="${cls} opcao-campo"><input type="checkbox" name="${nome}"${v ? " checked" : ""}> ${rotulo}</label>`;
   if (tipo === "textarea") input = `<textarea name="${nome}" rows="3">${esc(v)}</textarea>`;
   else if (tipo === "para") input = `<select name="para">${opcoesPara(paraDe(art))}</select>`;
   else if (tipo === "crea")
@@ -366,10 +445,11 @@ function campoHtml([nome, rotulo, cls, tipo], art) {
   return `<label class="${cls}">${rotulo}${input}</label>`;
 }
 
-// Ação para a ART que não foi baixada: encerrar e dar baixa, emitir ART substituta ou complementar
+// Ação para a ART que não foi baixada: dar baixa, emitir ART substituta, complementar ou nova, ou arquivar
 function blocoAcao(art) {
   const f = R.faixaVencimento(art, hoje);
-  const quando = f === "vencida" ? `Venceu ${textoDias(art)}.` : f ? `Vence ${textoDias(art)}.` : `Fim previsto em ${R.dataBR(art.fim)}.`;
+  const quando = art.acao === "arquivada" ? `Arquivada${art.arquivada_em ? ` em ${R.dataBR(art.arquivada_em)}` : ""}.`
+    : f === "vencida" ? `Venceu ${textoDias(art)}.` : f ? `Vence ${textoDias(art)}.` : `Fim previsto em ${R.dataBR(art.fim)}.`;
   return `<div class="bloco destaque" id="bloco-acao">
     <h3>Ação para esta ART</h3>
     <p class="dica">${esc(quando)} O que vai ser feito?</p>
@@ -389,9 +469,10 @@ function atualizarPassos(dlg) {
 function blocoFinanceiro(art) {
   const empresa = art.vinculo === "empresa" && empresas.find((e) => e.id === art.empresa_id);
   const id = encodeURIComponent(art.id);
+  const paga = art.taxa_paga ? '<p class="dica"><b>Taxa já paga</b>: não há reembolso pendente.</p>' : "";
   if (empresa) {
     const pagina = `empresas.html?e=${encodeURIComponent(empresa.id)}`;
-    return `<div class="bloco"><h3>Financeiro</h3>
+    return `<div class="bloco"><h3>Financeiro</h3>${paga}
         <div class="linha-acoes">
           <a class="btn btn-claro" href="${pagina}&amp;novo=despesa&amp;art=${id}&amp;categoria=Taxa%20de%20ART">Taxa paga por você (a reembolsar)</a>
           <a class="btn btn-claro" href="${pagina}&amp;novo=receita&amp;art=${id}">Reembolso da taxa pela empresa</a>
@@ -399,7 +480,7 @@ function blocoFinanceiro(art) {
         <p class="dica">Tirada para ${esc(empresa.nome)}: a empresa paga a taxa. Os lançamentos ficam em Finanças ${esc(empresa.nome)}.</p>
       </div>`;
   }
-  return `<div class="bloco"><h3>Financeiro</h3>
+  return `<div class="bloco"><h3>Financeiro</h3>${paga}
       <div class="linha-acoes">
         <a class="btn btn-claro" href="financeiro.html?novo=receita&amp;art=${id}">Lançar receita desta ART</a>
         <a class="btn btn-claro" href="financeiro.html?novo=despesa&amp;art=${id}&amp;categoria=Taxa%20de%20ART">Lançar taxa da ART</a>
@@ -478,11 +559,15 @@ function abrirArt(id, opcoes = {}) {
     const dados = { ...art };
     for (const [nome, , , tipo] of CAMPOS) {
       if (tipo === "para") continue;
+      if (tipo === "checkbox") { dados[nome] = f.get(nome) === "on"; continue; }
       const v = (f.get(nome) ?? "").toString().trim();
       dados[nome] = v === "" ? null : tipo === "number" ? Number(v) : v;
     }
     Object.assign(dados, vinculoDe(String(f.get("para") || "")));
-    if ($("#bloco-acao", dlg)) dados.acao = f.get("acao") || null;
+    if ($("#bloco-acao", dlg)) {
+      const { acao, arquivada_em } = comAcao(art, f.get("acao"));
+      Object.assign(dados, { acao, arquivada_em });
+    }
     return dados;
   };
 
@@ -601,7 +686,9 @@ function abrirImportacao({ anterior = null } = {}) {
       ? `A ART importada agora fica vinculada como substituta da ART ${anterior.numero}, que passa a constar como baixada por substituição.`
       : anterior.acao === "complementar"
         ? `A ART importada agora fica vinculada como complementar da ART ${anterior.numero}, que continua até a baixa.`
-        : `As ARTs importadas agora serão vinculadas à ART ${anterior.numero} (renovação, substituta ou complementar).`;
+        : anterior.acao === "nova"
+          ? `A ART importada agora fica vinculada como nova ART da ${anterior.numero}, que passa a constar como arquivada.`
+          : `As ARTs importadas agora serão vinculadas à ART ${anterior.numero} (renovação, substituta, complementar ou nova).`;
   }
   dlg.showModal();
 }
@@ -688,9 +775,12 @@ async function confirmarImportacao() {
     const salvos = await armazem.salvarVarios(registros);
     // ART substituta importada: a anterior fica baixada por substituição
     const ant = importacao.anterior && arts.find((a) => a.id === importacao.anterior.id);
-    if (ant && ant.acao === "substituta" && !ant.baixa_data && registros.some((r) => !arts.some((a) => a.numero === r.numero))) {
-      const novas = registros.filter((r) => !arts.some((a) => a.numero === r.numero)).map((r) => r.numero).join(", ");
+    // Nova ART importada (com a ação "Emitir nova ART"): a anterior fica arquivada
+    const novas = registros.filter((r) => !arts.some((a) => a.numero === r.numero)).map((r) => r.numero).join(", ");
+    if (ant && ant.acao === "substituta" && !ant.baixa_data && novas) {
       await armazem.salvar({ ...ant, baixa_data: hoje, baixa_motivo: "substituicao", notas: [ant.notas, `Substituída pela ART ${novas}.`].filter(Boolean).join("\n") });
+    } else if (ant && ant.acao === "nova" && !R.encerrada(ant) && novas) {
+      await armazem.salvar({ ...comAcao(ant, "arquivada"), notas: [ant.notas, `Arquivada: continua na nova ART ${novas}.`].filter(Boolean).join("\n") });
     }
     for (const i of escolhidos) {
       const c = importacao.candidatos[i];
@@ -709,13 +799,14 @@ async function confirmarImportacao() {
 
 // ---------------------------------------------------------------- exportação
 function exportarCsv() {
-  const cab = ["Número", "CREA", "Contratante", "Tirada para", "CPF/CNPJ", "Local", "Serviço", "TOS", "Valor", "Início", "Fim previsto", "Situação", "Dias para o fim", "Ação", "Baixa", "Motivo da baixa"];
+  const cab = ["Número", "CREA", "Contratante", "Tirada para", "CPF/CNPJ", "Local", "Serviço", "TOS", "Valor", "Taxa paga", "Início", "Fim previsto", "Situação", "Dias para o fim", "Ação", "Baixa", "Motivo da baixa", "Arquivada em"];
   const tiradaPara = (a) => (a.vinculo === "empresa" ? nomeEmpresa(a.empresa_id) || "Empresa removida" : a.vinculo === "particular" ? "Cliente particular" : "");
   const linhas = ordenar(filtradas()).map((a) => [
     a.numero, a.crea, a.contratante, tiradaPara(a), a.contratante_doc, a.local, a.observacao, (a.tos || []).join(", "),
-    a.valor == null ? "" : String(a.valor).replace(".", ","), R.dataBR(a.inicio), R.dataBR(a.fim),
+    a.valor == null ? "" : String(a.valor).replace(".", ","), a.taxa_paga ? "Sim" : "Não", R.dataBR(a.inicio), R.dataBR(a.fim),
     R.ROTULO_SITUACAO[R.situacao(a, hoje)], R.diasAte(a.fim, hoje) ?? "", a.acao ? R.ACOES[a.acao] : "", a.baixa_data ? R.dataBR(a.baixa_data) : "",
     { interrupcao: "Interrupção", substituicao: "Substituição", conclusao: "Conclusão" }[a.baixa_motivo] || "",
+    a.arquivada_em ? R.dataBR(a.arquivada_em) : "",
   ]);
   const csv = [cab, ...linhas].map((l) => l.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(";")).join("\r\n");
   const url = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
@@ -726,7 +817,7 @@ function exportarCsv() {
 
 // ---------------------------------------------------------------- eventos
 document.addEventListener("click", async (e) => {
-  if (e.target.closest("select")) return; // a caixa de seleção da ação não abre a ART
+  if (e.target.closest("select, .sel-cel")) return; // a caixa de seleção da ação e a de marcar não abrem a ART
   const alvo = e.target.closest("button, tr.clicavel, tr.clicavel-cliente");
   if (!alvo) return;
   if (alvo.matches("[data-fechar]")) alvo.closest("dialog").close();
@@ -744,9 +835,16 @@ document.addEventListener("click", async (e) => {
   else if (alvo.matches("tr.clicavel")) abrirArt(alvo.dataset.id);
   else if (alvo.matches("[data-situacao]")) {
     filtro.situacao = filtro.situacao === alvo.dataset.situacao ? "" : alvo.dataset.situacao;
+    if (filtro.acao === "sem" && filtro.situacao !== "acao") filtro.acao = "";
     $("#filtro-situacao").value = filtro.situacao;
-    renderResumo();
-    renderTabela();
+    renderizar();
+    if (filtro.situacao) $("#tabela").scrollIntoView({ behavior: "smooth", block: "start" });
+  } else if (alvo.matches("[data-so-sem-acao]")) {
+    filtro.situacao = "acao";
+    filtro.acao = "sem";
+    $("#filtro-situacao").value = filtro.situacao;
+    renderizar();
+    $("#tabela").scrollIntoView({ behavior: "smooth", block: "start" });
   } else if (alvo.matches("[data-ver]")) {
     alternarAlertas(false);
     if ($("#dlg-vencimentos").open) $("#dlg-vencimentos").close();
@@ -767,7 +865,7 @@ document.addEventListener("keydown", (e) => {
   if (cl && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); cl.click(); }
 });
 $("#tabela").addEventListener("keydown", (e) => {
-  if (e.target.closest("select")) return;
+  if (e.target.closest("select, input")) return;
   const tr = e.target.closest("tr.clicavel");
   if (tr && (e.key === "Enter" || e.key === " ")) {
     e.preventDefault();
@@ -792,6 +890,24 @@ $("#filtro-situacao").addEventListener("change", (e) => {
   renderResumo();
   renderTabela();
 });
+// Marcar ARTs na lista e aplicar uma ação a todas (ex.: arquivar as que não têm outra ART que as continue)
+$("#tabela").addEventListener("change", (e) => {
+  const caixa = e.target.closest("input[data-sel]");
+  if (caixa) {
+    if (caixa.checked) selecionadas.add(caixa.dataset.sel); else selecionadas.delete(caixa.dataset.sel);
+    caixa.closest("tr").classList.toggle("marcada", caixa.checked);
+    const total = $$("#tabela input[data-sel]").length;
+    $("#sel-todas").checked = total > 0 && selecionadas.size === total;
+    $("#sel-todas").indeterminate = selecionadas.size > 0 && selecionadas.size < total;
+    renderLote();
+  } else if (e.target.id === "sel-todas") {
+    $$("#tabela input[data-sel]").forEach((c) => { c.checked = e.target.checked; c.closest("tr").classList.toggle("marcada", c.checked); if (c.checked) selecionadas.add(c.dataset.sel); else selecionadas.delete(c.dataset.sel); });
+    renderLote();
+  }
+});
+$("#btn-lote-aplicar").addEventListener("click", aplicarEmLote);
+$("#lote-acao").addEventListener("change", (e) => { $("#btn-lote-aplicar").disabled = !e.target.value; });
+$("#btn-lote-limpar").addEventListener("click", () => { selecionadas.clear(); renderTabela(); });
 $("#filtro-para").addEventListener("change", (e) => {
   filtro.para = e.target.value;
   renderTabela();
@@ -806,6 +922,12 @@ $("#btn-limpar-filtros").addEventListener("click", () => {
 });
 // Ação escolhida na lista ou no resumo dos vencimentos
 document.addEventListener("change", (e) => { if (e.target.matches("select[data-acao]")) salvarAcao(e.target.dataset.acao, e.target.value); });
+window.addEventListener("hashchange", () => {
+  if (location.hash !== "#acao") return;
+  filtro.situacao = "acao";
+  $("#filtro-situacao").value = "acao";
+  renderizar();
+});
 $("#btn-vencimentos").addEventListener("click", () => abrirVencimentos(false));
 
 $("#btn-importar").addEventListener("click", () => abrirImportacao());

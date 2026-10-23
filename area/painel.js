@@ -40,7 +40,7 @@ const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
 function renderArts() {
   const { arts, tratados } = dados;
   const sit = (s) => arts.filter((a) => R.situacao(a, hoje) === s).length;
-  const proximas = arts.filter((a) => !a.baixa_data && a.fim && R.diasAte(a.fim, hoje) >= 0 && R.diasAte(a.fim, hoje) <= G.PRAZO_ART_PAINEL);
+  const proximas = arts.filter((a) => !R.encerrada(a) && a.fim && R.diasAte(a.fim, hoje) >= 0 && R.diasAte(a.fim, hoje) <= G.PRAZO_ART_PAINEL);
   const alertas = R.alertasPendentes(arts, tratados, hoje).length;
   const vencidas = sit("vencida");
   $("#kpis-art").innerHTML = [
@@ -202,7 +202,7 @@ const quandoDias = (dias) =>
 
 function renderListas() {
   const arts = dados.arts
-    .filter((a) => !a.baixa_data && a.fim && R.diasAte(a.fim, hoje) >= 0 && R.diasAte(a.fim, hoje) <= G.PRAZO_ART_PAINEL)
+    .filter((a) => !R.encerrada(a) && a.fim && R.diasAte(a.fim, hoje) >= 0 && R.diasAte(a.fim, hoje) <= G.PRAZO_ART_PAINEL)
     .sort((a, b) => a.fim.localeCompare(b.fim));
   $("#lista-art").innerHTML = arts.length
     ? arts.slice(0, 6).map((a) => {

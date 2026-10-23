@@ -5,7 +5,7 @@ const COLUNAS = [
   "id", "numero", "crea", "tipo", "forma", "contratante", "contratante_doc", "proprietario", "local",
   "endereco", "contrato", "valor", "taxa", "celebrado", "inicio", "fim", "registrada", "atividades",
   "tos", "observacao", "chave", "tipo_servico", "baixa_data", "baixa_motivo", "anterior_id", "pdf_path", "notas",
-  "vinculo", "empresa_id", "acao",
+  "vinculo", "empresa_id", "acao", "arquivada_em", "taxa_paga",
 ];
 
 const somenteColunas = (art) => Object.fromEntries(COLUNAS.filter((c) => c in art).map((c) => [c, art[c] ?? null]));

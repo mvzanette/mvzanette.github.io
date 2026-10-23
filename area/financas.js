@@ -14,12 +14,13 @@ import { desenharFinancas } from "./financas-painel.js";
 import { desenharDesejos } from "./financas-desejos.js";
 import { desenharInvestimentosPessoais } from "./financas-investimentos.js";
 import { mostrarCasal } from "./financas-casal.js";
-import { categoriaDe, chavesFatura, chavesGastos, contasDisponiveis, juntarCategorias, lerCategorias, lerContas, normalizarCategoria } from "./financas-classificacao.js";
+import { categoriaDe, categoriasEscolhiveis, chavesFatura, chavesGastos, contasDisponiveis, juntarCategorias, lerCategorias, lerContas, normalizarCategoria, semClassificacao } from "./financas-classificacao.js";
 import { aplicarFatura, herdarClassificacao, historicoDeCategorias, lerFaturaPdf, manterFaturasDoSite, montarFatura } from "./financas-faturas.js";
 import { decodificarExtrato, lerExtrato, MOTIVOS, saidasDoExtrato } from "./financas-extrato.js";
 import { aplicarPrevia, bancoDoCartao, faturaProvavel, lerFaturaParcial, montarPrevia, ordemFatura, rotuloFatura } from "./financas-previa.js";
 import { extrairLinhas } from "./pdf-texto.js";
 import { $, esc, avisar, opcoes, numeroDigitado, prepararDialogos, conferirPdf } from "./ui.js";
+import { mostrarTarefas, tarefaClassificar } from "./tarefas.js";
 
 let armazem;
 let perfil; // quem está usando a página
@@ -69,8 +70,10 @@ function mostrarStatus() {
 const NOVA = "__nova__";
 const igual = (a, b) => semAcento(a).trim() === semAcento(b).trim();
 
+// "Outros" não aparece: fica só para o ajuste de gastos não detalhados (o lançamento sem categoria fica a classificar)
 function preencherCategorias(form, categoria, subcategoria) {
-  const nomes = cats.lista.map((c) => c.nome);
+  const nomes = categoriasEscolhiveis(cats).map((c) => c.nome);
+  if (semClassificacao(categoria)) categoria = "";
   if (categoria && !nomes.some((n) => igual(n, categoria))) nomes.push(categoria); // fora da lista: aparece mesmo assim
   const atual = nomes.find((n) => igual(n, categoria || "")) || "";
   form.elements.categoria.innerHTML = '<option value="">—</option>' + nomes.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("")
@@ -644,12 +647,46 @@ function abrirClassificacao(item) {
   form.elements.categoria.focus();
 }
 
+// Grava a classificação de um lançamento e do seu par (a compra da fatura e o gasto do dia a dia conferido com ela
+// são o mesmo lançamento). No gasto lançado pelo site, grava no próprio gasto; nos outros, só o que muda em relação
+// ao que veio do projeto ou da fatura. redesenhar: false para gravar vários e redesenhar o painel uma vez no fim.
+async function gravarClassificacao(item, { categoria, subcategoria, essencial, conta, complemento }, { redesenhar = true } = {}) {
+  await guardarNaLista(categoria, subcategoria);
+  let mexeuGastos = false;
+  for (const alvo of [item, ...(item.par ? [item.par] : [])]) {
+    if (alvo.site) {
+      const salvo = await armazem.financas.atualizarGasto(alvo.id, { categoria, subcategoria, essencial, observacao: complemento, conta });
+      gastos = gastos.map((g) => (g.id === salvo.id ? salvo : g));
+      mexeuGastos = true;
+      continue;
+    }
+    const linha = { perfil_id: dono.id, chave: alvo.chave, categoria: categoria && !igual(categoria, alvo.original.categoria) ? categoria : null,
+      subcategoria, essencial, complemento, conta };
+    const vazio = !linha.categoria && !linha.subcategoria && linha.essencial == null && !linha.complemento && !linha.conta;
+    const existente = ajustes.find((x) => x.chave === alvo.chave);
+    if (vazio) {
+      if (existente) await armazem.financas.apagarAjuste(existente.id);
+      ajustes = ajustes.filter((x) => x.chave !== alvo.chave);
+    } else {
+      const [salvo] = await armazem.financas.salvarAjustes([linha]);
+      ajustes = [...ajustes.filter((x) => x.chave !== alvo.chave), salvo];
+    }
+  }
+  if (!redesenhar) return mexeuGastos;
+  if (mexeuGastos) painel.atualizarGastos(gastos);
+  painel.atualizarClassificacao({ ajustes, categorias: cats });
+  return mexeuGastos;
+}
+
+const SEM_OUTROS = "Escolha a categoria. “Outros” fica só para o ajuste de gastos não detalhados.";
+
 async function salvarClassificacao(e) {
   e.preventDefault();
   const form = e.target;
   const item = classificando;
   const { categoria, subcategoria } = lerCategoria(form);
   if (form.elements.categoria.value === NOVA && !categoria) return erroClassificar("Escreva o nome da nova categoria.");
+  if (semClassificacao(categoria)) return erroClassificar(SEM_OUTROS);
   const ess = form.elements.essencial.value;
   const essencial = ess === "sim" ? true : ess === "nao" ? false : null;
   const conta = contas.length > 1 ? contaEscolhida(form) : item.atual.conta === "pessoal" ? null : item.atual.conta;
@@ -657,27 +694,9 @@ async function salvarClassificacao(e) {
   const botao = form.querySelector("[type=submit]");
   botao.disabled = true;
   try {
-    await guardarNaLista(categoria, subcategoria);
-    if (item.site) {
-      const salvo = await armazem.financas.atualizarGasto(item.id, { categoria, subcategoria, essencial, observacao: complemento, conta });
-      gastos = gastos.map((g) => (g.id === salvo.id ? salvo : g));
-      painel.atualizarGastos(gastos);
-    } else {
-      // Só o que muda em relação ao que veio do projeto fica guardado
-      const linha = { perfil_id: dono.id, chave: item.chave, categoria: categoria && !igual(categoria, item.original.categoria) ? categoria : null,
-        subcategoria, essencial, complemento, conta };
-      const vazio = !linha.categoria && !linha.subcategoria && linha.essencial == null && !linha.complemento && !linha.conta;
-      if (vazio) {
-        if (item.ajuste) await armazem.financas.apagarAjuste(item.ajuste.id);
-        ajustes = ajustes.filter((x) => x.chave !== item.chave);
-      } else {
-        const [salvo] = await armazem.financas.salvarAjustes([linha]);
-        ajustes = [...ajustes.filter((x) => x.chave !== item.chave), salvo];
-      }
-    }
-    painel.atualizarClassificacao({ ajustes, categorias: cats });
+    await gravarClassificacao(item, { categoria, subcategoria, essencial, conta, complemento });
     $("#dlg-classificar").close();
-    avisar("Classificação salva.");
+    avisar(item.par ? "Classificação salva na compra da fatura e no gasto do dia a dia." : "Classificação salva.");
   } catch (err) {
     erroClassificar("Não foi possível salvar: " + err.message);
   } finally {
@@ -691,6 +710,11 @@ async function desfazerClassificacao() {
   try {
     await armazem.financas.apagarAjuste(item.ajuste.id);
     ajustes = ajustes.filter((x) => x.chave !== item.chave);
+    const doPar = item.par && ajustes.find((x) => x.chave === item.par.chave);
+    if (doPar) {
+      await armazem.financas.apagarAjuste(doPar.id);
+      ajustes = ajustes.filter((x) => x.chave !== doPar.chave);
+    }
     painel.atualizarClassificacao({ ajustes });
     $("#dlg-classificar").close();
     avisar("O lançamento voltou à classificação do projeto Financeiro.");
@@ -705,6 +729,109 @@ function prepararClassificacao() {
   form.elements.categoria.addEventListener("change", atualizarPadraoEssencial);
   form.addEventListener("submit", salvarClassificacao);
   $("#btn-desfazer-classificacao").addEventListener("click", desfazerClassificacao);
+  prepararPendencias();
+}
+
+// ---------------------------------------------------------------- lançamentos a classificar
+// Lista no topo da página com os lançamentos sem categoria (o painel avisa quando ela muda). Escolhe-se a categoria
+// e a subcategoria de cada um e salva um por um ou todos os escolhidos; "Mais opções" abre o diálogo completo.
+// As tarefas pendentes do início trazem para cá (financas.html#classificar).
+let pendencias = [];
+let pendenciasVistas = false; // a lista já teve itens nesta visita (mostra "tudo classificado" quando zera)
+const rascunho = new Map(); // chave → { categoria, subcategoria } escolhidas e ainda não salvas
+const origemDe = (item) => (item.site ? "Lançado no site" : item.tipo === "fatura" ? `Fatura ${item.mes || ""}`.trim() : "Gastos do dia a dia");
+
+function renderPendencias(lista) {
+  pendencias = lista;
+  const box = $("#classificar");
+  if (lista.length) pendenciasVistas = true;
+  box.hidden = !lista.length && !pendenciasVistas;
+  $("#classificar-n").textContent = lista.length || "";
+  $("#classificar-n").hidden = !lista.length;
+  [...rascunho.keys()].forEach((k) => { if (!lista.some((x) => x.chave === k)) rascunho.delete(k); });
+  const nomes = categoriasEscolhiveis(cats).map((c) => c.nome);
+  const opcoesSub = (categoria, atual) => ((categoriaDe(cats, categoria) || {}).sub || []).map((x) => `<option value="${esc(x)}"${x === atual ? " selected" : ""}>${esc(x)}</option>`).join("");
+  $("#classificar-lista").innerHTML = lista.length
+    ? lista.map((item, i) => {
+      const r = rascunho.get(item.chave) || {};
+      return `<div class="cl-linha" data-i="${i}">
+        <div class="cl-info"><b>${esc(item.titulo)}</b>
+          <span>${[item.data ? dataBR(item.data) : "", brl(item.valor), item.parcela ? `parcela ${esc(item.parcela)}` : ""].filter(Boolean).join(" · ")}</span>
+          <small>${esc(origemDe(item))}${item.par ? " · também nos gastos do dia a dia" : ""}</small></div>
+        <label>Categoria<select data-cl-cat><option value="">Escolha…</option>${nomes.map((n) => `<option value="${esc(n)}"${n === r.categoria ? " selected" : ""}>${esc(n)}</option>`).join("")}</select></label>
+        <label>Subcategoria<select data-cl-sub${r.categoria ? "" : " disabled"}><option value="">—</option>${r.categoria ? opcoesSub(r.categoria, r.subcategoria) : ""}</select></label>
+        <div class="cl-botoes"><button class="btn btn-primary" type="button" data-cl-salvar${r.categoria ? "" : " disabled"}>Salvar</button>
+          <button class="btn-link" type="button" data-cl-mais>Mais opções</button></div>
+      </div>`;
+    }).join("")
+    : '<p class="cl-ok">Tudo classificado: nenhum lançamento a classificar.</p>';
+  atualizarSalvarTodos();
+}
+
+function atualizarSalvarTodos() {
+  const n = pendencias.filter((x) => (rascunho.get(x.chave) || {}).categoria).length;
+  const b = $("#btn-classificar-todos");
+  b.hidden = n < 2;
+  b.textContent = `Salvar os ${n} escolhidos`;
+}
+
+// Mantém o que já estava no lançamento além da categoria (essencial, conta e complemento)
+function camposRapidos(item, { categoria, subcategoria }) {
+  const g = item.site ? gastos.find((x) => x.id === item.id) || {} : null;
+  return { categoria, subcategoria: subcategoria || null,
+    essencial: item.site ? g.essencial ?? null : item.ajuste ? item.ajuste.essencial ?? null : null,
+    conta: item.atual.conta === "pessoal" ? null : item.atual.conta,
+    complemento: item.site ? g.observacao || null : (item.ajuste && item.ajuste.complemento) || null };
+}
+
+async function salvarPendencias(itens) {
+  const escolhidos = itens.filter((x) => (rascunho.get(x.chave) || {}).categoria);
+  if (!escolhidos.length) return;
+  const botoes = [...document.querySelectorAll("#classificar button")];
+  botoes.forEach((b) => { b.disabled = true; });
+  let mexeuGastos = false, feitos = 0;
+  try {
+    for (const item of escolhidos) {
+      mexeuGastos = (await gravarClassificacao(item, camposRapidos(item, rascunho.get(item.chave)), { redesenhar: false })) || mexeuGastos;
+      rascunho.delete(item.chave);
+      feitos++;
+    }
+    avisar(feitos === 1 ? "Lançamento classificado." : `${feitos} lançamentos classificados.`);
+  } catch (err) {
+    avisar("Não foi possível salvar: " + err.message);
+  } finally {
+    $("#btn-classificar-todos").disabled = false;
+    if (mexeuGastos) painel.atualizarGastos(gastos);
+    painel.atualizarClassificacao({ ajustes, categorias: cats }); // redesenha a lista (o painel avisa as pendências)
+  }
+}
+
+function prepararPendencias() {
+  const lista = $("#classificar-lista");
+  lista.addEventListener("change", (e) => {
+    const linha = e.target.closest(".cl-linha");
+    if (!linha) return;
+    const item = pendencias[Number(linha.dataset.i)];
+    const r = rascunho.get(item.chave) || {};
+    if (e.target.matches("[data-cl-cat]")) {
+      r.categoria = e.target.value || null;
+      r.subcategoria = null;
+      const sub = linha.querySelector("[data-cl-sub]");
+      sub.innerHTML = '<option value="">—</option>' + ((categoriaDe(cats, r.categoria || "") || {}).sub || []).map((x) => `<option value="${esc(x)}">${esc(x)}</option>`).join("");
+      sub.disabled = !r.categoria;
+      linha.querySelector("[data-cl-salvar]").disabled = !r.categoria;
+    } else if (e.target.matches("[data-cl-sub]")) r.subcategoria = e.target.value || null;
+    if (r.categoria) rascunho.set(item.chave, r); else rascunho.delete(item.chave);
+    atualizarSalvarTodos();
+  });
+  lista.addEventListener("click", (e) => {
+    const linha = e.target.closest(".cl-linha");
+    if (!linha) return;
+    const item = pendencias[Number(linha.dataset.i)];
+    if (e.target.closest("[data-cl-salvar]")) salvarPendencias([item]);
+    else if (e.target.closest("[data-cl-mais]")) abrirClassificacao(item);
+  });
+  $("#btn-classificar-todos").addEventListener("click", () => salvarPendencias(pendencias));
 }
 
 // ---------------------------------------------------------------- cadastros: categorias, subcategorias e contas
@@ -1862,9 +1989,16 @@ async function iniciar() {
     contas: contasTodas,
     aoClassificar: abrirClassificacao,
     aoEditarCategorias: abrirCategorias,
+    aoMudarPendencias: renderPendencias,
     comDesejos: !!desejos,
     comInvestimentos: true,
   });
+  // Vindo das tarefas pendentes (financas.html#classificar): direto para a lista; senão, a janela de tarefas avisa
+  // (uma vez por sessão) quando há lançamentos a classificar no próprio painel
+  if (location.hash === "#classificar") $("#classificar").scrollIntoView({ block: "start" });
+  else if (dono.id === perfil.id && pendencias.length) {
+    mostrarTarefas([tarefaClassificar(pendencias.length, "#classificar")], { perfil, automatico: true, aoAbrir: () => $("#classificar").scrollIntoView({ block: "start", behavior: "smooth" }) });
+  }
   desenharInvestimentosPessoais({
     raiz: $("#inv-pessoal"),
     lista: Array.isArray(prefs && prefs.investimentos) ? prefs.investimentos : [],

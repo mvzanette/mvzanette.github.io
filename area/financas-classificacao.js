@@ -172,6 +172,16 @@ export function renomear(cats, nome) {
 
 export const categoriaDe = (cats, nome) => (cats ? cats.lista.find((c) => semAcento(c.nome) === semAcento(nome)) : null) || null;
 
+// ---------------------------------------------------------------- a classificar
+// Nenhum lançamento fica em "Outros": a categoria é só do ajuste (gastos no cartão não detalhados). O que vem sem
+// categoria, ou em Outros, fica "A classificar" até alguém escolher uma, e entra nas tarefas pendentes.
+export const OUTROS = "Outros";
+export const A_CLASSIFICAR = "A classificar";
+export const ehAjuste = (l) => /^ajuste/i.test(String((l && (l.desc || l.nome)) || ""));
+export const semClassificacao = (nome) => !nome || [OUTROS, A_CLASSIFICAR].some((x) => semAcento(x) === semAcento(nome));
+// Categorias que podem ser escolhidas para um lançamento (Outros fica de fora)
+export const categoriasEscolhiveis = (cats) => (cats ? cats.lista.filter((c) => !semClassificacao(c.nome)) : []);
+
 // ---------------------------------------------------------------- chaves e valores ajustados
 // A chave identifica um lançamento vindo do projeto Financeiro e continua igual depois de cada importação:
 // data, valor e descrição (lançamentos iguais no mesmo mês ganham um número de ordem). Gasto lançado pelo site
@@ -203,13 +213,16 @@ export function chavesFatura(lancamentos, prefixo = "c") {
 
 // Valores que valem para o lançamento: o ajuste feito no site (se houver) sobre o que veio do projeto.
 // Essencial: o ajuste, depois o que veio do projeto, depois o padrão da categoria.
+// pendente: sem categoria (ou em Outros, fora do ajuste), fica "A classificar"
 export function efetivo(l, ajuste, cats) {
   const a = ajuste || {};
   const site = l.origem === "site";
-  const original = l.cat || "Outros";
-  const categoria = a.categoria || renomear(cats, original);
+  const original = l.cat || OUTROS;
+  let categoria = a.categoria || renomear(cats, original);
+  const pendente = semClassificacao(categoria) && !ehAjuste(l);
+  if (pendente) categoria = A_CLASSIFICAR;
   // Categoria juntada a outra: o lançamento sem subcategoria fica na subcategoria que ela virou
-  const subcategoria = a.subcategoria || l.sub || (!a.categoria && cats && cats.subPadrao && cats.subPadrao[original]) || null;
+  const subcategoria = pendente ? null : a.subcategoria || l.sub || (!a.categoria && cats && cats.subPadrao && cats.subPadrao[original]) || null;
   const c = categoriaDe(cats, categoria) || {};
   const padrao = (subcategoria && c.essSub && c.essSub[subcategoria] != null ? c.essSub[subcategoria] : c.essencial) ?? null;
   const doProjeto = simNao(l.essencial);
@@ -222,6 +235,7 @@ export function efetivo(l, ajuste, cats) {
     complemento: a.complemento || (site ? l.obs || null : null),
     conta: a.conta || l.conta || "pessoal",
     ajustado: !!ajuste,
+    pendente,
   };
 }
 
@@ -255,8 +269,9 @@ export function lancamentosDaConta({ dados, gastos = [], ajustes = [], prefs = n
   });
   for (const g of gastos) {
     if (!alvo.has(g.conta || "pessoal")) continue;
+    const categoria = renomear(cats, g.categoria || OUTROS);
     lista.push({ chave: `s|${g.id}`, data: g.data, descricao: g.descricao, complemento: g.observacao, valor: Number(g.valor),
-      categoria: renomear(cats, g.categoria || "Outros"), origem: g.parcelas > 1 ? `Lançado no site · ${g.parcelas}x` : "Lançado no site" });
+      categoria: semClassificacao(categoria) ? A_CLASSIFICAR : categoria, origem: g.parcelas > 1 ? `Lançado no site · ${g.parcelas}x` : "Lançado no site" });
   }
   return lista.sort((a, b) => String(b.data || "").localeCompare(String(a.data || "")));
 }

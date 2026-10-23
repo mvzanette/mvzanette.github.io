@@ -10,10 +10,10 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@500;600;700;800&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../styles.css?v=12bc86b1">
-  <link rel="stylesheet" href="area.css?v=49dd9543">
+  <link rel="stylesheet" href="area.css?v=3bca81a2">
   <script src="../tos-mecanica.js?v=5864da19"></script>
-  <script type="importmap" data-versoes>{"imports": {"./art.js": "./art.js?v=a8565d07", "./caixa-documentos.js": "./caixa-documentos.js?v=7c2bf156", "./caixa.js": "./caixa.js?v=bfa6e7c8", "./config-area.js": "./config-area.js?v=c77553f2", "./conta.js": "./conta.js?v=fdce23ea", "./dados.js": "./dados.js?v=7259ba53", "./demandas.js": "./demandas.js?v=19d8f618", "./financas-casal.js": "./financas-casal.js?v=88c0c986", "./financas-classificacao.js": "./financas-classificacao.js?v=584b64c6", "./financas-desejos.js": "./financas-desejos.js?v=7175e284", "./financas-extrato.js": "./financas-extrato.js?v=6a8ecce9", "./financas-faturas.js": "./financas-faturas.js?v=fb323307", "./financas-importar.js": "./financas-importar.js?v=71dfaaa4", "./financas-investimentos.js": "./financas-investimentos.js?v=b239c889", "./financas-painel.js": "./financas-painel.js?v=0178765b", "./financas-previa.js": "./financas-previa.js?v=bfb16e3d", "./financas.js": "./financas.js?v=c1e0f368", "./financeiro.js": "./financeiro.js?v=6de87fd0", "./inicio.js": "./inicio.js?v=e80c4066", "./leitores.js": "./leitores.js?v=7eec42d0", "./login.js": "./login.js?v=f434d5fc", "./modulos.js": "./modulos.js?v=d8afcfe0", "./painel.js": "./painel.js?v=f606b3b3", "./pdf-texto.js": "./pdf-texto.js?v=b5de895d", "./planilha.js": "./planilha.js?v=ce3e0414", "./regras-gestao.js": "./regras-gestao.js?v=351037e5", "./regras.js": "./regras.js?v=4810a2f4", "./sessao.js": "./sessao.js?v=ff1b532e", "./ui.js": "./ui.js?v=efb69f88", "./usuarios.js": "./usuarios.js?v=6966c106", "./vendor/pdf.min.mjs": "./vendor/pdf.min.mjs?v=f548e26b", "./vendor/pdf.worker.min.mjs": "./vendor/pdf.worker.min.mjs?v=8860b503"}}</script>
-  <script type="module" src="art.js?v=a8565d07"></script>
+  <script type="importmap" data-versoes>{"imports": {"./art.js": "./art.js?v=f195eaa7", "./caixa-documentos.js": "./caixa-documentos.js?v=7c2bf156", "./caixa.js": "./caixa.js?v=2ffb207e", "./config-area.js": "./config-area.js?v=c77553f2", "./conta.js": "./conta.js?v=fdce23ea", "./dados.js": "./dados.js?v=79523e68", "./demandas.js": "./demandas.js?v=19d8f618", "./financas-casal.js": "./financas-casal.js?v=88c0c986", "./financas-classificacao.js": "./financas-classificacao.js?v=e7b791cd", "./financas-desejos.js": "./financas-desejos.js?v=7175e284", "./financas-extrato.js": "./financas-extrato.js?v=6a8ecce9", "./financas-faturas.js": "./financas-faturas.js?v=07623b15", "./financas-importar.js": "./financas-importar.js?v=71dfaaa4", "./financas-investimentos.js": "./financas-investimentos.js?v=b239c889", "./financas-painel.js": "./financas-painel.js?v=c42f7914", "./financas-previa.js": "./financas-previa.js?v=bfb16e3d", "./financas.js": "./financas.js?v=86676ff3", "./financeiro.js": "./financeiro.js?v=3d080ed0", "./inicio.js": "./inicio.js?v=425f2d83", "./leitores.js": "./leitores.js?v=7eec42d0", "./login.js": "./login.js?v=f434d5fc", "./modulos.js": "./modulos.js?v=d8afcfe0", "./painel.js": "./painel.js?v=0fe885d9", "./pdf-texto.js": "./pdf-texto.js?v=b5de895d", "./planilha.js": "./planilha.js?v=ce3e0414", "./regras-gestao.js": "./regras-gestao.js?v=351037e5", "./regras.js": "./regras.js?v=52d5e1d5", "./sessao.js": "./sessao.js?v=ff1b532e", "./tarefas.js": "./tarefas.js?v=aa4e429d", "./ui.js": "./ui.js?v=efb69f88", "./usuarios.js": "./usuarios.js?v=6966c106", "./vendor/pdf.min.mjs": "./vendor/pdf.min.mjs?v=f548e26b", "./vendor/pdf.worker.min.mjs": "./vendor/pdf.worker.min.mjs?v=8860b503"}}</script>
+  <script type="module" src="art.js?v=f195eaa7"></script>
 </head>
 <body class="area">
 
@@ -57,6 +57,7 @@
 
       <div class="faixa-alertas" id="faixa-alertas" hidden></div>
 
+      <div class="indicador-acao" id="indicador-acao" aria-live="polite"></div>
       <div class="resumo" id="resumo"></div>
 
       <div class="filtros filtros-4">
@@ -69,13 +70,15 @@
           <option value="Outro">Outro</option>
         </select>
         <select id="filtro-situacao" aria-label="Situação">
-          <option value="">Todas as situações</option>
+          <option value="">Em aberto (sem baixadas e arquivadas)</option>
+          <option value="acao">Precisam de baixa ou ação</option>
+          <option value="vencida">Vencida sem baixa</option>
           <option value="vencendo">Vence em até 30 dias</option>
           <option value="vence90">Vence em 31 a 90 dias</option>
-          <option value="vencida">Vencida sem baixa</option>
           <option value="ativa">Ativa</option>
-          <option value="baixada">Baixada</option>
           <option value="sem-data">Sem data de término</option>
+          <option value="encerrada">Baixadas e arquivadas</option>
+          <option value="todas">Todas</option>
         </select>
         <select id="filtro-para" aria-label="Tirada para"></select>
       </div>
@@ -86,10 +89,18 @@
         <button class="btn btn-claro" id="btn-limpar-filtros" type="button">Limpar filtros</button>
       </div>
 
+      <div class="barra-lote" id="barra-lote" hidden>
+        <span id="lote-n"></span>
+        <select id="lote-acao" aria-label="Ação para as ARTs selecionadas"></select>
+        <button class="btn btn-primary" id="btn-lote-aplicar" type="button">Aplicar</button>
+        <button class="btn-link" id="btn-lote-limpar" type="button">Limpar seleção</button>
+      </div>
+
       <div class="tabela-wrap">
         <table class="tabela" id="tabela">
           <thead>
             <tr>
+              <th class="sel-cel"><input type="checkbox" id="sel-todas" aria-label="Selecionar todas as ARTs da lista"></th>
               <th>ART</th>
               <th>CREA</th>
               <th>Cliente</th>
