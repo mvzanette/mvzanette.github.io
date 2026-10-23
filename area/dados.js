@@ -28,7 +28,29 @@ const TABELAS = {
       "forma", "art_id", "demanda_id", "observacao", "empresa_id"],
     numeros: ["valor"],
   },
+  // Caixa das empresas: entradas, despesas (RDV e fichas de custo), adiantamentos e devoluções de colaboradores
+  caixa_movimentos: {
+    colunas: ["id", "data", "tipo", "classificacao", "empresa_id", "valor", "descricao", "colaborador", "aprovado", "documento",
+      "documento_nome", "detalhes", "observacao"],
+    numeros: ["valor"],
+  },
 };
+
+// Configuração do caixa das empresas: quais empresas, saldo inicial e o saldo informado da conta do caixa
+const COLUNAS_CAIXA = ["empresas", "saldo_inicial", "data_inicial", "saldo_conta", "data_conta"];
+function limparConfigCaixa(c) {
+  const n = (v) => (v === "" || v == null || !Number.isFinite(Number(v)) ? null : Math.round(Number(v) * 100) / 100);
+  const data = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || "")) ? v : null);
+  const linha = Object.fromEntries(COLUNAS_CAIXA.filter((k) => k in c).map((k) => [k, c[k]]));
+  if ("empresas" in linha) linha.empresas = [...new Set((linha.empresas || []).filter(Boolean).map(String))];
+  if ("saldo_inicial" in linha) linha.saldo_inicial = n(linha.saldo_inicial) ?? 0;
+  if ("saldo_conta" in linha) linha.saldo_conta = n(linha.saldo_conta);
+  for (const k of ["data_inicial", "data_conta"]) if (k in linha) linha[k] = data(linha[k]);
+  return linha;
+}
+const numerosCaixa = (c) => c && { ...c, saldo_inicial: Number(c.saldo_inicial) || 0, saldo_conta: c.saldo_conta == null ? null : Number(c.saldo_conta) };
+// Nome guardado do documento do caixa: ano, um código e o nome original sem caracteres especiais
+const caminhoDocumento = (nome) => `${new Date().getFullYear()}/${novoId().slice(0, 8)}-${String(nome || "documento").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w.-]+/g, "_").slice(-120)}`;
 
 const limpar = (nome, obj) => {
   const { colunas } = TABELAS[nome];
@@ -299,6 +321,8 @@ function armazemDemo() {
   const GASTOS = "mz-area-demo-financas-gastos";
   const ENTRADAS = "mz-area-demo-financas-entradas";
   const EMPRESAS = "mz-area-demo-empresas";
+  const CAIXA = "mz-area-demo-caixa-config";
+  const docsCaixa = new Map(); // documentos do caixa só durante a sessão
   const PREFS = "mz-area-demo-financas-prefs";
   const AJUSTES = "mz-area-demo-financas-ajustes";
   const DESEJOS = "mz-area-demo-financas-desejos";
@@ -584,11 +608,34 @@ function armazemDemo() {
       },
       async remover(idEmpresa) {
         if ((await colecoes.lancamentos.listar()).some((l) => l.empresa_id === idEmpresa)) throw new Error(EMPRESA_COM_LANCAMENTOS);
+        if ((await colecoes.caixa_movimentos.listar()).some((l) => l.empresa_id === idEmpresa)) throw new Error(EMPRESA_COM_LANCAMENTOS);
         gravarJson(EMPRESAS, lerJson(EMPRESAS, []).filter((x) => x.id !== idEmpresa));
         estado.arts.forEach((a) => {
           if (a.empresa_id === idEmpresa) a.empresa_id = null;
         });
         gravar(estado);
+      },
+    },
+    // Caixa das empresas: configuração e documentos anexados (RDV, fichas de custo)
+    caixa: {
+      async config() {
+        return lerJson(CAIXA, null);
+      },
+      async salvarConfig(campos) {
+        const c = { id: 1, empresas: [], saldo_inicial: 0, data_inicial: null, saldo_conta: null, data_conta: null, ...lerJson(CAIXA, {}), ...limparConfigCaixa(campos) };
+        gravarJson(CAIXA, c);
+        return structuredClone(c);
+      },
+      async enviarDocumento(arquivo) {
+        const caminho = `demo/${caminhoDocumento(arquivo.name)}`;
+        docsCaixa.set(caminho, URL.createObjectURL(arquivo));
+        return caminho;
+      },
+      async urlDocumento(caminho) {
+        return docsCaixa.get(caminho) || null;
+      },
+      async apagarDocumento(caminho) {
+        docsCaixa.delete(caminho);
       },
     },
     async listar() {
@@ -636,6 +683,7 @@ function armazemDemo() {
       gravarJson(GASTOS, []);
       gravarJson(ENTRADAS, []);
       gravarJson(EMPRESAS, []);
+      gravarJson(CAIXA, null);
       gravarJson(PREFS, {});
       gravarJson(AJUSTES, []);
       gravarJson(DESEJOS, []);
@@ -904,6 +952,36 @@ async function armazemSupabase(url, chave) {
       const { data, error } = await sb.storage.from("arts").createSignedUrl(caminho, 600);
       falhou(error);
       return data.signedUrl;
+    },
+    caixa: {
+      async config() {
+        const { data, error } = await sb.from("caixa_config").select("*").eq("id", 1).maybeSingle();
+        if (error) throw new Error(/caixa_config/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+        return numerosCaixa(data);
+      },
+      async salvarConfig(campos) {
+        const { data, error } = await sb.from("caixa_config").upsert({ id: 1, ...limparConfigCaixa(campos) }, { onConflict: "id" }).select().single();
+        if (error) throw new Error(error.code === "42501" ? "Sem permissão para alterar o caixa das empresas." : error.message);
+        return numerosCaixa(data);
+      },
+      async enviarDocumento(arquivo) {
+        const caminho = caminhoDocumento(arquivo.name);
+        // Sem o tipo informado pelo navegador, vale o da extensão (o banco só aceita planilha, PDF e foto)
+        const ext = { xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", xls: "application/vnd.ms-excel", pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png" };
+        const tipo = arquivo.type || ext[String(arquivo.name).split(".").pop().toLowerCase()] || "application/octet-stream";
+        const { error } = await sb.storage.from("caixa").upload(caminho, arquivo, { upsert: false, contentType: tipo });
+        if (error) throw new Error(/mime|type/i.test(error.message) ? "Tipo de arquivo não aceito. Envie a planilha (.xlsx), um PDF ou uma foto (JPG ou PNG)." : error.message);
+        return caminho;
+      },
+      async urlDocumento(caminho) {
+        const { data, error } = await sb.storage.from("caixa").createSignedUrl(caminho, 600);
+        falhou(error);
+        return data.signedUrl;
+      },
+      async apagarDocumento(caminho) {
+        const { error } = await sb.storage.from("caixa").remove([caminho]);
+        falhou(error);
+      },
     },
     colecao(nome) {
       return {

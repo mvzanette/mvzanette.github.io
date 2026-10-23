@@ -498,6 +498,12 @@ async function iniciar() {
       return;
     }
     montarCabecalhoEmpresa();
+    // Empresa do caixa das empresas: a aba do caixa vem primeiro
+    armazem.caixa.config().then((c) => {
+      if (!c || !(c.empresas || []).includes(empresa.id)) return;
+      $("#empresas-abas").hidden = false;
+      $("#empresas-abas").insertAdjacentHTML("afterbegin", '<a class="pilula" href="caixa.html">Caixa das empresas</a>');
+    }).catch(() => {});
   }
   $("#tela").hidden = false;
   $("#periodo").innerHTML = opcoes(G.PERIODOS, filtro.periodo);

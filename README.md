@@ -274,6 +274,18 @@ Uma página para cada empresa com que você tem movimento financeiro (onde traba
 - **Pagos com o seu dinheiro:** os lançamentos das Finanças pessoais que você marcou com a conta da empresa ou com uma conta unida de que ela faz parte (ex.: um hotel pago no seu cartão). "Lançar a receber" cria o valor a cobrar; depois aparece "já lançado".
 - Empresa com lançamentos não pode ser removida (os lançamentos iriam para a engenharia). Remover uma empresa deixa as ARTs dela sem empresa.
 
+### Caixa das empresas
+
+Para o dinheiro que as empresas adiantam (`area/caixa.html`, no menu e no início no lugar dos cards das empresas que fazem parte dele). As empresas escolhidas dividem um caixa só: cada despesa sai classificada para uma delas, mas o saldo é um. Em **Configurar**, escolha as empresas, o saldo inicial e a data dele, e o saldo de hoje na conta separada do caixa.
+
+- **Painel, ao abrir:** saldo das empresas com você (o que está em caixa mais o que está com os colaboradores, menos o que falta reembolsar a eles), **em caixa** (estimado), **na conta do caixa** (o saldo informado; a diferença para o estimado aparece como o que foi usado no pessoal e falta repor), **com colaboradores** (quanto com cada um), **a aprovar** e os **gastos do período** (este mês, mês passado, este ano ou desde o saldo inicial).
+- **Classificação das despesas:** RDV (relatório de despesas de viagem) ou FC (ficha de custo) de cada empresa, com a sigla dela (ex.: RDV V, FC T, pela primeira letra do nome), ou outra despesa. Os gastos do período aparecem por classificação.
+- **Importar RDV ou ficha de custo:** a planilha (.xlsx) é lida no navegador. Cada aba preenchida vira um documento, com o total, a empresa (pelo título do RDV ou pelo nome do arquivo), os itens (do RDV: discriminação, placa, quantidade e valor; da ficha: centro de custo, placa e valor), a obra, a origem e o destino e as observações. O RDV com o nome de outra pessoa é a prestação de contas de um colaborador. Confira a classificação, o valor e a data. O arquivo fica anexado, e o mesmo documento importado de novo aparece desmarcado. PDF e foto também podem ser anexados, com o valor digitado.
+- **Aprovado:** a despesa importada fica **a aprovar**, fora do saldo, até você marcar a caixa Aprovado (no quadro A aprovar ou na lista). Desmarcar tira do saldo de novo. A despesa lançada à mão já vem aprovada.
+- **Colaboradores:** adiantar sai do caixa e fica com o colaborador. O RDV dele, aprovado, abate o adiantamento sem sair do caixa de novo. Se ele gastou mais do que recebeu, aparece **a reembolsar** (com o botão Reembolsar já com o valor); se sobrou, **Devolução** traz o dinheiro de volta ao caixa.
+- **Entradas:** o dinheiro que uma empresa manda para o caixa (adiantamento ou reposição).
+- A lista de movimentos tem a busca, os filtros (classificação, empresa e aprovação) e o saldo em caixa depois de cada movimento. Movimentos antes da data do saldo inicial não contam. Os nomes das empresas e dos colaboradores ficam só no banco.
+
 ## Painel gerencial
 
 Fica em `area/painel.html`. Cada bloco aparece só para quem tem permissão no módulo correspondente. Escolha o período no alto (este ano, este mês, últimos 12 meses, ano anterior ou todo o período). Cada indicador leva ao recurso correspondente.

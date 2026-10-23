@@ -97,7 +97,8 @@ function montarMenu(atual, perfil, empresas) {
   const aberta = atual === "empresas.html" ? empresaAberta(empresas) : null;
   const item = (m) =>
     m.id === "empresas" && empresas.length
-      ? empresas.map((e) => `<a class="menu-item" href="${paginaEmpresa(e)}"${e === aberta ? ' aria-current="page"' : ""}>Finanças ${esc(e.nome)}</a>`).join("")
+      ? `<a class="menu-item" href="caixa.html"${atual === "caixa.html" ? ' aria-current="page"' : ""}>Caixa das empresas</a>`
+        + empresas.map((e) => `<a class="menu-item" href="${paginaEmpresa(e)}"${e === aberta ? ' aria-current="page"' : ""}>Finanças ${esc(e.nome)}</a>`).join("")
       : `<a class="menu-item" href="${m.pagina}"${m.pagina === atual ? ' aria-current="page"' : ""}>${m.titulo}</a>`;
   const grupos = GRUPOS.map((g) => {
     const itens = MODULOS.filter((m) => m.grupo === g.id && pode(perfil, m.id)).map(item).join("");

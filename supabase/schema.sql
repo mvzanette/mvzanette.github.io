@@ -788,3 +788,87 @@ drop policy if exists "pdfs das financas - apagar" on storage.objects;
 create policy "pdfs das financas - apagar" on storage.objects
   for delete to authenticated
   using (bucket_id = 'financas' and public.financas_acesso_pasta((storage.foldername(name))[1]));
+
+-- ------------------------------------------------------------
+-- Caixa das empresas: o dinheiro que as empresas adiantam (um caixa só para as empresas escolhidas, mesmo que cada
+-- despesa seja de uma delas). Saldo inicial, saldo informado da conta separada do caixa e os movimentos:
+--   entrada:      dinheiro que uma empresa manda para o caixa (adiantamento, reposição)
+--   despesa:      gasto pago com o caixa (RDV ou ficha de custo de uma empresa); só conta depois de aprovado
+--   adiantamento: dinheiro entregue a um colaborador (sai do caixa e fica com ele até prestar contas)
+--   devolucao:    colaborador devolve dinheiro ao caixa
+-- A despesa com colaborador é a prestação de contas dele: abate o que ele tem do caixa, sem mexer no caixa.
+-- Os nomes das empresas e dos colaboradores ficam só aqui no banco.
+-- ------------------------------------------------------------
+create table if not exists public.caixa_config (
+  id            smallint primary key default 1 check (id = 1),
+  empresas      uuid[] not null default '{}',
+  saldo_inicial numeric(12, 2) not null default 0,
+  data_inicial  date,
+  saldo_conta   numeric(12, 2),
+  data_conta    date,
+  atualizado_em timestamptz not null default now()
+);
+
+create table if not exists public.caixa_movimentos (
+  id             uuid primary key default gen_random_uuid(),
+  data           date not null,
+  tipo           text not null check (tipo in ('entrada', 'despesa', 'adiantamento', 'devolucao')),
+  classificacao  text check (classificacao is null or classificacao in ('rdv', 'fc', 'outro')),
+  empresa_id     uuid references public.empresas (id) on delete restrict,
+  valor          numeric(12, 2) not null check (valor > 0),
+  descricao      text check (descricao is null or length(descricao) <= 200),
+  colaborador    text check (colaborador is null or length(colaborador) between 1 and 80),
+  aprovado       boolean not null default true,
+  documento      text check (documento is null or length(documento) <= 300),
+  documento_nome text check (documento_nome is null or length(documento_nome) <= 200),
+  detalhes       jsonb not null default '{}'::jsonb,
+  observacao     text check (observacao is null or length(observacao) <= 500),
+  criado_em      timestamptz not null default now(),
+  atualizado_em  timestamptz not null default now(),
+  criado_por     uuid default auth.uid() references auth.users (id) on delete set null
+);
+create index if not exists caixa_movimentos_data_idx on public.caixa_movimentos (data);
+
+drop trigger if exists caixa_config_atualizado_em on public.caixa_config;
+create trigger caixa_config_atualizado_em before update on public.caixa_config
+  for each row execute function public.tocar_atualizado_em();
+drop trigger if exists caixa_movimentos_atualizado_em on public.caixa_movimentos;
+create trigger caixa_movimentos_atualizado_em before update on public.caixa_movimentos
+  for each row execute function public.tocar_atualizado_em();
+
+alter table public.caixa_config enable row level security;
+alter table public.caixa_movimentos enable row level security;
+grant select, insert, update, delete on public.caixa_config, public.caixa_movimentos to authenticated, service_role;
+
+drop policy if exists "caixa - config" on public.caixa_config;
+create policy "caixa - config" on public.caixa_config
+  for all to authenticated
+  using ((select public.pode('empresas')))
+  with check ((select public.pode('empresas')));
+
+drop policy if exists "caixa - movimentos" on public.caixa_movimentos;
+create policy "caixa - movimentos" on public.caixa_movimentos
+  for all to authenticated
+  using ((select public.pode('empresas')))
+  with check ((select public.pode('empresas')));
+
+-- RDV e fichas de custo anexados aos movimentos (planilha, PDF ou foto), até 20 MB, só para o módulo das empresas
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('caixa', 'caixa', false, 20971520, '{application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/pdf,image/jpeg,image/png}')
+on conflict (id) do update
+  set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "documentos do caixa - ler" on storage.objects;
+create policy "documentos do caixa - ler" on storage.objects
+  for select to authenticated
+  using (bucket_id = 'caixa' and (select public.pode('empresas')));
+
+drop policy if exists "documentos do caixa - enviar" on storage.objects;
+create policy "documentos do caixa - enviar" on storage.objects
+  for insert to authenticated
+  with check (bucket_id = 'caixa' and (select public.pode('empresas')));
+
+drop policy if exists "documentos do caixa - apagar" on storage.objects;
+create policy "documentos do caixa - apagar" on storage.objects
+  for delete to authenticated
+  using (bucket_id = 'caixa' and (select public.pode('empresas')));

@@ -4,6 +4,7 @@ import { abrirPagina, paginaEmpresa } from "./sessao.js";
 import { GRUPOS, MODULOS, PAPEIS, pode, situacaoDe } from "./modulos.js";
 import * as R from "./regras.js";
 import * as G from "./regras-gestao.js";
+import { resumoCaixa } from "./caixa-documentos.js";
 import { $, esc, moeda, moedaCurta } from "./ui.js";
 
 const hoje = R.hojeISO();
@@ -32,13 +33,24 @@ function cabecalho(perfil) {
 async function resumos(armazem, perfil, empresas) {
   const tem = (m) => pode(perfil, m);
   const r = {};
-  const [arts, tratados, todosLanc, demandas, usuarios] = await Promise.all([
+  const [arts, tratados, todosLanc, demandas, usuarios, caixaConfig, caixaMov] = await Promise.all([
     tem("art") ? armazem.listar() : null,
     tem("art") ? armazem.tratados() : null,
     tem("financeiro") || tem("empresas") ? armazem.colecao("lancamentos").listar() : null,
     tem("demandas") ? armazem.colecao("demandas").listar() : null,
     tem("usuarios") ? armazem.usuarios.listar() : null,
+    tem("empresas") && armazem.caixa ? armazem.caixa.config() : null,
+    tem("empresas") ? armazem.colecao("caixa_movimentos").listar() : null,
   ].map((p) => Promise.resolve(p).catch(() => null)));
+  // Caixa das empresas: o card dele fica no lugar dos cards das empresas que fazem parte dele
+  if (caixaConfig && (caixaConfig.empresas || []).length) {
+    const c = resumoCaixa(caixaConfig, caixaMov || []);
+    const partes = [`${moeda(c.emCaixa)} em caixa`];
+    if (c.comColaboradores) partes.push(`${moeda(c.comColaboradores)} com colaboradores`);
+    if (c.aAprovar.n) partes.push(`${plural(c.aAprovar.n, "documento", "documentos")} a aprovar`);
+    if (c.diferenca != null && c.diferenca < -0.005) partes.push(`${moeda(-c.diferenca)} a repor na conta`);
+    r.caixa = { empresas: caixaConfig.empresas, texto: partes.join(" · "), alerta: c.aAprovar.n > 0 || (c.diferenca != null && c.diferenca < -0.005) };
+  }
   // Controle financeiro e painel: só a engenharia; os lançamentos com empresa ficam nos cards das empresas
   const lancamentos = todosLanc && tem("financeiro") ? todosLanc.filter((l) => !l.empresa_id) : null;
   if (todosLanc && tem("empresas")) {
@@ -86,10 +98,11 @@ async function resumos(armazem, perfil, empresas) {
   return r;
 }
 
-function card(m, resumo, empresa = null) {
-  const titulo = empresa ? `Finanças ${esc(empresa.nome)}` : m.titulo;
-  const descricao = empresa ? (empresa.observacao ? esc(empresa.observacao) : "Reembolsos, ARTs pagas pela empresa e o que falta receber.") : m.descricao;
-  return `<a class="modulo" href="${empresa ? paginaEmpresa(empresa) : m.pagina}">
+function card(m, resumo, empresa = null, caixa = null) {
+  const titulo = caixa ? `Caixa ${esc(caixa.nome)}` : empresa ? `Finanças ${esc(empresa.nome)}` : m.titulo;
+  const descricao = caixa ? "Adiantamento das empresas num caixa só: saldo, conta do caixa, colaboradores, RDV e fichas de custo a aprovar."
+    : empresa ? (empresa.observacao ? esc(empresa.observacao) : "Reembolsos, ARTs pagas pela empresa e o que falta receber.") : m.descricao;
+  return `<a class="modulo" href="${caixa ? "caixa.html" : empresa ? paginaEmpresa(empresa) : m.pagina}">
       <span class="modulo-icone">${m.icone}</span>
       <h2>${titulo}</h2>
       <p>${descricao}</p>
@@ -98,11 +111,15 @@ function card(m, resumo, empresa = null) {
     </a>`;
 }
 
-// Cards de um módulo: as finanças das empresas têm um card por empresa cadastrada
+// Cards de um módulo: as finanças das empresas têm um card por empresa cadastrada; as que fazem parte do caixa das
+// empresas aparecem juntas, no card do caixa (as páginas delas continuam abertas a partir dele)
 function cardsDoModulo(m, resumo, empresas) {
   if (m.id !== "empresas") return [card(m, resumo[m.id])];
   if (!empresas.length) return [card(m, { texto: "Cadastre as empresas para começar", alerta: true })];
-  return empresas.map((e) => card(m, resumo.empresas && resumo.empresas[e.id], e));
+  const noCaixa = resumo.caixa ? empresas.filter((e) => resumo.caixa.empresas.includes(e.id)) : [];
+  const nomes = noCaixa.map((e) => e.nome);
+  const caixa = noCaixa.length ? [card(m, resumo.caixa, null, { nome: nomes.length < 2 ? nomes.join("") : `${nomes.slice(0, -1).join(", ")} e ${nomes.at(-1)}` })] : [];
+  return [...caixa, ...empresas.filter((e) => !noCaixa.includes(e)).map((e) => card(m, resumo.empresas && resumo.empresas[e.id], e))];
 }
 
 // Cada grupo ocupa tantas colunas quantos cards tiver (até 4): grupos pequenos ficam lado a lado

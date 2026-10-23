@@ -2158,3 +2158,37 @@ a.modulo:hover {
   border-color: var(--graphite-900);
   color: var(--white);
 }
+
+/* ---------- Caixa das empresas ---------- */
+.caixa-kpis { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.caixa-kpis .kpi-destaque { grid-column: span 2; }
+@media (max-width: 560px) { .caixa-kpis .kpi-destaque { grid-column: auto; } }
+.caixa-grade { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; margin-bottom: 8px; }
+@media (max-width: 900px) { .caixa-grade { grid-template-columns: minmax(0, 1fr); } }
+.caixa-bloco { min-width: 0; }
+.caixa-bloco-topo { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; }
+.caixa-bloco-topo select { width: auto; min-width: 170px; }
+.etiqueta-caixa { display: inline-block; padding: 2px 7px; font: 700 0.72rem var(--font-head); letter-spacing: 0.05em; text-transform: uppercase; background: var(--gray-100); border: 1px solid var(--gray-300); color: var(--graphite-900); white-space: nowrap; }
+.etiqueta-caixa.tipo-entrada, .etiqueta-caixa.tipo-devolucao { background: #e8f5e9; border-color: #a5d6a7; }
+.etiqueta-caixa.tipo-adiantamento { background: #fff6d6; border-color: #f0d27a; }
+.caixa-tabela td { vertical-align: top; }
+.caixa-tabela tr.pendente-linha td { background: #fffbea; }
+.caixa-tabela tr.fora td { color: var(--muted); }
+label.aprovar { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: none; letter-spacing: 0; cursor: pointer; white-space: nowrap; }
+label.aprovar input { width: 18px; height: 18px; accent-color: var(--graphite-900); }
+.doc-link { font-size: 0.82rem; text-align: left; }
+.pendente { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px 16px; padding: 12px 14px; margin-bottom: 8px; background: #fffbea; border: 1px solid #f0d27a; }
+.pendente-texto { display: grid; gap: 3px; min-width: 0; }
+.pendente-texto b { overflow-wrap: anywhere; }
+@media (max-width: 640px) { .pendente { grid-template-columns: auto minmax(0, 1fr); } }
+.acoes-colab { display: flex; flex-wrap: wrap; gap: 2px 12px; margin-top: 4px; }
+.acoes-colab .btn-link { font-size: 0.8rem; }
+.pendente-texto .etiqueta-caixa, .pendente-texto .doc-link { justify-self: start; }
+.doc-importar { margin: 16px 0 0; padding: 14px 16px; border: 1px solid var(--gray-200); min-width: 0; }
+.doc-importar legend { padding: 0 6px; font-weight: 600; }
+.area .doc-importar legend label { display: inline-flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0; }
+.aviso-doc { margin: 0 0 10px; padding: 8px 10px; font-size: 0.85rem; background: #fff6d6; border-left: 3px solid var(--alerta); }
+.itens-doc { margin-top: 12px; }
+.itens-doc summary { cursor: pointer; font-weight: 600; font-size: 0.9rem; }
+.area .aprovar-linha { display: flex; align-items: center; gap: 8px; margin-top: 14px; text-transform: none; letter-spacing: 0; font-weight: 600; }
+.area .aprovar-linha input { width: 18px; height: 18px; accent-color: var(--graphite-900); }

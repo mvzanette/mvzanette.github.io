@@ -50,6 +50,7 @@ export const MODULOS = [
     titulo: "Finanças das empresas",
     descricao: "Valores com as empresas onde você trabalha: reembolsos, ARTs pagas por elas e o que falta receber.",
     pagina: "empresas.html",
+    paginas: ["caixa.html"], // o caixa das empresas (adiantamentos, RDV e fichas de custo) é do mesmo módulo
     icone: svg('<path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-4h6v4"/><path d="M9 10h.01M15 10h.01M9 14h.01M15 14h.01"/>'),
   },
   {
@@ -125,7 +126,7 @@ export const SITUACOES = {
 // Situação mostrada na tela: o cadastro ativo que ainda não entrou fica "aguardando 1º acesso"
 export const situacaoDe = (p) => (p.situacao === "ativo" && !p.user_id ? "aguardando" : p.situacao);
 
-export const moduloDaPagina = (pagina) => MODULOS.find((m) => m.pagina === pagina) || null;
+export const moduloDaPagina = (pagina) => MODULOS.find((m) => m.pagina === pagina || (m.paginas || []).includes(pagina)) || null;
 
 // Módulo que pode ser liberado para o papel (cliente nunca recebe módulo profissional)
 export const liberavel = (papel, modulo) => papel !== "cliente" || !ENGENHARIA.includes(modulo);
