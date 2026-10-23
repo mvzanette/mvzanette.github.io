@@ -236,12 +236,12 @@ Separado do Controle financeiro da engenharia: é o **painel do projeto Financei
 - **Faturas de outra pessoa e carteira conjunta:** quando o arquivo traz as faturas de alguém da família, o administrador escolhe na importação o painel dessa pessoa; ela passa a ver só o próprio cartão e as próprias faturas, sem nenhum dado do dono do painel. Nesse painel, a pessoa também lança os próprios recebimentos (salário e outros), gastos e Pix, e pode importar o extrato da conta dela: com isso aparecem a visão geral do mês e os gastos do dia a dia, calculados só com o que ela lançou e com o cartão dela. Com **"Mostrar também a carteira de investimentos"** marcado, a carteira conjunta (com os aportes mensais de cada um) vai junto e aparece na aba Investimentos dessa pessoa.
 - **Abrir no Claude** (opcional): a leitura das faturas que o site não lê continua no painel original. Cadastre o link do painel no Claude no cadastro da pessoa, em Usuários e permissões.
 
-**Classificar os lançamentos.** Cada lançamento (gastos do dia a dia, lançamentos das faturas e gastos lançados no site) tem o botão **Classificar**, sempre com a lista de opções:
+**Classificar os lançamentos.** Cada lançamento (gastos do dia a dia, lançamentos das faturas e gastos lançados no site) tem o botão **Classificar**, sempre com a lista de opções. Na visão geral, cada lançamento das categorias de "Gastos pagos" e da lista de "Comprado em" tem o botão **Editar**, que abre a mesma classificação: depois de salvar, a categoria nova abre com o lançamento em destaque.
 
 - **Categoria e subcategoria** (ex.: Saúde › Farmácia), escolhidas na lista da pessoa; "Nova categoria…" e "Nova subcategoria…" acrescentam na hora;
 - **Essencial**, **não essencial** ou o padrão (o que veio do projeto ou, sem isso, o padrão da categoria);
 - **Conta**, de quem é o dinheiro: **pessoal** de quem é o painel, **pessoal da outra pessoa** do casal, **compartilhado do casal**, **engenharia (autônomo)**, uma das **empresas** cadastradas ou empresas **unidas numa conta só** (aba Cadastros);
-- **Complemento**: um texto livre, por exemplo "PlayStation 5 comprado no Mercado Livre" para uma cobrança que aparece na fatura só como MERCADOLIVRE.
+- **Observação**: um texto livre, por exemplo "PlayStation 5 comprado no Mercado Livre" para uma cobrança que aparece na fatura só como MERCADOLIVRE. Ela aparece embaixo do lançamento nas listas.
 
 A classificação fica no site e continua valendo depois de cada importação (o arquivo do projeto Financeiro não muda). "Voltar ao original" desfaz. As análises usam os valores ajustados: por categoria (com as subcategorias), essencial e não essencial, e o total por conta quando há lançamentos fora da conta pessoal. Na mesma compra parcelada, a classificação vale para todas as parcelas.
 

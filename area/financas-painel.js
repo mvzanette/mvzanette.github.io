@@ -552,13 +552,13 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const fk = FATURAS.get(rot);
     if (fk && fk.itens.length) {
       fk.itens.forEach(l => { const e = ef(l); const parc = l.parc && l.parc.n > 1;
-        itens.push({desc: l.nome, valor: l.valor, cat: e.categoria, sub: e.subcategoria || null, data: l.data, parcela: parc ? `${l.parc.k}/${l.parc.n}` : null, grupo: parc ? "Cartão parcelado" : "Cartão à vista"}); });
+        itens.push({desc: l.nome, valor: l.valor, cat: e.categoria, sub: e.subcategoria || null, data: l.data, parcela: parc ? `${l.parc.k}/${l.parc.n}` : null, grupo: parc ? "Cartão parcelado" : "Cartão à vista", ref: l, tipo: "fatura"}); });
     } else {
       const mm = D.meses.find(x => x.fatura === rot);
       for (const l of mm ? mm.lancamentos : []) {
         if (!card(l.forma) || ehAjuste(l) || l.origem === "fatura" || ehInvestimento(l)) continue;
         const parc = compraParcelada(l);
-        itens.push({desc: l.desc, valor: l.valor, cat: catDe(l), sub: subDe(l), data: l.data, parcela: parc ? l.parcelas : null, grupo: parc ? "Cartão parcelado" : "Cartão à vista"});
+        itens.push({desc: l.desc, valor: l.valor, cat: catDe(l), sub: subDe(l), data: l.data, parcela: parc ? l.parcelas : null, grupo: parc ? "Cartão parcelado" : "Cartão à vista", ref: l, tipo: "gasto"});
       }
       parcelasAgendadas(rot).forEach(p => itens.push({...p, ...(p.parcela ? categoriaPeloNome(p.desc) : {cat: "Parcelas agendadas", sub: null}), grupo: "Cartão parcelado"}));
       if (mm) statusRecorrentes(mm).filter(r => card(r.forma) && r.pendente > 0).forEach(r => itens.push({desc: r.nome, valor: r.pendente, cat: r.categoria || "Fixos", sub: r.subcategoria || null, data: null, grupo: "Fixo no cartão a cair"}));
@@ -579,7 +579,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     for (const l of m ? m.lancamentos : []) {
       if (card(l.forma)) continue;
       if (ehInvestimento(l)) investimentos.push({desc: l.desc, valor: l.valor, data: l.data});
-      else itens.push({desc: l.desc, valor: l.valor, grupo: FORMA_CAIXA(l.forma), cat: catDe(l), sub: subDe(l), data: l.data});
+      else itens.push({desc: l.desc, valor: l.valor, grupo: FORMA_CAIXA(l.forma), cat: catDe(l), sub: subDe(l), data: l.data, ref: l, tipo: "gasto"});
     }
     // Fixos fora do cartão ainda não pagos (os mesmos do fluxo de caixa)
     caixa(chave).saidas.filter(x => x.tipo === "fixo").forEach(x => itens.push({desc: x.desc, valor: x.valor, grupo: "Fixos fora do cartão", cat: (x.r && x.r.categoria) || "Fixos", sub: (x.r && x.r.subcategoria) || null, data: x.data}));
@@ -603,7 +603,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       if (p && p.k > 1) continue; // parcela de compra antiga anotada no mês
       const total = p ? (l.total != null ? l.total : Math.round(l.valor * p.n * 100) / 100) : l.valor;
       itens.push({desc: l.desc, data: l.data, valor: total, cat: catDe(l), grupo: p ? "Cartão parcelado" : card(l.forma) ? "Cartão à vista" : FORMA_CAIXA(l.forma),
-        parcela: p ? {n: p.n, valor: l.valor, fatura: l.fatura || m.fatura} : null});
+        parcela: p ? {n: p.n, valor: l.valor, fatura: l.fatura || m.fatura} : null, ref: ehAjuste(l) ? null : l, tipo: l.origem === "fatura" ? "fatura" : "gasto"});
     }
     const parceladas = itens.filter(i => i.parcela);
     const total = Math.round(sum(itens, i => i.valor) * 100) / 100;
@@ -945,7 +945,17 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   // ---------- Visão geral: gastos do mês (pela data da compra, parcelas no mês da fatura) ----------
   // Cada categoria abre nas subcategorias, e cada subcategoria nos gastos dela. O que fica aberto é lembrado ao redesenhar.
   const GM_ABERTAS = new Set();
-  const itemGasto = i => `<li><span>${esc(i.desc)}<span class="sub"> · ${[i.data && !i.parcela ? dBR(i.data) : "", esc(i.grupo), i.parcela ? `parcela ${esc(i.parcela)}` : ""].filter(Boolean).join(" · ")}</span></span><span class="num">${n(i.valor)}</span></li>`;
+  // Cada lançamento das listas da visão geral tem o botão Editar (categoria, subcategoria, essencial, conta e
+  // observação), que abre a mesma classificação das outras abas; a observação aparece embaixo do lançamento
+  let GM_ITENS = [], CM_ITENS = []; // itens com Editar em "Gastos pagos" e em "Comprado em"
+  let GM_FOCO = null; // chave do lançamento editado: depois de salvar, a categoria nova dele abre com ele em destaque
+  const editarItem = (i, lista, attr) => {
+    if (!i.ref || !aoClassificar) return "";
+    lista.push(i);
+    return `<button type="button" class="btn-link gm-editar" data-${attr}="${lista.length - 1}" aria-label="Editar a categoria e a observação de ${esc(i.desc)}">Editar</button>`;
+  };
+  const obsDe = i => { const c = i.ref ? ef(i.ref).complemento : null; return c ? `<span class="compl">${esc(c)}</span>` : ""; };
+  const itemGasto = i => `<li${i.ref && GM_FOCO && i.ref.chave === GM_FOCO ? ' class="gm-destaque"' : ""}><span>${esc(i.desc)}<span class="sub"> · ${[i.data && !i.parcela ? dBR(i.data) : "", esc(i.grupo), i.parcela ? `parcela ${esc(i.parcela)}` : ""].filter(Boolean).join(" · ")}</span>${obsDe(i)}</span><span class="gm-valor"><span class="num">${n(i.valor)}</span>${editarItem(i, GM_ITENS, "classificar-gm")}</span></li>`;
   function categoriaExpansivel(cat, total, itens, pct, maxc) {
     const subs = new Map();
     itens.forEach(i => { const k = i.sub || ""; const o = subs.get(k) || {v: 0, itens: []}; o.v += i.valor; o.itens.push(i); subs.set(k, o); });
@@ -960,7 +970,10 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       <div class="gm-cat-corpo">${corpo}</div></details>`;
   }
   function renderGastosMes(m) {
+    GM_ITENS = [];
     const g = gastosDoMes(m.chave);
+    const editado = GM_FOCO && g.itens.find(i => i.ref && i.ref.chave === GM_FOCO);
+    if (editado) { GM_ABERTAS.add(editado.cat); if (editado.sub) GM_ABERTAS.add(`${editado.cat}|${editado.sub}`); }
     const pct = v => (g.total > 0 ? `${Math.round(v / g.total * 100)}%` : "—");
     const f = g.fatura;
     // Por forma de pagamento: a fatura do cartão numa linha só (com as parcelas e o sem detalhe) e o resto por forma
@@ -997,7 +1010,9 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   }
 
   // ---------- Visão geral: compras feitas no mês (valor inteiro de cada compra) ----------
+  let CM_ABERTA = false; // "Ver todas as compras" continua aberta depois de editar um lançamento
   function renderComprasMes(m) {
+    CM_ITENS = [];
     const c = comprasDoMes(m.chave);
     const box = $id("compras-mes");
     box.hidden = !c.itens.length;
@@ -1014,8 +1029,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       </tbody></table></div>
       ${c.parceladas.length ? `<div class="label" style="margin:14px 0 6px">Compras parceladas</div>
       <ul class="gm-itens cm-parceladas">${c.parceladas.sort((a, b) => b.valor - a.valor).map(i => `<li><span>${esc(i.desc)}<span class="sub"> · ${dBR(i.data)} · ${i.parcela.n}x de ${n(i.parcela.valor)}${i.parcela.fatura ? ` · 1ª na fatura ${esc(i.parcela.fatura)}` : ""}</span></span><span class="num">${n(i.valor)}</span></li>`).join("")}</ul>` : ""}
-      <details class="gm-parcelas"><summary>Ver todas as compras de ${esc(m.rotulo)} (${c.itens.length})</summary>
-        <ul class="gm-itens">${[...c.itens].sort((a, b) => String(a.data).localeCompare(String(b.data))).map(i => `<li><span>${esc(i.desc)}<span class="sub"> · ${[i.data ? dBR(i.data) : "", esc(i.cat), esc(i.grupo)].filter(Boolean).join(" · ")}</span></span><span class="num">${n(i.valor)}</span></li>`).join("")}</ul></details>`;
+      <details class="gm-parcelas" data-cm-todas${CM_ABERTA ? " open" : ""}><summary>Ver todas as compras de ${esc(m.rotulo)} (${c.itens.length})</summary>
+        <ul class="gm-itens">${[...c.itens].sort((a, b) => String(a.data).localeCompare(String(b.data))).map(i => `<li><span>${esc(i.desc)}<span class="sub"> · ${[i.data ? dBR(i.data) : "", esc(i.cat), esc(i.grupo)].filter(Boolean).join(" · ")}</span>${obsDe(i)}</span><span class="gm-valor"><span class="num">${n(i.valor)}</span>${editarItem(i, CM_ITENS, "classificar-cm")}</span></li>`).join("")}</ul></details>`;
   }
 
   // Previsão x hoje pelo caixa: a fatura que vence no mês contra a sua previsão para o cartão
@@ -1760,7 +1775,19 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     if (!d.dataset || d.dataset.gm == null) return;
     if (d.open) GM_ABERTAS.add(d.dataset.gm); else GM_ABERTAS.delete(d.dataset.gm);
   }, true);
+  // Editar um lançamento da lista (categoria, subcategoria, essencial, conta e observação)
+  const editarDaLista = (lista, idx) => {
+    const i = lista[Number(idx)];
+    if (!i || !i.ref || !aoClassificar) return;
+    GM_FOCO = i.ref.chave || null;
+    aoClassificar(paraClassificar(i.ref, i.tipo));
+  };
+  const CM_BOX = $id("compras-mes");
+  CM_BOX.addEventListener("toggle", e => { if (e.target.matches && e.target.matches("[data-cm-todas]")) CM_ABERTA = e.target.open; }, true);
+  CM_BOX.addEventListener("click", e => { const b = e.target.closest("[data-classificar-cm]"); if (b) editarDaLista(CM_ITENS, b.dataset.classificarCm); });
   GM_BOX.addEventListener("click", e => {
+    const ed = e.target.closest("[data-classificar-gm]");
+    if (ed) { editarDaLista(GM_ITENS, ed.dataset.classificarGm); return; }
     const b = e.target.closest("[data-gm-tudo]");
     if (!b) return;
     const abrir = [...GM_BOX.querySelectorAll("details.gm-cat")].some(d => !d.open);

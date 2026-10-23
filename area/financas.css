@@ -488,6 +488,10 @@
 .fin .gm-itens li { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; font-size: 0.84rem; border-top: 1px dashed var(--line); }
 .fin .gm-itens li > span:first-child { min-width: 0; overflow-wrap: anywhere; }
 .fin .gm-itens .sub { color: var(--muted); }
+.fin .gm-itens .compl { display: block; }
+.fin .gm-valor { display: flex; align-items: baseline; gap: 10px; white-space: nowrap; }
+.fin .gm-editar { font-size: 0.78rem; }
+.fin .gm-itens li.gm-destaque { background: #fff6d6; }
 
 /* Pagamentos recorrentes: marcar como pago e valor do mês */
 .fin .rec-tabela td { vertical-align: top; }
