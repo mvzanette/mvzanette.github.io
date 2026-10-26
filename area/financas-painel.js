@@ -45,7 +45,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   categorias = null, ajustes = [], contas = [], aoClassificar = null, aoEditarCategorias = null, comDesejos = false, comInvestimentos = false,
   comMeses = false, somenteCalculo = false, caixa: caixaPrefs = null, aoSalvarSaldo = null, aoMudarRecebimento = null,
   recorrentes: recorrentesSite = [], aoPagarRecorrente = null, aoDesmarcarRecorrente = null, aoEditarRecorrente = null, aoValorRecorrente = null,
-  aoMudarPendencias = null }) {
+  aoMudarPendencias = null, aoEditarGasto = null, aoPagarGasto = null, aoEditarMetas = null }) {
   const D = completar(dados);
   let CATS = categorias || lerCategorias(null, dados);
   let AJ = new Map(ajustes.map(a => [a.chave, a]));
@@ -95,9 +95,19 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   const hoje = new Date();
   const hojeKey = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
   const card = f => /cart/i.test(f || "");
-  const META = D.metas ? D.metas.cartao_mensal : null;
-  const INV = D.metas ? D.metas.investimento_mensal || 0 : 0;
-  const INV_NOME = D.metas ? D.metas.investimento_nome : "";
+  // Previsões do mês (do projeto Financeiro, alteradas no site em Cadastros): fatura do cartão e investimento mensal
+  let META = null, INV = 0, INV_NOME = "";
+  const lerMetas = c => {
+    const m = {...(D.metas || {}), ...((c && c.metas) || {})};
+    META = m.cartao_mensal != null && m.cartao_mensal !== "" ? Number(m.cartao_mensal) : null;
+    INV = Number(m.investimento_mensal) || 0;
+    INV_NOME = m.investimento_nome || "";
+  };
+  lerMetas(caixaPrefs);
+  // Gastos lançados no site ainda a pagar (ids) e fixos do projeto trocados por um recorrente do site ou tirados
+  let APAGAR = new Set((caixaPrefs && caixaPrefs.aPagar) || []);
+  let OCULTOS = new Set((caixaPrefs && caixaPrefs.fixosOcultos) || []);
+  const aPagar = l => !!l && l.origem === "site" && !card(l.forma) && APAGAR.has(l.id);
   // Prévias das faturas que ainda não fecharam, importadas do CSV ou do OFX do app do banco
   const PREVIAS = (D.cartao.previas || []).filter(p => p && Array.isArray(p.lancamentos) && !D.cartao.faturas.some(f => f.mes === p.mes));
   // Um print antigo de uma fatura que já foi processada (ou que tem prévia mais nova) não conta mais como fatura aberta
@@ -293,10 +303,12 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       const forma = FORMAS_SITE[r.forma] || FORMAS_SITE.outro;
       return {id: r.id, nome: r.nome, valor: doMes ? Number(r.valores[chave]) : r.valor != null ? Number(r.valor) : null, editado: doMes, dia: Number(r.dia) || null,
         forma, formaSite: r.forma || "outro", categoria: r.categoria || "", subcategoria: r.subcategoria || null, conta: r.conta || null,
-        // No cartão, a cobrança chega pela fatura: o lançamento com o nome dele conta como lançado
-        busca: card(forma) ? [String(r.nome).toLowerCase()] : [], site: true};
+        // No cartão, a cobrança chega pela fatura: o lançamento com o nome dele conta como lançado (o fixo que veio do
+        // projeto guarda os nomes que ele procurava)
+        busca: Array.isArray(r.busca) && r.busca.length ? r.busca.map(b => String(b).toLowerCase()) : card(forma) ? [String(r.nome).toLowerCase()] : [],
+        variavel: !!r.variavel, site: true};
     });
-    return [...D.recorrentes, ...site];
+    return [...D.recorrentes.filter(r => !OCULTOS.has(chaveRec(r))), ...site];
   }
 
   // Liga cada gasto fixo a um lançamento já registrado, para não contar duas vezes.
@@ -308,6 +320,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     return recorrentesDe(m.chave).map(r => {
       const chave = chaveRec(r);
       const pago = PAGOS.get(`${chave}|${m.chave}`);
+      if (pago && APAGAR.has(pago.id)) return {...r, chave, st: {t: `lançado, a pagar em ${dBR(pago.data)}`, c: "warn"}, pendente: 0, pago};
       if (pago) return {...r, chave, st: {t: `pago em ${dBR(pago.data)}`, c: ""}, pendente: 0, pago};
       // O gasto lançado ao marcar outro recorrente não serve para este
       const bate = l => !l.recorrente && r.busca.some(b => l.desc.toLowerCase().includes(b));
@@ -486,7 +499,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const fatura = faturaDoCartao(rotuloDe(chave));
     if (fatura && fatura.valor > 0) saidas.push({tipo: "fatura", desc: `Fatura ${fatura.rotulo} do cartão`, valor: fatura.valor, data: fatura.venc, st: situacao(fatura.venc), fatura});
     // O que foi lançado na categoria Investimentos (Pix para a corretora, aplicação) sai como investimento, não como gasto
-    for (const l of m ? m.lancamentos : []) if (!card(l.forma)) saidas.push({tipo: ehInvestimento(l) ? "investimento" : "dia", forma: FORMA_CAIXA(l.forma), desc: l.desc, valor: l.valor, data: l.data || null, st: situacao(l.data), l});
+    // O gasto marcado como a pagar fica previsto até ser pago, mesmo com a data já passada
+    for (const l of m ? m.lancamentos : []) if (!card(l.forma)) saidas.push({tipo: ehInvestimento(l) ? "investimento" : "dia", forma: FORMA_CAIXA(l.forma), desc: l.desc, valor: l.valor, data: l.data || null, st: aPagar(l) ? "previsto" : situacao(l.data), aPagar: aPagar(l), l});
     const rec = m ? statusRecorrentes(m) : recorrentesDe(chave).map(r => ({...r, pendente: r.valor || 0}));
     for (const r of rec) if (!card(r.forma) && r.pendente > 0) saidas.push({tipo: "fixo", desc: r.nome, valor: r.pendente, data: r.dia ? diaDe(chave, r.dia) : null, st: passado ? "realizado" : "previsto", r});
     // A previsão de investimento do mês (metas do projeto) só conta no que ainda não foi lançado
@@ -901,10 +915,11 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       saidas.push(linha(esc(s.desc), `${compras} · ${quando}`, s.valor, s.st));
     }
     const porForma = new Map();
-    cx.saidas.filter(x => x.tipo === "dia").forEach(s => { const k = `${s.forma}|${s.st}`; const o = porForma.get(k) || {forma: s.forma, st: s.st, v: 0, q: 0}; o.v += s.valor; o.q++; porForma.set(k, o); });
-    [...porForma.values()].sort((a, b) => b.v - a.v).forEach(o => saidas.push(linha(esc(o.forma), `${o.q} ${o.q === 1 ? "gasto" : "gastos"}${o.st === "previsto" ? " com data futura" : ""}`, o.v, o.st)));
+    cx.saidas.filter(x => x.tipo === "dia").forEach(s => { const k = `${s.forma}|${s.st}`; const o = porForma.get(k) || {forma: s.forma, st: s.st, v: 0, q: 0, ap: 0}; o.v += s.valor; o.q++; if (s.aPagar) o.ap++; porForma.set(k, o); });
+    [...porForma.values()].sort((a, b) => b.v - a.v).forEach(o => saidas.push(linha(esc(o.forma), `${o.q} ${o.q === 1 ? "gasto" : "gastos"}${o.st === "previsto" ? (o.ap === o.q ? " a pagar" : o.ap ? `, ${o.ap} a pagar` : " com data futura") : ""}`, o.v, o.st)));
     cx.saidas.filter(x => x.tipo === "fixo").forEach(s => saidas.push(linha(esc(s.desc), `${s.r && s.r.site ? "recorrente ainda não pago" : "fixo fora do cartão"}${s.data ? ` · dia ${dBR(s.data)}` : ""}`, s.valor, s.st)));
-    const investimentos = cx.saidas.filter(x => x.tipo === "investimento").map(s => linha(esc(s.desc), s.l ? `investimento lançado${s.data ? ` em ${dBR(s.data)}` : ""}` : investido(cx) ? "previsão de investimento do mês, menos o já lançado" : "investimento do mês", s.valor, s.st));
+    const alterar = aoEditarMetas ? ' · <button type="button" class="btn-link" data-editar-metas>alterar</button>' : "";
+    const investimentos = cx.saidas.filter(x => x.tipo === "investimento").map(s => linha(esc(s.desc), s.l ? `investimento lançado${s.data ? ` em ${dBR(s.data)}` : ""}` : `${investido(cx) ? "previsão de investimento do mês, menos o já lançado" : "investimento mensal previsto"}${alterar}`, s.valor, s.st));
     const somaSt = (tipos, st) => Math.round(sum(cx.saidas.filter(x => tipos.includes(x.tipo) && x.st === st), x => x.valor) * 100) / 100;
     const GASTOS = ["fatura", "dia", "fixo"];
     // Saldo do início do mês: informado, continuação do mês anterior ou ainda sem valor
@@ -1082,7 +1097,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       const detalhe = [r.categoria, r.forma, r.dia && !r.st.t.includes("dia") ? `dia ${r.dia}` : "", r.site ? "" : r.origem || "projeto Financeiro"].filter(Boolean).map(esc).join(" · ");
       return `<tr class="${ok ? "rec-ok" : ""}"><td class="rec-check">${check}</td>
         <td>${esc(r.nome)}${r.site && r.conta && r.conta !== "pessoal" ? ` <span class="chip conta">${esc(nomeDaConta(r.conta))}</span>` : ""}<div class="sub">${detalhe}</div>
-          ${r.site && aoEditarRecorrente ? `<button type="button" class="btn-link" data-rec-editar="${esc(r.id)}">Editar</button>` : ""}</td>
+          ${aoEditarRecorrente ? (r.site ? `<button type="button" class="btn-link" data-rec-editar="${esc(r.id)}">Editar</button>` : `<button type="button" class="btn-link" data-rec-editar-p="${i}">Editar</button>`) : ""}</td>
         <td><span class="chip ${r.st.c}">${esc(r.st.t)}</span></td><td class="r num">${valor}</td></tr>`;
     }).join("");
     box.innerHTML = `
@@ -1093,7 +1108,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       <tr class="total"><td></td><td>Total do mês</td><td></td><td class="r num">${n(sum(c.rec, r => valorDe(r) || 0))}</td></tr>
       </tbody></table></div>` : `<p class="muted" style="margin:0">Nenhum pagamento recorrente. Cadastre aluguel, condomínio, escola, plano de saúde ou assinaturas: cada mês ele fica pendente até você marcar como pago.</p>`}
       <p class="erro" role="alert" hidden></p>
-      ${semValor || INV ? `<p class="muted" style="font-size:.85rem;margin:10px 0 0">${semValor ? "Falta o valor de algum gasto fixo. " : ""}${INV ? `O investimento de ${brl(INV)} aparece separado, no saldo.` : ""}</p>` : ""}`;
+      ${semValor || INV || aoEditarMetas ? `<p class="muted" style="font-size:.85rem;margin:10px 0 0">${semValor ? "Falta o valor de algum gasto fixo. " : ""}${INV ? `O investimento mensal de ${brl(INV)} aparece separado, no balanço.` : ""}${aoEditarMetas ? ` <button type="button" class="btn-link" data-editar-metas>${INV ? "Alterar o investimento e a previsão do cartão" : "Previsões do mês (investimento e cartão)"}</button>` : ""}</p>` : ""}`;
   }
   // Data sugerida para o pagamento: hoje no mês atual; nos outros meses, o dia do vencimento
   const dataDoPagamento = (r, chave) => (chave === hojeKey ? hojeIso : diaDe(chave, r.dia || (chave < hojeKey ? diasDoMes(chave) : 1)));
@@ -1337,13 +1352,15 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     L.forEach(l => (porData[l.data] ||= []).push(l));
     const datas = Object.keys(porData).sort().reverse();
     $id("g-itens").innerHTML = L.length ? datas.map(d => `<div class="dgroup"><div class="dhead"><span>${dBR(d)} · ${diaSemana(d)}</span><span class="num">${brl(sum(porData[d], l => l.valor))}</span></div>
-      <table><tbody>${porData[d].map(l => { const e = ef(l); return `<tr><td>${esc(l.desc)}${ehAjuste(l) ? ' <span class="chip neutral">ajuste</span>' : ""}${e.pendente ? ' <span class="chip bad">a classificar</span>' : ""}${l.origem === "site" ? ' <span class="chip info">lançado no site</span>' : ""}${l.recorrente ? ' <span class="chip neutral">recorrente</span>' : ""}${chipConf(l)}
+      <table><tbody>${porData[d].map(l => { const e = ef(l); return `<tr${aPagar(l) ? ' class="a-pagar"' : ""}><td>${esc(l.desc)}${ehAjuste(l) ? ' <span class="chip neutral">ajuste</span>' : ""}${e.pendente ? ' <span class="chip bad">a classificar</span>' : ""}${aPagar(l) ? ' <span class="chip warn">a pagar</span>' : ""}${l.origem === "site" ? ' <span class="chip info">lançado no site</span>' : ""}${l.recorrente ? ' <span class="chip neutral">recorrente</span>' : ""}${chipConf(l)}
         ${e.complemento ? `<div class="compl">${esc(e.complemento)}</div>` : ""}
         <div class="sub">${esc(catDe(l))}${e.subcategoria && !ehAjuste(l) ? ` › ${esc(e.subcategoria)}` : ""} · ${esc(l.forma || "")}${l.parcelas ? ` · parcela ${esc(l.parcelas)}` : ""}${ehAjuste(l) ? "" : rotuloEssencial(e)}${chipConta(e)}${l.obs && !ehAjuste(l) && l.origem !== "site" ? ` · ${esc(l.obs)}` : ""}${confDe(l) === "conferido" ? ` · conferido na fatura ${esc(l.naFatura)}` : ""}</div></td>
-        <td class="r num">${n(l.valor)}<div class="acoes-lanc">${aoClassificar && !ehAjuste(l) ? `<button type="button" class="btn sec mini" data-classificar-g="${indice.get(l)}">Classificar</button>` : ""}${l.origem === "site" && aoApagarGasto ? `<button type="button" class="btn sec mini" data-apagar-gasto="${esc(l.id)}">Apagar</button>` : ""}</div></td></tr>`; }).join("")}</tbody></table></div>`).join("")
+        <td class="r num">${n(l.valor)}<div class="acoes-lanc">${aPagar(l) && aoPagarGasto ? `<button type="button" class="btn mini" data-pagar-gasto="${esc(l.id)}">Pagar</button>` : ""}${l.origem === "site" && aoEditarGasto ? `<button type="button" class="btn sec mini" data-editar-gasto="${esc(l.id)}">Editar</button>` : ""}${aoClassificar && !ehAjuste(l) && !(l.origem === "site" && aoEditarGasto) ? `<button type="button" class="btn sec mini" data-classificar-g="${indice.get(l)}">Classificar</button>` : ""}${l.origem === "site" && aoApagarGasto && !aoEditarGasto ? `<button type="button" class="btn sec mini" data-apagar-gasto="${esc(l.id)}">Apagar</button>` : ""}</div></td></tr>`; }).join("")}</tbody></table></div>`).join("")
       + `<p class="sub" style="margin:10px 0 0">${L.length} ${L.length === 1 ? "lançamento" : "lançamentos"} · total ${brl(sum(L, l => l.valor))}</p>`
       : `<p class="muted" style="margin:6px 0 0">${m.lancamentos.length ? "Nenhum lançamento com esses filtros." : `Nenhum gasto lançado em ${esc(m.rotulo)}.`}</p>`;
     $id("g-itens").querySelectorAll("[data-apagar-gasto]").forEach(b => { b.onclick = () => aoApagarGasto(b.dataset.apagarGasto); });
+    $id("g-itens").querySelectorAll("[data-editar-gasto]").forEach(b => { b.onclick = () => aoEditarGasto(b.dataset.editarGasto); });
+    $id("g-itens").querySelectorAll("[data-pagar-gasto]").forEach(b => { b.onclick = () => aoPagarGasto(b.dataset.pagarGasto); });
     $id("g-itens").querySelectorAll("[data-classificar-g]").forEach(b => { b.onclick = () => aoClassificar(paraClassificar(listaGastos[Number(b.dataset.classificarG)], "gasto")); });
   }
 
@@ -1643,7 +1660,9 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       fora: tipo("dia"), fixosFora: tipo("fixo"), saldo: cx.saldoMes};
   }
   // Só os números, sem desenhar nada na página (visão do casal)
-  if (somenteCalculo) return {meses: () => D.meses.map(m => ({chave: m.chave, rotulo: m.rotulo})), resumo, investimentos: D.investimentos || null, pendentes};
+  // Gastos lançados no site marcados como a pagar com a data até hoje (vencidos ou para hoje)
+  const aPagarVencidos = () => D.meses.flatMap(m => m.lancamentos).filter(l => aPagar(l) && l.data && l.data <= hojeIso);
+  if (somenteCalculo) return {meses: () => D.meses.map(m => ({chave: m.chave, rotulo: m.rotulo})), resumo, investimentos: D.investimentos || null, pendentes, aPagarVencidos};
 
   iniciarAbas();
 
@@ -1723,6 +1742,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const apagar = e.target.closest("[data-apagar-entrada]");
     if (apagar && aoApagarEntrada) aoApagarEntrada(apagar.dataset.apagarEntrada);
     if (e.target.closest("[data-lancar-entrada]") && aoLancarEntrada) aoLancarEntrada();
+    if (e.target.closest("[data-editar-metas]") && aoEditarMetas) aoEditarMetas();
     const tirar = e.target.closest("[data-apagar-saldo]");
     if (tirar && aoSalvarSaldo) { const f = tirar.closest("[data-saldo-form]"); salvarSaldo(f.dataset.saldoForm, null, f); }
   });
@@ -1764,6 +1784,12 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   REC_BOX.addEventListener("click", e => {
     const ed = e.target.closest("[data-rec-editar]");
     if (ed && aoEditarRecorrente) aoEditarRecorrente(ed.dataset.recEditar);
+    // Fixo do projeto Financeiro: ao editar, vira um recorrente do site (o do projeto fica oculto)
+    const ep = e.target.closest("[data-rec-editar-p]");
+    const rp = ep && REC_TELA.lista[Number(ep.dataset.recEditarP)];
+    if (rp && aoEditarRecorrente) aoEditarRecorrente(null, {chave: rp.chave, nome: rp.nome, valor: rp.valor, dia: rp.dia || null, forma: formaDoProjeto(rp.forma),
+      categoria: rp.categoria || null, subcategoria: rp.subcategoria || null, busca: rp.busca || [], variavel: !!rp.variavel});
+    if (e.target.closest("[data-editar-metas]") && aoEditarMetas) aoEditarMetas();
     if (e.target.closest("[data-rec-novo]") && aoEditarRecorrente) aoEditarRecorrente(null);
   });
   REC_BOX.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.matches("[data-rec-valor]")) { e.preventDefault(); e.target.blur(); } });
@@ -1819,6 +1845,15 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   avisarPendencias();
   return {
     pendentes,
+    aPagarVencidos,
+    // Leva a visão geral (e as abas com mês) para um mês: depois de lançar uma entrada ou um gasto em outro mês
+    mostrarMes(chave) {
+      const m = D.meses.find(x => x.chave === chave);
+      if (!m || m === atual) return;
+      atual = m;
+      guardar("mes", m.chave);
+      if (COM_MESES) seguro(null, render);
+    },
     atualizarGastos(lista) {
       GASTOS_SITE = lista;
       mesclarSite();
@@ -1849,12 +1884,20 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     // Depois de informar ou apagar o saldo do início de um mês
     atualizarCaixa(c) {
       SALDOS = {...((c && c.saldos) || {})};
+      APAGAR = new Set((c && c.aPagar) || []);
+      OCULTOS = new Set((c && c.fixosOcultos) || []);
+      lerMetas(c);
+      memoCaixa.clear();
       if (COM_MESES) seguro(null, render);
     },
     // Para a lista de desejos: previsão dos próximos meses (com as receitas do projeto ou as lançadas no site)
     previsao: n => (SO_FATURAS && !(ENTRADAS_SITE || []).length ? [] : previsaoMeses(n)),
     mediaForaCartao: () => (SO_FATURAS ? 0 : mediaForaCartao()),
-    meta: META,
+    get meta() { return META; },
+    // Previsões do mês em uso (as do projeto ou as alteradas em Cadastros) e os fixos do projeto que continuam valendo
+    get metas() { return {investimento_mensal: INV || null, investimento_nome: INV_NOME, cartao_mensal: META}; },
+    fixosDoProjeto: () => D.recorrentes.filter(r => !OCULTOS.has(chaveRec(r))).map(r => ({chave: chaveRec(r), nome: r.nome, valor: r.valor != null ? Number(r.valor) : null,
+      dia: Number(r.dia) || null, forma: formaDoProjeto(r.forma), categoria: r.categoria || null, subcategoria: r.subcategoria || null, busca: r.busca || [], variavel: !!r.variavel})),
   };
 }
 

@@ -25,10 +25,17 @@ export const tarefaCaixa = (n, total, href = "caixa.html#caixa-pendentes") => ({
   texto: `RDV e fichas de custo que somam ${Number(total || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} e só entram no saldo do caixa depois de aprovados.`,
 });
 
-// Quantos lançamentos do painel de finanças da pessoa estão a classificar, com o mesmo cálculo do painel
-export async function contarAClassificar(armazem, perfilId) {
+export const tarefaAPagar = (n, total, href = "financas.html#gastos") => ({
+  id: "apagar", n, href, botao: "Ver os gastos", resumo: plural(n, "gasto a pagar já vencido", "gastos a pagar já vencidos"),
+  titulo: n === 1 ? "Gasto a pagar já vencido" : "Gastos a pagar já vencidos",
+  texto: `${plural(n, "gasto lançado como “a pagar” está", "gastos lançados como “a pagar” estão")} com a data de hoje ou já passada (${Number(total || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}). Se já pagou, clique em Pagar na lista dos gastos.`,
+});
+
+// Pendências do painel de finanças da pessoa, com o mesmo cálculo do painel: lançamentos a classificar e gastos
+// lançados como a pagar com a data já chegada
+export async function contarPendenciasFinancas(armazem, perfilId) {
   const registro = await armazem.financas.ler(perfilId);
-  if (!registro) return 0;
+  if (!registro) return { classificar: 0, aPagar: { n: 0, total: 0 } };
   const [gastos, entradas, ajustes, prefs] = await Promise.all([
     armazem.financas.gastos(perfilId).catch(() => []),
     armazem.financas.entradas(perfilId).catch(() => []),
@@ -36,9 +43,11 @@ export async function contarAClassificar(armazem, perfilId) {
     armazem.financas.preferencias(perfilId).catch(() => null),
   ]);
   const painel = desenharFinancas({ dados: registro.dados, modo: registro.modo, gastosSite: gastos, entradasSite: entradas,
-    categorias: lerCategorias(prefs, registro.dados), ajustes, comMeses: true, somenteCalculo: true });
-  return painel.pendentes().length;
+    categorias: lerCategorias(prefs, registro.dados), ajustes, caixa: (prefs && prefs.caixa) || {}, comMeses: true, somenteCalculo: true });
+  const vencidos = painel.aPagarVencidos();
+  return { classificar: painel.pendentes().length, aPagar: { n: vencidos.length, total: vencidos.reduce((t, l) => t + Number(l.valor || 0), 0) } };
 }
+export const contarAClassificar = async (armazem, perfilId) => (await contarPendenciasFinancas(armazem, perfilId)).classificar;
 
 const chaveSessao = (perfil) => `mz-tarefas-${perfil && perfil.id}`;
 function jaMostrou(perfil) {

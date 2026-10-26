@@ -535,6 +535,17 @@ function armazemDemo() {
         gravarJson(GASTOS, todos);
         return structuredClone(g);
       },
+      // Edição completa de um gasto lançado pelo site (data, valor, forma, recorrente...)
+      async editarGasto(idGasto, campos) {
+        const todos = lerJson(GASTOS, []);
+        const g = todos.find((x) => x.id === idGasto);
+        if (!g) throw new Error("Gasto não encontrado.");
+        exigirDono(g.perfil_id);
+        const { perfil_id, ...linha } = limparGasto({ ...g, ...campos });
+        Object.assign(g, linha);
+        gravarJson(GASTOS, todos);
+        return structuredClone(g);
+      },
       async preferencias(perfilId) {
         return lerJson(PREFS, {})[perfilId] || null;
       },
@@ -846,6 +857,12 @@ async function armazemSupabase(url, chave) {
       },
       async atualizarGasto(idGasto, campos) {
         const { data, error } = await sb.from("financas_gastos").update(limparClassificacao(campos)).eq("id", idGasto).select().single();
+        if (error) throw new Error(error.code === "42501" || error.code === "PGRST116" ? "Sem permissão para alterar este gasto." : error.message);
+        return { ...data, valor: Number(data.valor) };
+      },
+      async editarGasto(idGasto, campos) {
+        const { perfil_id, ...linha } = limparGasto(campos);
+        const { data, error } = await sb.from("financas_gastos").update(linha).eq("id", idGasto).select().single();
         if (error) throw new Error(error.code === "42501" || error.code === "PGRST116" ? "Sem permissão para alterar este gasto." : error.message);
         return { ...data, valor: Number(data.valor) };
       },

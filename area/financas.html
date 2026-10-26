@@ -11,9 +11,9 @@
   <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@500;600;700;800&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../styles.css?v=12bc86b1">
   <link rel="stylesheet" href="area.css?v=3bca81a2">
-  <link rel="stylesheet" href="financas.css?v=405383da">
-  <script type="importmap" data-versoes>{"imports": {"./art.js": "./art.js?v=f195eaa7", "./caixa-documentos.js": "./caixa-documentos.js?v=7c2bf156", "./caixa.js": "./caixa.js?v=d61657d1", "./config-area.js": "./config-area.js?v=c77553f2", "./conta.js": "./conta.js?v=fdce23ea", "./dados.js": "./dados.js?v=79523e68", "./demandas.js": "./demandas.js?v=19d8f618", "./financas-casal.js": "./financas-casal.js?v=88c0c986", "./financas-classificacao.js": "./financas-classificacao.js?v=e7b791cd", "./financas-desejos.js": "./financas-desejos.js?v=7175e284", "./financas-extrato.js": "./financas-extrato.js?v=6a8ecce9", "./financas-faturas.js": "./financas-faturas.js?v=07623b15", "./financas-importar.js": "./financas-importar.js?v=71dfaaa4", "./financas-investimentos.js": "./financas-investimentos.js?v=b239c889", "./financas-painel.js": "./financas-painel.js?v=4d4789d9", "./financas-previa.js": "./financas-previa.js?v=bfb16e3d", "./financas.js": "./financas.js?v=86676ff3", "./financeiro.js": "./financeiro.js?v=3d080ed0", "./inicio.js": "./inicio.js?v=3e086f4e", "./leitores.js": "./leitores.js?v=7eec42d0", "./login.js": "./login.js?v=f434d5fc", "./modulos.js": "./modulos.js?v=d8afcfe0", "./painel.js": "./painel.js?v=0fe885d9", "./pdf-texto.js": "./pdf-texto.js?v=b5de895d", "./planilha.js": "./planilha.js?v=ce3e0414", "./regras-gestao.js": "./regras-gestao.js?v=351037e5", "./regras.js": "./regras.js?v=52d5e1d5", "./sessao.js": "./sessao.js?v=ff1b532e", "./tarefas.js": "./tarefas.js?v=aa4e429d", "./ui.js": "./ui.js?v=efb69f88", "./usuarios.js": "./usuarios.js?v=6966c106", "./vendor/pdf.min.mjs": "./vendor/pdf.min.mjs?v=f548e26b", "./vendor/pdf.worker.min.mjs": "./vendor/pdf.worker.min.mjs?v=8860b503"}}</script>
-  <script type="module" src="financas.js?v=86676ff3"></script>
+  <link rel="stylesheet" href="financas.css?v=8857c4a3">
+  <script type="importmap" data-versoes>{"imports": {"./art.js": "./art.js?v=f195eaa7", "./caixa-documentos.js": "./caixa-documentos.js?v=7c2bf156", "./caixa.js": "./caixa.js?v=d61657d1", "./config-area.js": "./config-area.js?v=c77553f2", "./conta.js": "./conta.js?v=fdce23ea", "./dados.js": "./dados.js?v=0704e343", "./demandas.js": "./demandas.js?v=19d8f618", "./financas-casal.js": "./financas-casal.js?v=5e9f74eb", "./financas-classificacao.js": "./financas-classificacao.js?v=e7b791cd", "./financas-desejos.js": "./financas-desejos.js?v=7175e284", "./financas-extrato.js": "./financas-extrato.js?v=6a8ecce9", "./financas-faturas.js": "./financas-faturas.js?v=07623b15", "./financas-importar.js": "./financas-importar.js?v=71dfaaa4", "./financas-investimentos.js": "./financas-investimentos.js?v=b239c889", "./financas-painel.js": "./financas-painel.js?v=c8519b57", "./financas-previa.js": "./financas-previa.js?v=bfb16e3d", "./financas.js": "./financas.js?v=4b3bab41", "./financeiro.js": "./financeiro.js?v=3d080ed0", "./inicio.js": "./inicio.js?v=a460365c", "./leitores.js": "./leitores.js?v=7eec42d0", "./login.js": "./login.js?v=f434d5fc", "./modulos.js": "./modulos.js?v=d8afcfe0", "./painel.js": "./painel.js?v=0fe885d9", "./pdf-texto.js": "./pdf-texto.js?v=b5de895d", "./planilha.js": "./planilha.js?v=ce3e0414", "./regras-gestao.js": "./regras-gestao.js?v=351037e5", "./regras.js": "./regras.js?v=52d5e1d5", "./sessao.js": "./sessao.js?v=ff1b532e", "./tarefas.js": "./tarefas.js?v=6316bb48", "./ui.js": "./ui.js?v=efb69f88", "./usuarios.js": "./usuarios.js?v=6966c106", "./vendor/pdf.min.mjs": "./vendor/pdf.min.mjs?v=f548e26b", "./vendor/pdf.worker.min.mjs": "./vendor/pdf.worker.min.mjs?v=8860b503"}}</script>
+  <script type="module" src="financas.js?v=4b3bab41"></script>
 </head>
 <body class="area">
 
@@ -262,8 +262,19 @@
             </section>
             <section class="panel" id="cad-recorrentes">
               <div class="panel-topo"><h2>Pagamentos recorrentes</h2><button type="button" class="btn sec mini" id="btn-novo-recorrente">Novo recorrente</button></div>
-              <p class="sub" style="margin:-4px 0 12px">Aluguel, condomínio, escola, plano de saúde, assinaturas. Cada mês eles ficam pendentes na Visão geral até serem marcados como pagos; o valor pode ser mudado só num mês.</p>
+              <p class="sub" style="margin:-4px 0 12px">Aluguel, condomínio, escola, plano de saúde, assinaturas. Cada mês eles ficam pendentes na Visão geral até serem marcados como pagos; o valor pode ser mudado só num mês. Os fixos que vieram do projeto Financeiro também podem ser editados (viram um recorrente daqui) ou tirados.</p>
               <div id="lista-recorrentes"></div>
+              <p class="sub" id="fixos-ocultos" hidden></p>
+            </section>
+            <section class="panel" id="cad-metas">
+              <div class="panel-topo"><h2>Previsões do mês</h2></div>
+              <p class="sub" style="margin:-4px 0 12px">O investimento que sai todo mês no balanço (enquanto não houver um investimento lançado no mês) e a previsão da fatura do cartão, usada nos alertas e na previsão dos próximos meses. Deixe em branco para não usar.</p>
+              <form id="form-metas" class="campos" novalidate>
+                <label class="c2">Investimento mensal (R$)<input name="investimento_mensal" inputmode="decimal" autocomplete="off" placeholder="1.500,00"></label>
+                <label class="c4">Nome do investimento<input name="investimento_nome" maxlength="80" autocomplete="off" placeholder="ex.: investimento na conta conjunta"></label>
+                <label class="c2">Previsão da fatura do cartão (R$)<input name="cartao_mensal" inputmode="decimal" autocomplete="off" placeholder="6.500,00"></label>
+                <div class="c6 acoes"><button type="submit" class="btn">Salvar previsões</button><p class="erro" id="erro-metas" role="alert" hidden></p></div>
+              </form>
             </section>
           </div>
         </section>
@@ -501,6 +512,14 @@
           </label>
           <p class="dica" id="dica-forma">No cartão, o gasto entra na fatura do mês; se for parcelado, cada parcela cai numa fatura.</p>
         </fieldset>
+        <fieldset class="bloco" id="campo-pago">
+          <legend>Pagamento</legend>
+          <div class="opcoes">
+            <label><input type="radio" name="pago" value="sim" checked> Já foi pago</label>
+            <label><input type="radio" name="pago" value="nao"> Ainda vou pagar (a pagar)</label>
+          </div>
+          <p class="dica">A pagar: fica previsto no balanço do mês, com a marca “a pagar” na lista, até você clicar em Pagar.</p>
+        </fieldset>
         <fieldset class="bloco">
           <legend>Tipo</legend>
           <div class="opcoes">
@@ -510,10 +529,13 @@
           </div>
         </fieldset>
         <label class="bloco-texto">Observação<input name="observacao" maxlength="300" autocomplete="off"></label>
+        <label class="opcao-linha" id="campo-repete"><input type="checkbox" name="repete"><span>Repete todo mês: vira um pagamento recorrente (com o valor, o dia e a forma deste gasto), e este gasto fica como o pagamento deste mês</span></label>
+        <p class="dica" id="dica-recorrente" hidden></p>
         <p class="dica" id="dica-pagamento" hidden>Confira o valor e a data do pagamento. O gasto fica ligado ao pagamento recorrente: desmarcar na visão geral apaga este gasto.</p>
         <p class="erro" id="erro-gasto" role="alert" hidden></p>
       </div>
       <div class="dlg-rodape">
+        <button class="btn btn-perigo esquerda" type="button" id="btn-apagar-gasto" hidden>Apagar</button>
         <button class="btn btn-claro" type="button" data-fechar>Cancelar</button>
         <button class="btn btn-primary" type="submit">Lançar</button>
       </div>
@@ -551,6 +573,7 @@
           </div>
           <p class="dica">No cartão, a cobrança vem na fatura: quando ela aparecer nos lançamentos com o mesmo nome, conta como lançada sozinha.</p>
         </fieldset>
+        <p class="dica" id="dica-rec-projeto" hidden>Este fixo veio do projeto Financeiro. Ao salvar, ele passa a ser um pagamento recorrente daqui, com os valores que você escolher (os pagamentos já marcados continuam ligados a ele). Primeiro mês em branco: vale para todos os meses, como antes.</p>
         <p class="erro" id="erro-recorrente" role="alert" hidden></p>
       </div>
       <div class="dlg-rodape">

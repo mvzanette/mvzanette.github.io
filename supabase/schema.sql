@@ -294,7 +294,9 @@ create table if not exists public.financas_preferencias (
 alter table public.financas_preferencias add column if not exists contas jsonb not null default '{}'::jsonb;
 
 -- Fluxo de caixa: saldo da conta informado no início de um mês ({ "saldos": { "2026-10": 1234.56 } }); os meses
--- seguintes continuam a partir dele
+-- seguintes continuam a partir dele. Também guarda (sem mudar a tabela) os gastos do site ainda a pagar
+-- ("aPagar": [id]), os fixos do projeto tirados ou trocados por um recorrente do site ("fixosOcultos": ["p:<nome>"])
+-- e as previsões do mês ("metas": { "investimento_mensal", "investimento_nome", "cartao_mensal" }).
 alter table public.financas_preferencias add column if not exists caixa jsonb not null default '{}'::jsonb;
 
 -- Pagamentos recorrentes lançados no site: [{ "id", "nome", "valor", "dia", "forma", "categoria", "subcategoria",

@@ -6,7 +6,7 @@ import * as R from "./regras.js";
 import * as G from "./regras-gestao.js";
 import { resumoCaixa } from "./caixa-documentos.js";
 import { $, esc, moeda, moedaCurta } from "./ui.js";
-import { contarAClassificar, faixaTarefas, mostrarTarefas, tarefaArts, tarefaCaixa, tarefaClassificar } from "./tarefas.js";
+import { contarPendenciasFinancas, faixaTarefas, mostrarTarefas, tarefaAPagar, tarefaArts, tarefaCaixa, tarefaClassificar } from "./tarefas.js";
 
 const hoje = R.hojeISO();
 const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
@@ -162,16 +162,18 @@ async function iniciar() {
   const resumo = await resumos(armazem, perfil, empresas);
   renderizar(perfil, empresas, resumo);
 
-  // Tarefas pendentes: lançamentos a classificar no próprio painel de finanças, ARTs que precisam de baixa ou ação e
-  // documentos do caixa a aprovar. A janela abre ao entrar (uma vez por sessão); a faixa fica no início.
-  const aClassificar = pode(perfil, "financas")
-    ? await contarAClassificar(armazem, perfil.id).catch((err) => { console.warn("Tarefas: não deu para contar os lançamentos a classificar.", err); return 0; })
-    : 0;
+  // Tarefas pendentes: lançamentos a classificar e gastos a pagar já vencidos no próprio painel de finanças, ARTs que
+  // precisam de baixa ou ação e documentos do caixa a aprovar. A janela abre ao entrar (uma vez por sessão); a faixa
+  // fica no início.
+  const fin = pode(perfil, "financas")
+    ? await contarPendenciasFinancas(armazem, perfil.id).catch((err) => { console.warn("Tarefas: não deu para contar as pendências das finanças.", err); return null; })
+    : null;
+  const aClassificar = fin ? fin.classificar : 0;
   if (aClassificar) {
     resumo.financas = { texto: `${aClassificar} ${aClassificar === 1 ? "lançamento a classificar" : "lançamentos a classificar"}`, alerta: true };
     renderizar(perfil, empresas, resumo);
   }
-  const tarefas = [tarefaClassificar(aClassificar), ...resumo.tarefas];
+  const tarefas = [tarefaClassificar(aClassificar), ...(fin ? [tarefaAPagar(fin.aPagar.n, fin.aPagar.total)] : []), ...resumo.tarefas];
   faixaTarefas($("#faixa-tarefas"), tarefas, { perfil });
   mostrarTarefas(tarefas, { perfil, automatico: true });
 }

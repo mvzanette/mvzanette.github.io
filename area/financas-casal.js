@@ -15,12 +15,14 @@ export async function mostrarCasal({ armazem, pessoas }) {
   const lidos = await Promise.all(pessoas.map(async (p) => {
     const registro = await armazem.financas.ler(p.id);
     if (!registro) return { ...p, painel: null };
-    const [gastos, entradas] = await Promise.all([
+    const [gastos, entradas, prefs] = await Promise.all([
       armazem.financas.gastos(p.id).catch(() => []),
       armazem.financas.entradas(p.id).catch(() => []),
+      armazem.financas.preferencias(p.id).catch(() => null),
     ]);
+    // Com as preferências de cada painel: recorrentes do site, gastos a pagar, fixos trocados e previsões do mês
     const painel = desenharFinancas({ dados: registro.dados, modo: registro.modo, nome: p.nome, gastosSite: gastos, entradasSite: entradas,
-      comMeses: true, somenteCalculo: true });
+      recorrentes: Array.isArray(prefs && prefs.recorrentes) ? prefs.recorrentes : [], caixa: (prefs && prefs.caixa) || {}, comMeses: true, somenteCalculo: true });
     return { ...p, painel };
   }));
   const comPainel = lidos.filter((p) => p.painel);

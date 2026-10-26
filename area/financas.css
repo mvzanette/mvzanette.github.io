@@ -506,6 +506,12 @@
 .rec-cad div { display: grid; gap: 2px; min-width: 0; }
 .rec-cad small { color: var(--muted); font-size: 0.82rem; }
 .rec-cad.encerrado { opacity: 0.6; }
+#fixos-ocultos { margin: 12px 0 0; }
+#cad-metas .acoes { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+#cad-metas .acoes .erro { margin: 0; }
+/* Gasto lançado como a pagar: previsto até ser pago */
+.fin tr.a-pagar td:first-child { border-left: 3px solid var(--warn); padding-left: 8px; }
+#campo-repete { margin-top: 12px; }
 
 /* Cadastros: juntar categorias */
 .juntar-cats { margin-top: 14px; padding: 10px 14px; background: var(--gray-100); }

@@ -20,7 +20,7 @@ import { decodificarExtrato, lerExtrato, MOTIVOS, saidasDoExtrato } from "./fina
 import { aplicarPrevia, bancoDoCartao, faturaProvavel, lerFaturaParcial, montarPrevia, ordemFatura, rotuloFatura } from "./financas-previa.js";
 import { extrairLinhas } from "./pdf-texto.js";
 import { $, esc, avisar, opcoes, numeroDigitado, prepararDialogos, conferirPdf } from "./ui.js";
-import { mostrarTarefas, tarefaClassificar } from "./tarefas.js";
+import { mostrarTarefas, tarefaAPagar, tarefaClassificar } from "./tarefas.js";
 
 let armazem;
 let perfil; // quem está usando a página
@@ -161,15 +161,33 @@ const contaEscolhida = (form) => (contas.length > 1 && form.elements.conta.value
 const FORMA_DA_VISITA = "mz-fin-forma";
 
 let pagamento = null; // pagamento recorrente sendo marcado como pago ({ chave, nome, rotulo, ... }); sem ele, gasto comum
+let editandoGasto = null; // gasto lançado pelo site aberto para editar (ou para confirmar o pagamento)
+let pagoMexido = false; // a escolha de pago / a pagar foi feita à mão (a data deixa de decidir)
 
-// Lançar gasto. Com um pagamento recorrente, o formulário vem preenchido com ele (valor, data e forma para conferir)
-function abrirLancamento(recorrente = null) {
+// Gastos lançados no site que ainda vão ser pagos (ids, nas preferências do caixa do painel)
+const idsAPagar = () => new Set((prefs && prefs.caixa && prefs.caixa.aPagar) || []);
+// Pagamento recorrente a que o gasto está ligado ("id|AAAA-MM"): nome e mês
+function recorrenteDoGasto(g) {
+  if (!g || !g.recorrente) return null;
+  const i = g.recorrente.lastIndexOf("|");
+  const chave = i > 0 ? g.recorrente.slice(0, i) : g.recorrente;
+  const mes = i > 0 ? g.recorrente.slice(i + 1) : "";
+  const r = recorrentes.find((x) => x.id === chave);
+  return { chave, mes, nome: r ? r.nome : chave.startsWith("p:") ? chave.slice(2) : "pagamento recorrente" };
+}
+
+// Lançar gasto. Com um pagamento recorrente, o formulário vem preenchido com ele (valor, data e forma para conferir).
+// Com um gasto do site, abre para editar (ou, com pagar, para confirmar o pagamento de um gasto a pagar).
+function abrirLancamento(recorrente = null, gasto = null, { pagar = false } = {}) {
   pagamento = recorrente && recorrente.chave ? recorrente : null;
+  editandoGasto = gasto && gasto.id ? gasto : null;
+  pagoMexido = false;
+  const g = editandoGasto;
   const form = $("#form-gasto");
   form.reset();
-  form.elements.data.value = pagamento ? pagamento.data : hojeISO();
+  form.elements.data.value = g ? (pagar ? hojeISO() : g.data) : pagamento ? pagamento.data : hojeISO();
   try {
-    const forma = pagamento ? pagamento.forma : sessionStorage.getItem(FORMA_DA_VISITA);
+    const forma = g ? g.forma : pagamento ? pagamento.forma : sessionStorage.getItem(FORMA_DA_VISITA);
     const opcao = forma && form.querySelector(`[name=forma][value="${CSS.escape(forma)}"]`);
     if (opcao) opcao.checked = true;
   } catch {
@@ -179,24 +197,60 @@ function abrirLancamento(recorrente = null) {
     form.elements.descricao.value = pagamento.nome;
     form.elements.valor.value = pagamento.valor != null ? valorBR(pagamento.valor) : "";
   }
-  $("#titulo-gasto").textContent = pagamento ? `Marcar como pago: ${pagamento.nome} (${pagamento.rotulo})` : "Lançar gasto";
-  form.querySelector("[type=submit]").textContent = pagamento ? "Marcar como pago" : "Lançar";
+  if (g) {
+    form.elements.descricao.value = g.descricao;
+    form.elements.valor.value = valorBR(Number(g.valor));
+    form.elements.parcelas.value = String(g.parcelas || 1);
+    form.elements.essencial.value = g.essencial === true ? "sim" : g.essencial === false ? "nao" : "";
+    form.elements.observacao.value = g.observacao || "";
+  }
+  // Pago ou a pagar: o gasto aberto mantém o que tinha; o novo segue a data (depois de hoje, a pagar)
+  form.elements.pago.value = !pagar && g && idsAPagar().has(g.id) ? "nao" : "sim";
+  const ligado = recorrenteDoGasto(g);
+  $("#titulo-gasto").textContent = pagamento ? `Marcar como pago: ${pagamento.nome} (${pagamento.rotulo})`
+    : g && pagar ? `Confirmar pagamento: ${g.descricao}` : g ? "Editar gasto" : "Lançar gasto";
+  form.querySelector("[type=submit]").textContent = pagamento ? "Marcar como pago" : g && pagar ? "Confirmar pagamento" : g ? "Salvar" : "Lançar";
   $("#dica-pagamento").hidden = !pagamento;
-  preencherCategorias(form, pagamento ? pagamento.categoria || "" : "", pagamento ? pagamento.subcategoria || "" : "");
-  preencherConta(form, (pagamento && pagamento.conta) || "pessoal");
+  // Repete todo mês: só para o gasto que ainda não está ligado a um pagamento recorrente
+  $("#campo-repete").hidden = !!pagamento || !!ligado;
+  $("#dica-recorrente").hidden = !ligado;
+  if (ligado) $("#dica-recorrente").textContent = `Este gasto é o pagamento de “${ligado.nome}”${ligado.mes ? ` em ${rotuloMes(ligado.mes)}` : ""}. Para mudar o valor de todo mês, edite o recorrente na aba Cadastros.`;
+  $("#btn-apagar-gasto").hidden = !g;
+  preencherCategorias(form, g ? g.categoria || "" : pagamento ? pagamento.categoria || "" : "", g ? g.subcategoria || "" : pagamento ? pagamento.subcategoria || "" : "");
+  preencherConta(form, (g && g.conta) || (pagamento && pagamento.conta) || "pessoal");
   $("#erro-gasto").hidden = true;
   atualizarForma();
   $("#dlg-gasto").showModal();
   form.elements.valor.focus();
-  if (pagamento) form.elements.valor.select();
+  if (pagamento || pagar) form.elements.valor.select();
 }
 
+const abrirEdicaoGasto = (id) => {
+  const g = gastos.find((x) => x.id === id);
+  if (g) abrirLancamento(null, g);
+};
+// Pagar um gasto a pagar: abre para conferir o valor e a data do pagamento (hoje, se não mudar)
+const pagarGasto = (id) => {
+  const g = gastos.find((x) => x.id === id);
+  if (g) abrirLancamento(null, g, { pagar: true });
+};
+
 function atualizarForma() {
-  const cartao = $("#form-gasto").elements.forma.value === "cartao";
+  const form = $("#form-gasto");
+  const cartao = form.elements.forma.value === "cartao";
   $("#campo-parcelas").hidden = !cartao;
+  // No cartão, o pagamento é o da fatura: o gasto não fica a pagar
+  $("#campo-pago").hidden = cartao;
   $("#dica-forma").textContent = cartao
     ? "No cartão, o gasto entra na fatura do mês; se for parcelado, cada parcela cai numa fatura."
-    : "Fora do cartão, o gasto sai do saldo do mês na hora.";
+    : "Fora do cartão, o gasto sai do saldo do mês na data. Se ainda não foi pago, marque “Ainda vou pagar”.";
+}
+
+// Gasto novo com data depois de hoje: começa como a pagar (até escolher à mão)
+function pagoPelaData() {
+  const form = $("#form-gasto");
+  if (pagoMexido || editandoGasto || pagamento) return;
+  form.elements.pago.value = form.elements.data.value > hojeISO() ? "nao" : "sim";
 }
 
 async function lancarGasto(e) {
@@ -215,38 +269,62 @@ async function lancarGasto(e) {
   const { categoria, subcategoria } = lerCategoria(form);
   if (form.elements.categoria.value === NOVA && !categoria) return falha("Escreva o nome da nova categoria.");
   const essencial = form.elements.essencial.value;
+  const forma = form.elements.forma.value;
+  const aPagar = forma !== "cartao" && form.elements.pago.value === "nao";
+  const antigo = editandoGasto;
+  const eraAPagar = !!antigo && idsAPagar().has(antigo.id);
+  // Repete todo mês: vira um pagamento recorrente, e este gasto fica como o pagamento do mês
+  const novoRec = !pagamento && !(antigo && antigo.recorrente) && form.elements.repete.checked ? { id: novoId() } : null;
+  const mes = form.elements.data.value.slice(0, 7);
+  const campos = {
+    perfil_id: antigo ? antigo.perfil_id : dono.id,
+    data: form.elements.data.value,
+    descricao: form.elements.descricao.value,
+    valor,
+    forma,
+    parcelas: form.elements.parcelas.value,
+    categoria,
+    subcategoria,
+    conta: contaEscolhida(form),
+    essencial: essencial === "sim" ? true : essencial === "nao" ? false : null,
+    observacao: form.elements.observacao.value,
+    recorrente: pagamento ? pagamento.chave : novoRec ? `${novoRec.id}|${mes}` : antigo ? antigo.recorrente || null : null,
+  };
   const botao = form.querySelector("[type=submit]");
   botao.disabled = true;
   try {
-    const salvo = await armazem.financas.salvarGasto({
-      perfil_id: dono.id,
-      data: form.elements.data.value,
-      descricao: form.elements.descricao.value,
-      valor,
-      forma: form.elements.forma.value,
-      parcelas: form.elements.parcelas.value,
-      categoria,
-      subcategoria,
-      conta: contaEscolhida(form),
-      essencial: essencial === "sim" ? true : essencial === "nao" ? false : null,
-      observacao: form.elements.observacao.value,
-      recorrente: pagamento ? pagamento.chave : null,
-    });
-    gastos.push(salvo);
+    const salvo = antigo ? await armazem.financas.editarGasto(antigo.id, { ...antigo, ...campos }) : await armazem.financas.salvarGasto(campos);
+    gastos = antigo ? gastos.map((x) => (x.id === antigo.id ? salvo : x)) : [...gastos, salvo];
     try {
       sessionStorage.setItem(FORMA_DA_VISITA, salvo.forma);
     } catch {
       /* sem armazenamento: só não lembra */
     }
     await guardarNaLista(categoria, subcategoria).catch(() => {});
+    // A pagar e o recorrente novo ficam nas preferências do painel (numa gravação só)
+    const ids = idsAPagar();
+    const mudouAPagar = ids.has(salvo.id) !== aPagar;
+    if (aPagar) ids.add(salvo.id);
+    else ids.delete(salvo.id);
+    const existentes = new Set(gastos.map((x) => x.id));
+    const rec = novoRec ? { id: novoRec.id, nome: salvo.descricao.slice(0, 100), valor: salvo.valor, dia: Number(salvo.data.slice(8, 10)), forma: salvo.forma,
+      categoria, subcategoria, conta: salvo.conta || null, inicio: mes, fim: null } : null;
+    if (mudouAPagar || rec) {
+      await salvarPrefs({ ...(rec ? { recorrentes: [...recorrentes, rec] } : {}), ...(mudouAPagar ? { caixa: { aPagar: [...ids].filter((x) => existentes.has(x)) } } : {}) });
+    }
     painel.atualizarGastos(gastos);
     painel.atualizarClassificacao({ categorias: cats });
     $("#dlg-gasto").close();
     const parcelado = salvo.forma === "cartao" && salvo.parcelas > 1 ? ` em ${salvo.parcelas}x` : "";
-    avisar(pagamento ? `${pagamento.nome} marcado como pago em ${pagamento.rotulo}.` : salvo.forma === "cartao" ? `Gasto lançado no cartão${parcelado}.` : "Gasto lançado.");
+    const outroMes = salvo.forma !== "cartao" && salvo.data.slice(0, 7) !== mesAtual() ? ` em ${rotuloMes(salvo.data.slice(0, 7))}` : "";
+    const sufixo = (aPagar ? `, a pagar em ${dataBR(salvo.data)}` : "") + (rec ? ". Virou um pagamento recorrente (aba Cadastros)" : "");
+    avisar(pagamento ? `${pagamento.nome} marcado como ${aPagar ? "lançado (a pagar)" : "pago"} em ${pagamento.rotulo}.`
+      : eraAPagar && !aPagar ? `Pagamento de “${salvo.descricao}” confirmado em ${dataBR(salvo.data)}.` : antigo ? `Gasto salvo${sufixo}.`
+      : salvo.forma === "cartao" ? `Gasto lançado no cartão${parcelado}${rec ? ". Virou um pagamento recorrente (aba Cadastros)" : ""}.` : `Gasto lançado${outroMes}${sufixo}.`);
     pagamento = null;
+    editandoGasto = null;
   } catch (err) {
-    falha("Não foi possível lançar: " + err.message);
+    falha(`Não foi possível ${antigo ? "salvar" : "lançar"}: ` + err.message);
   } finally {
     botao.disabled = false;
   }
@@ -254,22 +332,35 @@ async function lancarGasto(e) {
 
 async function apagarGasto(idGasto, pergunta = null, aviso = "Gasto apagado.") {
   const g = gastos.find((x) => x.id === idGasto);
-  if (!g || !confirm(pergunta || `Apagar o gasto "${g.descricao}" lançado pelo site?`)) return;
+  if (!g || !confirm(pergunta || `Apagar o gasto "${g.descricao}" lançado pelo site?`)) return false;
   try {
     await armazem.financas.apagarGasto(idGasto);
     gastos = gastos.filter((x) => x.id !== idGasto);
+    const ids = idsAPagar();
+    if (ids.delete(idGasto)) await salvarPrefs({ caixa: { aPagar: [...ids] } }).catch(() => {});
     painel.atualizarGastos(gastos);
     avisar(aviso);
+    return true;
   } catch (err) {
     avisar("Não foi possível apagar: " + err.message);
+    return false;
   }
 }
 
 function prepararLancamento() {
-  $("#form-gasto").elements.parcelas.innerHTML = opcoes(Array.from({ length: 24 }, (_, i) => [String(i + 1), i ? `${i + 1}x` : "À vista (1x)"]), "1");
+  const form = $("#form-gasto");
+  form.elements.parcelas.innerHTML = opcoes(Array.from({ length: 48 }, (_, i) => [String(i + 1), i ? `${i + 1}x` : "À vista (1x)"]), "1");
   $("#formas-gasto").addEventListener("change", atualizarForma);
-  prepararCategorias($("#form-gasto"));
-  $("#form-gasto").addEventListener("submit", lancarGasto);
+  form.elements.data.addEventListener("change", pagoPelaData);
+  $("#campo-pago").addEventListener("change", () => { pagoMexido = true; });
+  prepararCategorias(form);
+  form.addEventListener("submit", lancarGasto);
+  $("#btn-apagar-gasto").addEventListener("click", async () => {
+    if (editandoGasto && (await apagarGasto(editandoGasto.id))) {
+      editandoGasto = null;
+      $("#dlg-gasto").close();
+    }
+  });
 }
 
 // ---------------------------------------------------------------- pagamentos recorrentes
@@ -281,29 +372,49 @@ let editandoRec = null; // id do recorrente aberto no formulário (null: novo)
 const mesAtual = () => hojeISO().slice(0, 7);
 const novoId = () => `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
-async function salvarRecorrentes(lista) {
-  prefs = await armazem.financas.salvarPreferencias(dono.id, { recorrentes: lista });
-  recorrentes = Array.isArray(prefs && prefs.recorrentes) ? prefs.recorrentes : lista;
-  painel.atualizarRecorrentes(recorrentes);
+// Grava as preferências do painel e atualiza o que depende delas. O caixa (saldos, gastos a pagar, fixos do projeto
+// tirados e previsões do mês) é gravado inteiro, juntando o que muda com o que já havia.
+async function salvarPrefs({ recorrentes: lista = null, caixa = null } = {}) {
+  const campos = {};
+  if (lista) campos.recorrentes = lista;
+  if (caixa) campos.caixa = { ...((prefs && prefs.caixa) || {}), ...caixa };
+  prefs = await armazem.financas.salvarPreferencias(dono.id, campos);
+  if (lista) {
+    recorrentes = Array.isArray(prefs && prefs.recorrentes) ? prefs.recorrentes : lista;
+    painel.atualizarRecorrentes(recorrentes);
+  }
+  if (caixa) painel.atualizarCaixa((prefs && prefs.caixa) || campos.caixa);
   desenharRecorrentesCad();
 }
+const salvarRecorrentes = (lista) => salvarPrefs({ recorrentes: lista });
 
-function abrirRecorrente(id = null) {
-  const r = id ? recorrentes.find((x) => x.id === id) : null;
-  editandoRec = r ? r.id : null;
+// Fixos do projeto Financeiro tirados ou trocados por um recorrente daqui (chaves "p:<nome>")
+const fixosOcultos = () => new Set((prefs && prefs.caixa && prefs.caixa.fixosOcultos) || []);
+let doProjeto = null; // fixo do projeto aberto no formulário: { chave, busca, variavel }
+
+// Editar um recorrente do site (id), cadastrar um novo ou editar um fixo do projeto (vira um recorrente daqui com a
+// mesma chave, para os pagamentos já marcados continuarem ligados a ele)
+function abrirRecorrente(id = null, fixo = null) {
+  const r = id ? recorrentes.find((x) => x.id === id) : fixo && fixo.chave ? fixo : null;
+  editandoRec = id && r ? r.id : null;
+  doProjeto = !id && r ? { chave: fixo.chave, busca: fixo.busca || [], variavel: !!fixo.variavel } : null;
   const form = $("#form-recorrente");
   form.reset();
-  $("#titulo-recorrente").textContent = r ? `Editar: ${r.nome}` : "Novo pagamento recorrente";
+  $("#titulo-recorrente").textContent = doProjeto ? `Editar fixo do projeto: ${r.nome}` : r ? `Editar: ${r.nome}` : "Novo pagamento recorrente";
   form.elements.nome.value = r ? r.nome : "";
   form.elements.valor.value = r && r.valor != null ? valorBR(Number(r.valor)) : "";
   form.elements.dia.value = r && r.dia ? r.dia : "";
-  form.elements.inicio.value = (r && r.inicio) || mesAtual();
+  // O fixo do projeto valia em todos os meses: o primeiro mês fica em branco (continua valendo em todos)
+  form.elements.inicio.value = doProjeto ? "" : (r && r.inicio) || (r ? "" : mesAtual());
   form.elements.fim.value = (r && r.fim) || "";
   const forma = form.querySelector(`[name=forma][value="${CSS.escape((r && r.forma) || "pix")}"]`);
   if (forma) forma.checked = true;
   preencherCategorias(form, r ? r.categoria || "" : "", r ? r.subcategoria || "" : "");
   preencherConta(form, (r && r.conta) || "pessoal");
+  const doProjetoAntes = doProjeto || (r && String(r.id || "").startsWith("p:"));
+  $("#dica-rec-projeto").hidden = !doProjeto;
   $("#btn-apagar-recorrente").hidden = !r;
+  $("#btn-apagar-recorrente").textContent = doProjetoAntes ? "Tirar" : "Apagar";
   $("#erro-recorrente").hidden = true;
   $("#dlg-recorrente").showModal();
   form.elements.nome.focus();
@@ -322,22 +433,29 @@ async function salvarRecorrente(e) {
   if (!nome) return falha("Informe o nome (ex.: aluguel).");
   if (!(valor > 0)) return falha("Informe o valor de todo mês (ex.: 1.850,00). Se ele muda, use o valor mais comum: dá para mudar só num mês na visão geral.");
   if (form.elements.dia.value && !(dia >= 1 && dia <= 31)) return falha("O dia do vencimento vai de 1 a 31.");
-  const inicio = form.elements.inicio.value || mesAtual();
+  const antigo = recorrentes.find((x) => x.id === editandoRec) || {};
+  // Sem primeiro mês: o recorrente novo começa agora; o que veio do projeto continua valendo em todos os meses
+  const semInicio = !!doProjeto || (antigo.id && !antigo.inicio);
+  const inicio = form.elements.inicio.value || (semInicio ? null : mesAtual());
   const fim = form.elements.fim.value || null;
-  if (fim && fim < inicio) return falha("O último mês vem depois do primeiro.");
+  if (fim && inicio && fim < inicio) return falha("O último mês vem depois do primeiro.");
   const { categoria, subcategoria } = lerCategoria(form);
   if (form.elements.categoria.value === NOVA && !categoria) return falha("Escreva o nome da nova categoria.");
-  const antigo = recorrentes.find((x) => x.id === editandoRec) || {};
-  const r = { ...antigo, id: antigo.id || novoId(), nome, valor: Math.round(valor * 100) / 100, dia: dia || null, forma: form.elements.forma.value,
-    categoria, subcategoria, conta: contaEscolhida(form), inicio, fim };
+  const r = { ...antigo, ...(doProjeto ? { busca: doProjeto.busca, variavel: doProjeto.variavel } : {}), id: antigo.id || (doProjeto ? doProjeto.chave : novoId()),
+    nome, valor: Math.round(valor * 100) / 100, dia: dia || null, forma: form.elements.forma.value, categoria, subcategoria, conta: contaEscolhida(form), inicio, fim };
   const botao = form.querySelector("[type=submit]");
   botao.disabled = true;
   try {
     await guardarNaLista(categoria, subcategoria).catch(() => {});
-    await salvarRecorrentes(antigo.id ? recorrentes.map((x) => (x.id === r.id ? r : x)) : [...recorrentes, r]);
+    const lista = antigo.id ? recorrentes.map((x) => (x.id === r.id ? r : x)) : [...recorrentes.filter((x) => x.id !== r.id), r];
+    // O fixo do projeto sai da lista do projeto na mesma gravação em que entra o recorrente daqui
+    const ocultos = fixosOcultos();
+    if (doProjeto) ocultos.add(doProjeto.chave);
+    await salvarPrefs({ recorrentes: lista, ...(doProjeto ? { caixa: { fixosOcultos: [...ocultos] } } : {}) });
     painel.atualizarClassificacao({ categorias: cats });
     $("#dlg-recorrente").close();
-    avisar(antigo.id ? "Pagamento recorrente salvo." : "Pagamento recorrente cadastrado. Ele fica pendente a cada mês até você marcar como pago.");
+    avisar(doProjeto ? "Fixo salvo. Agora ele é um pagamento recorrente daqui (aba Cadastros)." : antigo.id ? "Pagamento recorrente salvo." : "Pagamento recorrente cadastrado. Ele fica pendente a cada mês até você marcar como pago.");
+    doProjeto = null;
   } catch (err) {
     falha("Não foi possível salvar: " + err.message);
   } finally {
@@ -346,6 +464,23 @@ async function salvarRecorrente(e) {
 }
 
 async function apagarRecorrente() {
+  // Fixo do projeto (ainda não editado): só sai da lista; dá para restaurar nos Cadastros
+  if (doProjeto) {
+    const nome = $("#form-recorrente").elements.nome.value || doProjeto.chave.slice(2);
+    if (!confirm(`Tirar o fixo "${nome}" do projeto Financeiro? Ele deixa de ficar pendente todo mês. Dá para restaurar na aba Cadastros.`)) return;
+    try {
+      const ocultos = fixosOcultos();
+      ocultos.add(doProjeto.chave);
+      await salvarPrefs({ caixa: { fixosOcultos: [...ocultos] } });
+      doProjeto = null;
+      $("#dlg-recorrente").close();
+      avisar(`${nome} saiu dos pagamentos recorrentes.`);
+    } catch (err) {
+      $("#erro-recorrente").textContent = "Não foi possível tirar: " + err.message;
+      $("#erro-recorrente").hidden = false;
+    }
+    return;
+  }
   const r = recorrentes.find((x) => x.id === editandoRec);
   if (!r || !confirm(`Apagar o pagamento recorrente "${r.nome}"? Os pagamentos já marcados continuam nos gastos.`)) return;
   try {
@@ -375,16 +510,83 @@ function desmarcarPagamento(idGasto, nome) {
   return apagarGasto(idGasto, `Desmarcar o pagamento de "${nome}"? O gasto lançado ao marcar como pago será apagado.`, `${nome} voltou a ficar pendente.`);
 }
 
-// Lista nos Cadastros
+// Lista nos Cadastros: os recorrentes daqui e os fixos do projeto Financeiro que continuam valendo
+let fixosProjeto = [];
 function desenharRecorrentesCad() {
-  const lista = [...recorrentes].sort((a, b) => (a.dia || 99) - (b.dia || 99) || a.nome.localeCompare(b.nome));
+  fixosProjeto = painel && painel.fixosDoProjeto ? painel.fixosDoProjeto() : [];
+  const lista = [...recorrentes, ...fixosProjeto.map((f, i) => ({ ...f, projeto: i }))].sort((a, b) => (a.dia || 99) - (b.dia || 99) || a.nome.localeCompare(b.nome));
   const mes = mesAtual();
   $("#lista-recorrentes").innerHTML = lista.length ? lista.map((r) => {
     const encerrado = r.fim && r.fim < mes;
-    const detalhe = [FORMAS_REC[r.forma] || "Outro", r.dia ? `vence dia ${r.dia}` : "", r.categoria || "", encerrado ? `terminou em ${r.fim.slice(5)}/${r.fim.slice(0, 4)}` : r.inicio > mes ? `começa em ${r.inicio.slice(5)}/${r.inicio.slice(0, 4)}` : ""].filter(Boolean);
+    const detalhe = [r.projeto != null ? "do projeto Financeiro" : "", FORMAS_REC[r.forma] || "Outro", r.dia ? `vence dia ${r.dia}` : "", r.categoria || "",
+      encerrado ? `terminou em ${r.fim.slice(5)}/${r.fim.slice(0, 4)}` : r.inicio && r.inicio > mes ? `começa em ${r.inicio.slice(5)}/${r.inicio.slice(0, 4)}` : ""].filter(Boolean);
+    const editar = r.projeto != null ? `data-editar-fixo="${r.projeto}"` : `data-editar-rec="${esc(r.id)}"`;
     return `<div class="rec-cad${encerrado ? " encerrado" : ""}"><div><b>${esc(r.nome)}</b><small>${esc(detalhe.join(" · "))}</small></div>
-      <span class="num">${brl(Number(r.valor) || 0)}</span><button type="button" class="btn-link" data-editar-rec="${esc(r.id)}">Editar</button></div>`;
+      <span class="num">${r.valor != null ? brl(Number(r.valor) || 0) : "—"}</span><button type="button" class="btn-link" ${editar}>Editar</button></div>`;
   }).join("") : '<p class="muted" style="margin:0">Nenhum pagamento recorrente cadastrado.</p>';
+  // Fixos do projeto tirados (sem um recorrente daqui no lugar): dá para restaurar
+  const tirados = [...fixosOcultos()].filter((k) => !recorrentes.some((r) => r.id === k));
+  $("#fixos-ocultos").hidden = !tirados.length;
+  $("#fixos-ocultos").innerHTML = tirados.length ? `Fixos do projeto tirados: ${tirados.map((k) => `${esc(k.slice(2))} <button type="button" class="btn-link" data-restaurar-fixo="${esc(k)}">Restaurar</button>`).join(" · ")}` : "";
+}
+
+async function restaurarFixo(chave) {
+  const ocultos = fixosOcultos();
+  ocultos.delete(chave);
+  try {
+    await salvarPrefs({ caixa: { fixosOcultos: [...ocultos] } });
+    avisar(`${chave.slice(2)} voltou aos pagamentos recorrentes.`);
+  } catch (err) {
+    avisar("Não foi possível restaurar: " + err.message);
+  }
+}
+
+// Previsões do mês (investimento mensal e fatura do cartão): vêm do projeto e podem ser trocadas aqui
+function preencherMetas() {
+  const form = $("#form-metas");
+  const m = (painel && painel.metas) || {};
+  form.elements.investimento_mensal.value = m.investimento_mensal ? valorBR(Number(m.investimento_mensal)) : "";
+  form.elements.investimento_nome.value = m.investimento_nome || "";
+  form.elements.cartao_mensal.value = m.cartao_mensal != null ? valorBR(Number(m.cartao_mensal)) : "";
+  $("#erro-metas").hidden = true;
+}
+
+async function salvarMetas(e) {
+  e.preventDefault();
+  const form = e.target;
+  const falha = (texto) => {
+    $("#erro-metas").textContent = texto;
+    $("#erro-metas").hidden = false;
+  };
+  const ler = (nome) => {
+    const t = form.elements[nome].value.trim();
+    return t ? numeroDigitado(t) : 0;
+  };
+  const inv = ler("investimento_mensal");
+  const cartao = ler("cartao_mensal");
+  if (inv == null || inv < 0) return falha("Investimento mensal inválido (ex.: 1.500,00).");
+  if (cartao == null || cartao < 0) return falha("Previsão do cartão inválida (ex.: 6.500,00).");
+  const botao = form.querySelector("[type=submit]");
+  botao.disabled = true;
+  try {
+    // Em branco vira zero (e não volta para o valor do projeto)
+    await salvarPrefs({ caixa: { metas: { investimento_mensal: Math.round(inv * 100) / 100, investimento_nome: form.elements.investimento_nome.value.trim().slice(0, 80),
+      cartao_mensal: cartao ? Math.round(cartao * 100) / 100 : null } } });
+    preencherMetas();
+    avisar("Previsões do mês salvas.");
+  } catch (err) {
+    falha("Não foi possível salvar: " + err.message);
+  } finally {
+    botao.disabled = false;
+  }
+}
+
+// Os links "alterar" da visão geral levam para as previsões nos Cadastros
+function abrirMetas() {
+  $("#tab-cadastros").click();
+  preencherMetas();
+  $("#cad-metas").scrollIntoView({ block: "start" });
+  $("#form-metas").elements.investimento_mensal.focus();
 }
 
 function prepararRecorrentes() {
@@ -397,7 +599,14 @@ function prepararRecorrentes() {
   $("#lista-recorrentes").addEventListener("click", (e) => {
     const b = e.target.closest("[data-editar-rec]");
     if (b) abrirRecorrente(b.dataset.editarRec);
+    const f = e.target.closest("[data-editar-fixo]");
+    if (f && fixosProjeto[Number(f.dataset.editarFixo)]) abrirRecorrente(null, fixosProjeto[Number(f.dataset.editarFixo)]);
   });
+  $("#fixos-ocultos").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-restaurar-fixo]");
+    if (b) restaurarFixo(b.dataset.restaurarFixo);
+  });
+  $("#form-metas").addEventListener("submit", salvarMetas);
 }
 
 // ---------------------------------------------------------------- investimentos individuais no caixa
@@ -524,8 +733,12 @@ async function lancarEntrada(e) {
     });
     entradas.push(salvo);
     painel.atualizarEntradas(entradas);
+    // A entrada conta no mês da data em que entrou: a visão geral vai para esse mês
+    const mesEntrou = salvo.data.slice(0, 7);
+    painel.mostrarMes(mesEntrou);
     $("#dlg-entrada").close();
-    avisar(salario ? "Salário lançado." : "Entrada lançada.");
+    const trabalho = salvo.referencia && salvo.referencia !== mesEntrou ? ` (trabalho de ${rotuloMes(salvo.referencia)})` : "";
+    avisar(`${salario ? "Salário lançado" : "Entrada lançada"}: ${brl(salvo.liquido)} no caixa de ${rotuloMes(mesEntrou)}${trabalho}.`);
   } catch (err) {
     falha("Não foi possível lançar: " + err.message);
   } finally {
@@ -574,11 +787,10 @@ async function mudarRecebimento(idEntrada, campos) {
 
 // Saldo da conta no início de um mês (fluxo de caixa): os meses seguintes continuam a partir dele
 async function salvarSaldoInicial(chave, valor) {
-  const caixa = { saldos: { ...((prefs && prefs.caixa && prefs.caixa.saldos) || {}) } };
-  if (valor == null) delete caixa.saldos[chave];
-  else caixa.saldos[chave] = Math.round(valor * 100) / 100;
-  prefs = await armazem.financas.salvarPreferencias(dono.id, { caixa });
-  painel.atualizarCaixa((prefs && prefs.caixa) || caixa);
+  const saldos = { ...((prefs && prefs.caixa && prefs.caixa.saldos) || {}) };
+  if (valor == null) delete saldos[chave];
+  else saldos[chave] = Math.round(valor * 100) / 100;
+  await salvarPrefs({ caixa: { saldos } });
   avisar(valor == null ? "Saldo do início do mês apagado." : "Saldo do início do mês salvo.");
 }
 
@@ -1972,6 +2184,9 @@ async function iniciar() {
     gastosSite: gastos,
     aoLancarGasto: abrirLancamento,
     aoApagarGasto: apagarGasto,
+    aoEditarGasto: abrirEdicaoGasto,
+    aoPagarGasto: pagarGasto,
+    aoEditarMetas: abrirMetas,
     aoImportarExtrato: abrirExtrato,
     entradasSite: entradas,
     aoLancarEntrada: abrirEntrada,
@@ -1996,8 +2211,12 @@ async function iniciar() {
   // Vindo das tarefas pendentes (financas.html#classificar): direto para a lista; senão, a janela de tarefas avisa
   // (uma vez por sessão) quando há lançamentos a classificar no próprio painel
   if (location.hash === "#classificar") $("#classificar").scrollIntoView({ block: "start" });
-  else if (dono.id === perfil.id && pendencias.length) {
-    mostrarTarefas([tarefaClassificar(pendencias.length, "#classificar")], { perfil, automatico: true, aoAbrir: () => $("#classificar").scrollIntoView({ block: "start", behavior: "smooth" }) });
+  else if (dono.id === perfil.id) {
+    const vencidos = painel.aPagarVencidos();
+    mostrarTarefas([tarefaClassificar(pendencias.length, "#classificar"), tarefaAPagar(vencidos.length, vencidos.reduce((t, l) => t + Number(l.valor || 0), 0), "#gastos")], {
+      perfil, automatico: true,
+      aoAbrir: (href) => (href === "#gastos" ? $("#tab-gastos").click() : $("#classificar").scrollIntoView({ block: "start", behavior: "smooth" })),
+    });
   }
   desenharInvestimentosPessoais({
     raiz: $("#inv-pessoal"),
@@ -2014,6 +2233,7 @@ async function iniciar() {
   recomecarCategorias();
   recomecarContas();
   desenharRecorrentesCad();
+  preencherMetas();
   listarPdfs();
   if (desejos) {
     desenharDesejos({
