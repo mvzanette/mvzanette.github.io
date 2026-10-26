@@ -384,6 +384,32 @@ Observações:
 - Em repositório público, o GitHub pausa rotinas agendadas depois de 60 dias sem nenhuma alteração no repositório. Ele avisa por e-mail antes; basta clicar em **Enable workflow** em *Actions*.
 - A execução diária também mantém o projeto do Supabase ativo (o plano gratuito pausa projetos parados por uma semana).
 
+### 4. Cópia de segurança na AWS (diária, ~15 minutos para configurar)
+
+Todo dia às 3h17 (Brasília) o GitHub Actions (`.github/workflows/backup-aws.yml`, com `ferramentas/backup-aws.sh`) copia do Supabase as tabelas do site em SQL, os logins, uma planilha CSV por tabela e os arquivos guardados (PDFs e anexos). Ele compacta tudo num `.7z` com senha (AES-256, com os nomes dos arquivos também protegidos) e envia para um bucket S3 privado na sua conta AWS: `diario/copia-AAAA-MM-DD.7z` e, no dia 1º, também `mensal/copia-AAAA-MM.7z`. O log do GitHub é público, por isso ele mostra só contagens e tamanhos. O custo do S3 para esse volume fica em centavos por mês.
+
+1. **Conta AWS pessoal** (não a da empresa) em aws.amazon.com. Ative a verificação em duas etapas (MFA) no usuário principal.
+2. **S3 → Create bucket:** um nome único (ex.: `mz-copias-2026`), região **South America (São Paulo) `sa-east-1`**. Deixe ligado *Block all public access* e a criptografia padrão (os dois já vêm assim).
+3. **No bucket → Management → Create lifecycle rule:** prefixo `diario/` e *Expire current versions of objects* após **35 dias**. As cópias de `mensal/` ficam guardadas.
+4. **IAM → Users → Create user** `copia-site`, sem acesso ao console. Em *Permissions → Create inline policy → JSON*, cole a política abaixo (troque o nome do bucket). Ela só deixa **enviar** arquivos: quem tiver essas chaves não consegue ler nem apagar as cópias. Depois, em *Security credentials → Create access key* (*Application running outside AWS*), copie as duas chaves.
+
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [{ "Effect": "Allow", "Action": ["s3:PutObject", "s3:AbortMultipartUpload"], "Resource": "arn:aws:s3:::mz-copias-2026/*" }]
+   }
+   ```
+
+5. **Supabase:** em *Project Settings → Database*, redefina a senha do banco (*Reset database password*). Depois, no botão **Connect** do topo, copie a URI do **Session pooler** e troque `[YOUR-PASSWORD]` pela senha nova. Use o Session pooler porque os servidores do GitHub não alcançam a conexão direta. A senha do banco não é usada pelo site, então trocá-la não afeta nada.
+6. **GitHub → Settings → Secrets and variables → Actions:**
+   - *Secrets*: `SUPABASE_DB_URL` (a URI do passo 5), `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` e `BACKUP_SENHA`. A `BACKUP_SENHA` é a senha das cópias: use uma senha longa e guarde-a num gerenciador de senhas, porque **sem ela as cópias não abrem** e ninguém consegue recuperá-la. `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` são os mesmos dos alertas.
+   - *Variables*: `BACKUP_BUCKET` = nome do bucket e `AWS_REGION` = `sa-east-1`.
+7. **Testar:** *Actions → Cópia de segurança na AWS → Run workflow*. Quando ficar verde, o arquivo aparece em `diario/` no bucket.
+
+Se der erro, o GitHub avisa por e-mail. Enquanto nada da AWS estiver configurado, a rotina só registra "ainda não configurada" e não falha. Se algum arquivo guardado não baixar, a cópia é enviada assim mesmo, com a lista em `FALHAS.txt`, e a execução fica vermelha para avisar.
+
+**Abrir uma cópia:** no S3, baixe o `.7z` (*Download*) e abra com o 7-Zip (Windows) ou o Keka (Mac), usando a `BACKUP_SENHA`. Dentro há `banco-site.sql`, `logins.sql`, a pasta `planilhas/` (abre no Excel) e a pasta `arquivos/`, com os PDFs e anexos. O `LEIAME.txt` explica como restaurar num projeto novo do Supabase: rodar `logins.sql`, depois `banco-site.sql` e o `supabase/schema.sql`, e enviar a pasta `arquivos/`.
+
 ## Segurança e privacidade
 
 - O código do site é público, mas os dados não: ficam no Supabase, protegidos pelo login e por regras de acesso no banco. Só entra quem tem cadastro ativo, cada módulo só abre para quem tem permissão e clientes nunca acessam os módulos profissionais. Os PDFs ficam em armazenamento privado.
@@ -392,6 +418,7 @@ Observações:
 - Os espaços de arquivos (PDFs das ARTs e das finanças) só aceitam PDF, até 20 MB.
 - **Nunca** coloque PDFs de ART, relatórios ou planilhas exportadas dentro do repositório (o `.gitignore` já bloqueia `.pdf`, `.csv` e `.xlsx`).
 - A chave Secret (`sb_secret_…` ou `service_role`) dá acesso total ao banco: guarde-a só nos *Secrets* do GitHub, no `SUPABASE_SERVICE_ROLE_KEY`.
+- As cópias de segurança na AWS saem compactadas com senha antes de deixar o servidor do GitHub, e a chave da AWS usada pela rotina só consegue enviar arquivos (não lê nem apaga). Senhas e chaves ficam só nos *Secrets*, nunca no repositório nem no chat.
 
 ## Testes locais
 

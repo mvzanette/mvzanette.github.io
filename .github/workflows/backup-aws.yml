@@ -1,0 +1,108 @@
+name: Cópia de segurança na AWS
+
+# Todos os dias às 3h17 (Brasília): copia do Supabase o banco do site (SQL e planilhas) e os arquivos guardados (PDFs
+# e anexos), compacta num .7z com senha e envia para o S3 da conta AWS pessoal (pasta diario/; no dia 1º, também
+# mensal/). Também pode ser executado manualmente em Actions → "Cópia de segurança na AWS" → "Run workflow".
+# Configuração e restauração: README, seção "Cópia de segurança na AWS".
+# O repositório é público e o log também: só aparecem contagens e tamanhos, nunca o conteúdo.
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-aws
+  cancel-in-progress: false
+
+jobs:
+  copia:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      AWS_DEFAULT_REGION: ${{ vars.AWS_REGION || 'sa-east-1' }}
+      BACKUP_BUCKET: ${{ vars.BACKUP_BUCKET }}
+    steps:
+      - name: Conferir a configuração
+        id: config
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BACKUP_SENHA: ${{ secrets.BACKUP_SENHA }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          # Ainda sem nada da AWS: a cópia não foi configurada (não falha todo dia por isso)
+          if [ -z "$BACKUP_BUCKET$AWS_ACCESS_KEY_ID$BACKUP_SENHA" ]; then
+            echo "::notice::Cópia na AWS ainda não configurada (README, seção \"Cópia de segurança na AWS\"). Nada a fazer."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          faltam=""
+          for v in SUPABASE_DB_URL SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY BACKUP_SENHA AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY BACKUP_BUCKET; do
+            [ -n "${!v}" ] || faltam="$faltam $v"
+          done
+          if [ -n "$faltam" ]; then
+            echo "::error::Falta configurar:$faltam (secrets; BACKUP_BUCKET é variável)."
+            exit 1
+          fi
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        if: steps.config.outputs.ok == 'true'
+
+      # pg_dump precisa ser da mesma versão do banco ou mais nova: instala a mais nova do repositório do PostgreSQL
+      - name: Instalar o cliente do PostgreSQL
+        if: steps.config.outputs.ok == 'true'
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-18 > /dev/null || sudo apt-get install -y -qq postgresql-client-17 > /dev/null
+          command -v 7z > /dev/null || sudo apt-get install -y -qq p7zip-full > /dev/null
+          echo "PG_BIN=$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -1)" >> "$GITHUB_ENV"
+
+      - name: Fazer a cópia
+        id: copia
+        if: steps.config.outputs.ok == 'true'
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BACKUP_SENHA: ${{ secrets.BACKUP_SENHA }}
+        run: |
+          DATA=$(TZ=America/Sao_Paulo date +%F)
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
+          set +e
+          bash ferramentas/backup-aws.sh "$RUNNER_TEMP" "$RUNNER_TEMP/copia-$DATA.7z"
+          st=$?
+          # 3: a cópia saiu, mas faltou algum arquivo guardado (envia assim mesmo e avisa no fim)
+          if [ "$st" -eq 3 ]; then echo "parcial=true" >> "$GITHUB_OUTPUT"; elif [ "$st" -ne 0 ]; then exit "$st"; fi
+
+      - name: Enviar para o S3
+        if: steps.config.outputs.ok == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          aws s3 cp "$RUNNER_TEMP/copia-$DATA.7z" "s3://$BACKUP_BUCKET/diario/copia-$DATA.7z" --only-show-errors
+          echo "Enviada: diario/copia-$DATA.7z"
+          if [ "${DATA:8:2}" = "01" ]; then
+            aws s3 cp "$RUNNER_TEMP/copia-$DATA.7z" "s3://$BACKUP_BUCKET/mensal/copia-${DATA:0:7}.7z" --only-show-errors
+            echo "Enviada também: mensal/copia-${DATA:0:7}.7z"
+          fi
+
+      - name: Apagar a cópia do servidor do GitHub
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/copia" "$RUNNER_TEMP"/copia-*.7z "$RUNNER_TEMP/arquivos.tsv"
+
+      - name: Avisar arquivos que não entraram
+        if: steps.copia.outputs.parcial == 'true'
+        run: |
+          echo "::error::A cópia foi enviada, mas algum arquivo guardado não baixou (a lista está em FALHAS.txt, dentro da cópia)."
+          exit 1
