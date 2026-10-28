@@ -36,6 +36,24 @@ document.addEventListener("DOMContentLoaded", () => {
     menu.querySelectorAll("a").forEach((a) => a.addEventListener("click", () => setOpen(false)));
   }
 
+  // Formulário de orçamento: fechado até clicar no título. Os links para #contato (botão Contato do topo e
+  // Solicitar proposta) abrem ele, inclusive vindo de outra página (index.html#contato).
+  const orcamento = document.getElementById("orcamento");
+  if (orcamento) {
+    const abrir = () => {
+      orcamento.open = true;
+    };
+    if (location.hash === "#contato") abrir();
+    window.addEventListener("hashchange", () => {
+      if (location.hash === "#contato") abrir();
+    });
+    document.querySelectorAll('a[href$="#contato"]').forEach((a) =>
+      a.addEventListener("click", () => {
+        if (a.pathname === location.pathname) abrir();
+      })
+    );
+  }
+
   const form = document.getElementById("form-proposta");
   if (!form || typeof TOS_MECANICA === "undefined") return;
 

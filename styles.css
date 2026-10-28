@@ -1295,6 +1295,40 @@ svg.i {
   text-underline-offset: 4px;
 }
 
+/* Orçamento: o formulário fica fechado; o título (no mesmo tamanho de "Contato") abre e fecha */
+.quote > summary {
+  display: block;
+  list-style: none;
+  cursor: pointer;
+}
+
+.quote > summary::-webkit-details-marker {
+  display: none;
+}
+
+.quote > summary:focus-visible {
+  outline: 3px solid var(--yellow);
+  outline-offset: 6px;
+}
+
+.quote-seta {
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  margin-left: 6px;
+  vertical-align: middle;
+  stroke-width: 2.4;
+  transition: transform 0.2s ease;
+}
+
+.quote > summary:hover .quote-seta {
+  color: var(--yellow);
+}
+
+.quote[open] .quote-seta {
+  transform: rotate(180deg);
+}
+
 .quote-form {
   padding: 40px;
   background: var(--white);

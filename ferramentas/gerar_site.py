@@ -234,7 +234,7 @@ def contato(selecionado=None):
       <div class="container contact-grid">
         <div class="contact-info">
           <h2 class="section-title">Contato</h2>
-          <p>Para solicitar uma proposta técnica, preencha o formulário com os dados do serviço e do equipamento.</p>
+          <p>Para solicitar uma proposta técnica, clique em “Faça aqui seu orçamento” e preencha o formulário com os dados do serviço e do equipamento.</p>
           <ul class="contact-list">
             <li>{icon("mail")}<div><small>E-mail</small><a href="mailto:{EMAIL}" data-email>{EMAIL}</a></div></li>
             <li>{icon("phone")}<div><small>WhatsApp</small><a href="https://wa.me/{WHATS}" data-whatsapp target="_blank" rel="noopener">{FONE}</a></div></li>
@@ -242,7 +242,10 @@ def contato(selecionado=None):
           </ul>
         </div>
 
-        <!-- Envio pelo FormSubmit (gratuito). O e-mail de destino é definido em config.js. -->
+        <!-- O formulário fica fechado até clicar no título; os links para #contato (botão Contato, Solicitar proposta)
+             abrem ele (main.js). Envio pelo FormSubmit (gratuito); o e-mail de destino é definido em config.js. -->
+        <details class="quote" id="orcamento">
+        <summary><h2 class="section-title">Faça aqui seu orçamento {icon("down", "i quote-seta")}</h2></summary>
         <form class="quote-form" id="form-proposta" action="https://formsubmit.co/{EMAIL}" method="POST">
           <input type="hidden" name="_subject" value="Solicitação de proposta pelo site">
           <input type="hidden" name="_template" value="table">
@@ -322,6 +325,7 @@ def contato(selecionado=None):
           <p class="lgpd">Os dados informados são utilizados exclusivamente para a elaboração e o envio da proposta. Consulte a <a href="politica-de-privacidade.html">Política de Privacidade</a>.</p>
           <button class="btn btn-primary" type="submit">Enviar solicitação</button>
         </form>
+        </details>
       </div>
     </section>
 """
