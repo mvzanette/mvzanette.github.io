@@ -886,3 +886,187 @@ drop policy if exists "documentos do caixa - apagar" on storage.objects;
 create policy "documentos do caixa - apagar" on storage.objects
   for delete to authenticated
   using (bucket_id = 'caixa' and (select public.pode('empresas')));
+
+-- ================================================================ contatos do site (pedidos de orçamento)
+-- O formulário de contato do site grava aqui, sem login (chave pública): o site só consegue enviar; ler, mudar a
+-- situação e apagar é só do administrador. A cada contato novo, o banco manda o e-mail "ALERTA DE CONTATO NA
+-- PLATAFORMA" para mvszanette@gmail.com pelo Resend (extensão pg_net), com o resumo e os próximos passos. A chave do
+-- Resend fica no Vault do Supabase, com o nome resend_api_key (rodar uma vez no SQL Editor, com a chave no lugar de re_…):
+--   select vault.create_secret('re_…', 'resend_api_key', 'Chave do Resend para os e-mails do site');
+-- Sem a chave, o contato fica guardado do mesmo jeito, só não sai o e-mail.
+do $$ begin
+  if not exists (select 1 from pg_extension where extname = 'pg_net') then
+    begin
+      create extension pg_net with schema extensions;
+    exception when others then
+      begin
+        create extension pg_net;
+      exception when others then
+        raise notice 'pg_net indisponível (%): os contatos ficam guardados, sem o e-mail.', sqlerrm;
+      end;
+    end;
+  end if;
+end $$;
+
+create table if not exists public.contatos (
+  id uuid primary key default gen_random_uuid(),
+  criado_em timestamptz not null default now(),
+  nome text not null check (length(nome) between 2 and 120),
+  email text not null check (length(email) between 5 and 160 and email ~* '^[^@\s]+@[^@\s]+\.[^@\s]+$'),
+  whatsapp text not null check (length(whatsapp) between 8 and 30),
+  empresa text check (empresa is null or length(empresa) <= 120),
+  cidade text not null check (length(cidade) between 2 and 80),
+  uf text not null check (uf ~ '^[A-Z]{2}$'),
+  documento text check (documento is null or length(documento) <= 30),
+  quantidade text check (quantidade is null or length(quantidade) <= 30),
+  servico text not null check (length(servico) between 2 and 200),
+  codigo_tos text check (codigo_tos is null or length(codigo_tos) <= 1000),
+  equipamento text check (equipamento is null or length(equipamento) <= 200),
+  mensagem text check (mensagem is null or length(mensagem) <= 4000),
+  pagina text check (pagina is null or length(pagina) <= 120),
+  situacao text not null default 'novo' check (situacao in ('novo', 'respondido', 'proposta', 'fechado', 'descartado'))
+);
+create index if not exists contatos_criado_em_idx on public.contatos (criado_em desc);
+
+alter table public.contatos enable row level security;
+grant usage on schema public to anon;
+grant insert on public.contatos to anon;
+revoke select, update, delete, truncate on public.contatos from anon;
+grant select, insert, update, delete on public.contatos to authenticated, service_role;
+
+drop policy if exists "contatos - o site envia" on public.contatos;
+create policy "contatos - o site envia" on public.contatos
+  for insert to anon, authenticated
+  with check (true);
+
+drop policy if exists "contatos - administrador" on public.contatos;
+create policy "contatos - administrador" on public.contatos
+  for all to authenticated
+  using ((select public.eh_adm()))
+  with check ((select public.eh_adm()));
+
+-- Antes de gravar: data, situação e id são do banco (não do site), e um limite contra robôs
+create or replace function public.contato_preparar() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  new.id := gen_random_uuid();
+  new.criado_em := now();
+  new.situacao := 'novo';
+  new.nome := btrim(new.nome);
+  new.email := lower(btrim(new.email));
+  new.uf := upper(btrim(new.uf));
+  if (select count(*) from public.contatos where criado_em > now() - interval '1 hour') >= 30
+     or (select count(*) from public.contatos where email = new.email and criado_em > now() - interval '1 hour') >= 5 then
+    raise exception 'Muitos pedidos em pouco tempo. Tente mais tarde ou fale pelo WhatsApp.';
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists contatos_preparar on public.contatos;
+create trigger contatos_preparar before insert on public.contatos
+  for each row execute function public.contato_preparar();
+
+create or replace function public.html_esc(t text) returns text
+language sql immutable set search_path = '' as $$
+  select replace(replace(replace(replace(replace(coalesce(t, ''), '&', '&amp;'), '<', '&lt;'), '>', '&gt;'), '"', '&quot;'), '''', '&#39;');
+$$;
+
+-- Depois de gravar: o e-mail de alerta com o resumo do contato e os próximos passos. Uma falha aqui nunca impede de
+-- guardar o contato.
+create or replace function public.contato_avisar() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare
+  chave text;
+  quando text := to_char(new.criado_em at time zone 'America/Sao_Paulo', 'DD/MM/YYYY "às" HH24:MI');
+  fone text := regexp_replace(new.whatsapp, '\D', '', 'g');
+  pedir text;
+  resumo text;
+  linhas_html text;
+  linhas_texto text;
+  passos text[];
+  html text;
+  texto text;
+  td text := 'padding:6px 12px 6px 0;vertical-align:top;border-bottom:1px solid #e6e6e6';
+begin
+  select decrypted_secret into chave from vault.decrypted_secrets where name = 'resend_api_key' limit 1;
+  if coalesce(chave, '') = '' then
+    return new;
+  end if;
+  if length(fone) in (10, 11) then
+    fone := '55' || fone;
+  end if;
+
+  -- O que pedir ao cliente para montar a proposta, conforme o serviço
+  pedir := case
+    when new.servico ilike '%NR-12%' then 'fabricante, modelo, ano e número de série, fotos da placa de identificação e do equipamento e o local de uso'
+    when new.servico ilike '%NR-13%' then 'pressão máxima de operação, volume do reservatório e fotos da placa de identificação e do equipamento'
+    when new.servico ilike '%PMOC%' or new.servico ilike '%ar-condicionado%' then 'quantidade, tipo e capacidade dos aparelhos de ar-condicionado e a área atendida'
+    when new.servico ilike '%frota%' then 'tamanho e composição da frota, tipo de operação e os dados de manutenção disponíveis'
+    else 'fabricante, modelo e ano do equipamento, fotos e o local do serviço'
+  end;
+  resumo := new.nome || coalesce(' (' || nullif(new.empresa, '') || ')', '') || ', de ' || new.cidade || '/' || new.uf
+    || ', pediu orçamento de ' || new.servico
+    || coalesce(' para ' || nullif(new.quantidade, '') || ' equipamento(s)', '')
+    || coalesce('. Equipamento: ' || nullif(new.equipamento, ''), '') || '.';
+
+  select string_agg(format('<tr><td style="%s;color:#666;white-space:nowrap">%s</td><td style="%s">%s</td></tr>',
+                           td, rotulo, td, replace(public.html_esc(valor), E'\n', '<br>')), '' order by n),
+         string_agg(rotulo || ': ' || valor, E'\n' order by n)
+    into linhas_html, linhas_texto
+    from unnest(
+      array['Nome', 'E-mail', 'WhatsApp', 'Empresa', 'Cidade', 'CPF/CNPJ', 'Nº de equipamentos', 'Serviço', 'Código TOS (CREA)', 'Equipamento', 'Mensagem', 'Página'],
+      array[new.nome, new.email, new.whatsapp, new.empresa, new.cidade || '/' || new.uf, new.documento, new.quantidade, new.servico,
+            new.codigo_tos, new.equipamento, new.mensagem, new.pagina]
+    ) with ordinality as t(rotulo, valor, n)
+    where coalesce(btrim(valor), '') <> '';
+
+  passos := array[
+    'Responder em até 1 dia útil: responda este e-mail (a resposta vai direto para ' || new.email || ') ou chame no WhatsApp ' || new.whatsapp || '.',
+    'Confirmar os dados do serviço: pedir ' || pedir || '.',
+    'Enviar a proposta técnica com escopo, prazo, valor e a ART do serviço.',
+    'Serviço fechado: emitir a ART e cadastrar no Controle de ART da área restrita.'
+  ];
+
+  html := '<div style="font-family:Arial,Helvetica,sans-serif;color:#1b1d21;max-width:640px;line-height:1.5">'
+    || '<div style="height:6px;background:#f5b800"></div>'
+    || '<h2 style="margin:18px 0 4px">Novo pedido de orçamento pelo site</h2>'
+    || '<p style="margin:0 0 18px;color:#666">Recebido em ' || quando || '.</p>'
+    || '<h3 style="margin:0 0 6px">Resumo</h3><p style="margin:0 0 14px">' || public.html_esc(resumo) || '</p>'
+    || '<table style="border-collapse:collapse;font-size:14px;margin-bottom:22px">' || coalesce(linhas_html, '') || '</table>'
+    || '<h3 style="margin:0 0 6px">Próximos passos</h3><ol style="margin:0 0 20px;padding-left:20px">'
+    || (select string_agg('<li style="margin-bottom:6px">' || public.html_esc(p) || '</li>', '') from unnest(passos) as p)
+    || '</ol>'
+    || '<p style="margin:0 0 24px">'
+    || '<a href="https://wa.me/' || fone || '" style="display:inline-block;background:#25d366;color:#fff;text-decoration:none;font-weight:bold;padding:10px 16px;margin:0 8px 8px 0">Chamar no WhatsApp</a>'
+    || '<a href="mailto:' || public.html_esc(new.email) || '?subject=Proposta%20t%C3%A9cnica%20%E2%80%93%20Marcos%20Zanette" style="display:inline-block;background:#1b1d21;color:#fff;text-decoration:none;font-weight:bold;padding:10px 16px;margin:0 8px 8px 0">Responder por e-mail</a>'
+    || '</p>'
+    || '<p style="font-size:12px;color:#888;margin:0">Aviso automático do formulário de contato do site. O pedido também fica guardado na plataforma (tabela contatos).</p>'
+    || '</div>';
+  texto := 'Novo pedido de orçamento pelo site, recebido em ' || quando || '.' || E'\n\n'
+    || 'RESUMO' || E'\n' || resumo || E'\n\n' || coalesce(linhas_texto, '') || E'\n\n'
+    || 'PRÓXIMOS PASSOS' || E'\n'
+    || (select string_agg(n || '. ' || p, E'\n' order by n) from unnest(passos) with ordinality as t(p, n))
+    || E'\n\nWhatsApp: https://wa.me/' || fone;
+
+  perform net.http_post(
+    url := 'https://api.resend.com/emails',
+    body := jsonb_build_object(
+      'from', 'Site Marcos Zanette <onboarding@resend.dev>',
+      'to', jsonb_build_array('mvszanette@gmail.com'),
+      'reply_to', new.email,
+      'subject', 'ALERTA DE CONTATO NA PLATAFORMA – ' || left(new.nome, 60),
+      'html', html,
+      'text', texto),
+    headers := jsonb_build_object('Authorization', 'Bearer ' || chave, 'Content-Type', 'application/json'),
+    timeout_milliseconds := 10000);
+  return new;
+exception when others then
+  raise warning 'Contato guardado, mas o e-mail de alerta não saiu: %', sqlerrm;
+  return new;
+end $$;
+
+drop trigger if exists contatos_avisar on public.contatos;
+create trigger contatos_avisar after insert on public.contatos
+  for each row execute function public.contato_avisar();
+
+revoke all on function public.contato_preparar(), public.contato_avisar() from public, anon, authenticated;

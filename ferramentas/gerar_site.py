@@ -243,15 +243,11 @@ def contato(selecionado=None):
         </div>
 
         <!-- O formulário fica fechado até clicar no título; os links para #contato (botão Contato, Solicitar proposta)
-             abrem ele (main.js). Envio pelo FormSubmit (gratuito); o e-mail de destino é definido em config.js. -->
+             abrem ele (main.js). O envio grava o pedido na plataforma (Supabase), que manda o e-mail de alerta. -->
         <details class="quote" id="orcamento">
         <summary><h2 class="section-title">Faça aqui seu orçamento {icon("down", "i quote-seta")}</h2></summary>
-        <form class="quote-form" id="form-proposta" action="https://formsubmit.co/{EMAIL}" method="POST">
-          <input type="hidden" name="_subject" value="Solicitação de proposta pelo site">
-          <input type="hidden" name="_template" value="table">
-          <input type="hidden" name="_captcha" value="false">
-          <input type="hidden" name="_next" value="">
-          <input type="hidden" name="_autoresponse" value="Sua solicitação de proposta foi recebida e será respondida pelo e-mail ou telefone informado. Marcos Zanette – Engenheiro Mecânico – {CREA}">
+        <form class="quote-form" id="form-proposta" method="post">
+          <noscript><p class="form-aviso">Para enviar pelo site, ative o JavaScript do navegador. Ou fale pelo WhatsApp <a href="https://wa.me/{WHATS}">{FONE}</a> ou pelo e-mail <a href="mailto:{EMAIL}">{EMAIL}</a>.</p></noscript>
           <input type="hidden" name="Código TOS" value="">
           <input type="text" name="_honey" class="honeypot" tabindex="-1" autocomplete="off" aria-hidden="true">
 
@@ -323,6 +319,7 @@ def contato(selecionado=None):
           </div>
 
           <p class="lgpd">Os dados informados são utilizados exclusivamente para a elaboração e o envio da proposta. Consulte a <a href="politica-de-privacidade.html">Política de Privacidade</a>.</p>
+          <p class="form-aviso" id="form-aviso" role="alert" hidden></p>
           <button class="btn btn-primary" type="submit">Enviar solicitação</button>
         </form>
         </details>
@@ -1120,7 +1117,7 @@ def pagina_privacidade():
         <p>O tratamento se baseia na execução de procedimentos preliminares relacionados a contrato, a pedido do titular dos dados (art. 7º, V, da LGPD).</p>
 
         <h2>Compartilhamento</h2>
-        <p>O envio do formulário é processado pelo serviço FormSubmit (formsubmit.co), que encaminha a mensagem por e-mail. O site também carrega fontes do Google Fonts. Fora esses serviços técnicos necessários ao funcionamento do site, os dados não são compartilhados com terceiros.</p>
+        <p>Os dados do formulário ficam guardados em banco de dados com acesso restrito (Supabase), e o aviso da solicitação é enviado por e-mail pelo serviço Resend. O site também carrega fontes do Google Fonts. Fora esses serviços técnicos necessários ao funcionamento do site, os dados não são compartilhados com terceiros.</p>
 
         <h2>Armazenamento</h2>
         <p>Os dados são mantidos pelo tempo necessário para o atendimento da solicitação e para o cumprimento de obrigações legais, e então eliminados.</p>

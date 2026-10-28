@@ -13,10 +13,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@500;600;700;800&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=326352d1">
-  <script src="config.js?v=4883c5fd"></script>
+  <link rel="stylesheet" href="styles.css?v=69f81afa">
+  <script src="config.js?v=4ae0fa15"></script>
   <script src="tos-mecanica.js?v=5864da19" defer></script>
-  <script src="main.js?v=c29754a9" defer></script>
+  <script src="main.js?v=e866a611" defer></script>
   <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -350,15 +350,11 @@
         </div>
 
         <!-- O formulário fica fechado até clicar no título; os links para #contato (botão Contato, Solicitar proposta)
-             abrem ele (main.js). Envio pelo FormSubmit (gratuito); o e-mail de destino é definido em config.js. -->
+             abrem ele (main.js). O envio grava o pedido na plataforma (Supabase), que manda o e-mail de alerta. -->
         <details class="quote" id="orcamento">
         <summary><h2 class="section-title">Faça aqui seu orçamento <svg class="i quote-seta" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></h2></summary>
-        <form class="quote-form" id="form-proposta" action="https://formsubmit.co/mvszanette@gmail.com" method="POST">
-          <input type="hidden" name="_subject" value="Solicitação de proposta pelo site">
-          <input type="hidden" name="_template" value="table">
-          <input type="hidden" name="_captcha" value="false">
-          <input type="hidden" name="_next" value="">
-          <input type="hidden" name="_autoresponse" value="Sua solicitação de proposta foi recebida e será respondida pelo e-mail ou telefone informado. Marcos Zanette – Engenheiro Mecânico – CREA/RNP 1420122860">
+        <form class="quote-form" id="form-proposta" method="post">
+          <noscript><p class="form-aviso">Para enviar pelo site, ative o JavaScript do navegador. Ou fale pelo WhatsApp <a href="https://wa.me/5532998111414">(32) 99811-1414</a> ou pelo e-mail <a href="mailto:mvszanette@gmail.com">mvszanette@gmail.com</a>.</p></noscript>
           <input type="hidden" name="Código TOS" value="">
           <input type="text" name="_honey" class="honeypot" tabindex="-1" autocomplete="off" aria-hidden="true">
 
@@ -498,6 +494,7 @@
           </div>
 
           <p class="lgpd">Os dados informados são utilizados exclusivamente para a elaboração e o envio da proposta. Consulte a <a href="politica-de-privacidade.html">Política de Privacidade</a>.</p>
+          <p class="form-aviso" id="form-aviso" role="alert" hidden></p>
           <button class="btn btn-primary" type="submit">Enviar solicitação</button>
         </form>
         </details>

@@ -6,12 +6,9 @@
  *  Depois de salvar, o site inteiro é atualizado automaticamente.
  */
 const CONFIG = {
-  // E-mail que vai RECEBER as solicitações de proposta.
+  // E-mail de contato mostrado no site. Os pedidos do formulário chegam por e-mail pelo banco
+  // da plataforma (supabase/schema.sql, seção "contatos do site").
   email: "mvszanette@gmail.com",
-
-  // Opcional: depois de ativar o FormSubmit, ele envia um código
-  // aleatório. Cole aqui para esconder o e-mail do código do site.
-  formsubmitId: "",
 
   // WhatsApp só com números: 55 + DDD + número.
   whatsapp: "5532998111414",

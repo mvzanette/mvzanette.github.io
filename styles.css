@@ -1435,6 +1435,19 @@ svg.i {
   width: 100%;
 }
 
+.form-aviso {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-left: 4px solid var(--yellow);
+  background: var(--gray-100);
+  font-size: 0.93rem;
+}
+
+.form-aviso a {
+  color: var(--graphite-900);
+  font-weight: 700;
+}
+
 /* ---------- Rodapé ---------- */
 .site-footer {
   background: var(--graphite-900);

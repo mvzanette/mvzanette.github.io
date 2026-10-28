@@ -57,9 +57,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const form = document.getElementById("form-proposta");
   if (!form || typeof TOS_MECANICA === "undefined") return;
 
-  form.action = "https://formsubmit.co/" + (CONFIG.formsubmitId || CONFIG.email);
-  form.elements._next.value = new URL("obrigado.html", location.href).href;
-
   // ---- Serviço e código TOS do CREA ----
   // Cada opção da lista curta traz os códigos em data-tos; a opção "Outro" abre a lista
   // completa da área de Mecânica em cascata. O e-mail recebe o código e a descrição.
@@ -119,11 +116,73 @@ document.addEventListener("DOMContentLoaded", () => {
   complemento.addEventListener("change", atualizar);
   atualizar();
 
-  // Assunto do e-mail com o serviço e o nome, para facilitar a triagem na caixa de entrada.
-  form.addEventListener("submit", () => {
+  // ---- Envio ----
+  // O pedido fica guardado na plataforma (Supabase, só gravação para o site) e o banco manda o e-mail
+  // "ALERTA DE CONTATO NA PLATAFORMA". Se não der para enviar, o aviso oferece o WhatsApp com o pedido já escrito.
+  const aviso = document.getElementById("form-aviso");
+  const botao = form.querySelector("button[type=submit]");
+  const campo = (nome) => (form.elements[nome] ? form.elements[nome].value.trim() : "");
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (campo("_honey")) return; // robô preenchendo o campo escondido
     atualizar();
-    form.elements._subject.value =
-      "Solicitação de proposta: " + servico.value + " – " + form.elements["Nome"].value;
-    form.querySelector("button[type=submit]").textContent = "Enviando…";
+    const pedido = {
+      nome: campo("Nome"),
+      email: campo("email"),
+      whatsapp: campo("WhatsApp"),
+      empresa: campo("Empresa") || null,
+      cidade: campo("Cidade"),
+      uf: campo("Estado"),
+      documento: campo("CPF/CNPJ") || null,
+      quantidade: campo("Quantidade") || null,
+      servico: campo("Serviço"),
+      codigo_tos: campo("Código TOS") || null,
+      equipamento: campo("Equipamento") || null,
+      mensagem: campo("Mensagem") || null,
+      pagina: location.pathname.split("/").pop() || "index.html",
+    };
+    aviso.hidden = true;
+    botao.disabled = true;
+    botao.textContent = "Enviando…";
+    try {
+      const { SUPABASE_URL: url, SUPABASE_ANON_KEY: chave } = await import("./area/config-area.js");
+      if (!url || !chave) throw new Error("banco não configurado");
+      const resposta = await fetch(url + "/rest/v1/contatos", {
+        method: "POST",
+        headers: {
+          apikey: chave,
+          // A chave nova (sb_publishable_…) vai só no apikey; a antiga (anon, JWT) também no Authorization
+          ...(chave.startsWith("sb_") ? {} : { Authorization: "Bearer " + chave }),
+          "Content-Type": "application/json",
+          Prefer: "return=minimal",
+        },
+        body: JSON.stringify(pedido),
+      });
+      if (!resposta.ok) throw new Error("HTTP " + resposta.status);
+      location.href = "obrigado.html";
+    } catch (err) {
+      console.error("Formulário de contato:", err);
+      const texto =
+        "Olá! Gostaria de solicitar uma proposta técnica.\n" +
+        [
+          ["Nome", pedido.nome],
+          ["Empresa", pedido.empresa],
+          ["Cidade", pedido.cidade + "/" + pedido.uf],
+          ["Serviço", pedido.servico],
+          ["Equipamento", pedido.equipamento],
+          ["Nº de equipamentos", pedido.quantidade],
+          ["Mensagem", pedido.mensagem],
+        ]
+          .filter(([, v]) => v && v !== "/")
+          .map(([k, v]) => k + ": " + v)
+          .join("\n");
+      aviso.innerHTML =
+        'Não foi possível enviar pelo site agora. <a href="https://wa.me/' + CONFIG.whatsapp + "?text=" +
+        encodeURIComponent(texto) + '" target="_blank" rel="noopener">Envie pelo WhatsApp</a> (o pedido já vai escrito) ' +
+        'ou pelo e-mail <a href="mailto:' + CONFIG.email + '">' + CONFIG.email + "</a>.";
+      aviso.hidden = false;
+      botao.disabled = false;
+      botao.textContent = "Enviar solicitação";
+    }
   });
 });
