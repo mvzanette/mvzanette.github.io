@@ -182,7 +182,7 @@ export function resumoDemandas(demandas, p, hoje = hojeISO()) {
 }
 
 // ---------------------------------------------------------------- acompanhamento diário (alerta em tela)
-// Próximo passo de cada etapa: o mesmo do e-mail diário, montado no banco (supabase/schema.sql, demandas_resumo_diario)
+// Próximo passo de cada etapa: o mesmo do informativo diário, montado no banco (supabase/schema.sql, informativo_diario)
 export function proximoPasso(d) {
   switch (d.etapa) {
     case "recebida": return "Responder o cliente e levantar os dados para a proposta.";

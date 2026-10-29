@@ -1073,11 +1073,11 @@ revoke all on function public.contato_preparar(), public.contato_avisar() from p
 
 -- ================================================================ demandas automáticas e resumo diário
 -- Cada pedido do formulário do site vira uma demanda (etapa "Recebida", com prazo de resposta no próximo dia útil),
--- ligada ao contato. Todo dia às 7h (Brasília, antes do horário comercial) o banco manda o e-mail "RESUMO DIÁRIO DAS
--- DEMANDAS" com as demandas em andamento (recebida, proposta enviada, aprovada, em execução): dias corridos, etapa,
--- prazo e próximo passo, desde a chegada até ficar concluída ou não aprovada. O envio usa o Resend (chave
--- resend_api_key no Vault) ou, sem ela, o Web3Forms (chave web3forms_key no Vault). O próximo passo de cada etapa é o
--- mesmo do alerta em tela (area/regras-gestao.js, proximoPasso).
+-- ligada ao contato. Todo dia às 7h (Brasília, antes do horário comercial) o banco manda o "INFORMATIVO DIÁRIO" com as
+-- demandas em andamento (recebida, proposta enviada, aprovada, em execução: dias corridos, etapa, prazo e próximo
+-- passo, desde a chegada até ficar concluída ou não aprovada) e as ARTs que pedem baixa ou ação. O envio usa o Resend
+-- (chave resend_api_key no Vault, em HTML com banner) ou, sem ela, o Web3Forms (chave web3forms_key no Vault, em texto).
+-- O próximo passo de cada etapa é o mesmo do alerta em tela (area/regras-gestao.js, proximoPasso).
 alter table public.demandas add column if not exists contato_id uuid references public.contatos (id) on delete set null;
 
 -- Opção do formulário do site → tipo de serviço das demandas e do financeiro (o mesmo de area/demandas.js)
@@ -1127,8 +1127,10 @@ drop trigger if exists contatos_demanda on public.contatos;
 create trigger contatos_demanda after insert on public.contatos
   for each row execute function public.contato_para_demanda();
 
--- E-mail para mvszanette@gmail.com: Resend (com HTML) ou Web3Forms (texto), conforme a chave guardada no Vault
-create or replace function public.enviar_aviso(p_assunto text, p_texto text, p_html text default null, p_responder text default null)
+-- E-mail para mvszanette@gmail.com: Resend (com HTML e anexos) ou Web3Forms (só texto), conforme a chave guardada no Vault
+drop function if exists public.enviar_aviso(text, text, text, text);
+create or replace function public.enviar_aviso(p_assunto text, p_texto text, p_html text default null, p_responder text default null,
+                                               p_anexos jsonb default null)
 returns bigint
 language plpgsql security definer set search_path = '' as $$
 declare
@@ -1142,9 +1144,10 @@ begin
     select net.http_post(
       url := 'https://api.resend.com/emails',
       body := jsonb_strip_nulls(jsonb_build_object('from', 'Plataforma Marcos Zanette <onboarding@resend.dev>',
-        'to', jsonb_build_array('mvszanette@gmail.com'), 'reply_to', p_responder, 'subject', p_assunto, 'text', p_texto, 'html', p_html)),
+        'to', jsonb_build_array('mvszanette@gmail.com'), 'reply_to', p_responder, 'subject', p_assunto, 'text', p_texto,
+        'html', p_html, 'attachments', p_anexos)),
       headers := jsonb_build_object('Authorization', 'Bearer ' || resend, 'Content-Type', 'application/json'),
-      timeout_milliseconds := 15000) into req;
+      timeout_milliseconds := 20000) into req;
   elsif coalesce(web3, '') <> '' then
     select net.http_post(
       url := 'https://api.web3forms.com/submit',
@@ -1161,19 +1164,26 @@ language sql immutable set search_path = '' as $$
   select n || case when abs(n) = 1 then ' dia' else ' dias' end;
 $$;
 
--- Resumo diário das demandas em andamento. Devolve o texto (ou o motivo de não enviar), para conferir no SQL Editor.
-create or replace function public.demandas_resumo_diario(p_enviar boolean default true) returns text
+-- Informativo diário (7h): as demandas em andamento e as ARTs que pedem ação, com um banner do site (uma foto por dia).
+-- Pelo Resend vai em HTML, com o banner no alto e também anexado; pelo Web3Forms, em texto. Só é enviado quando há
+-- alguma coisa a acompanhar. Devolve o texto (ou o motivo de não enviar), para conferir no SQL Editor:
+--   select public.informativo_diario(false);
+drop function if exists public.demandas_resumo_diario(boolean);
+create or replace function public.informativo_diario(p_enviar boolean default true) returns text
 language plpgsql security definer set search_path = '' as $$
 declare
   hoje date := (now() at time zone 'America/Sao_Paulo')::date;
-  n int;
-  vencidas int;
-  blocos text;
-  contagem text;
-  assunto text;
-  texto text;
-  link text := 'https://mvzanette.github.io/area/demandas.html#acompanhamento';
+  site text := 'https://mvzanette.github.io';
+  banner text := 'https://mvzanette.github.io/img/informativo/banner-' || (extract(doy from (now() at time zone 'America/Sao_Paulo'))::int % 7 + 1) || '.jpg';
+  nd int; nd_venc int; dem_txt text; dem_html text; dem_cont text;
+  na int; na_sem int; na_venc int; na_30 int; art_txt text; art_html text; alertas_txt text; alertas_html text;
+  q_rec int; q_prop int; q_aprov int; q_exec int;
+  assunto text; texto text; html text;
+  td text := 'padding:8px 10px;border-bottom:1px solid #e6e6e6;vertical-align:top;font-size:13px;line-height:1.4';
+  th text := 'padding:7px 10px;background:#111214;color:#ffffff;font-size:11px;letter-spacing:1px;text-transform:uppercase;text-align:left';
+  cinza text := 'color:#6b6e73;font-size:12px';
 begin
+  -- ---------------- demandas em andamento (o próximo passo é o mesmo de area/regras-gestao.js, proximoPasso)
   with abertas as (
     select d.*,
       hoje - d.recebida_em as dias_aberta,
@@ -1192,62 +1202,165 @@ begin
       end as passo
     from public.demandas d
     where d.etapa in ('recebida', 'proposta', 'aprovada', 'execucao')
-  ), ordenadas as (
-    select a.*, row_number() over (order by coalesce(a.dias_prazo, 100000), a.dias_aberta desc, a.titulo) as ordem from abertas a
+  ), o as (
+    select a.*,
+      row_number() over (order by coalesce(a.dias_prazo, 100000), a.dias_aberta desc, a.titulo) as ordem,
+      coalesce(nullif(a.cliente, ''), a.contato, 'cliente não informado')
+        || coalesce(' · ' || nullif(a.cidade, '') || coalesce('/' || a.uf, ''), '') as quem,
+      case when a.dias_prazo is null then null
+           when a.dias_prazo < 0 then 'atrasado há ' || public.texto_dias(-a.dias_prazo)
+           when a.dias_prazo = 0 then 'vence hoje' when a.dias_prazo = 1 then 'vence amanhã'
+           else 'em ' || public.texto_dias(a.dias_prazo) end as prazo_txt,
+      case when a.dias_aberta <= 0 then 'hoje' else public.texto_dias(a.dias_aberta) end as aberta_txt
+    from abertas a
   )
   select count(*), count(*) filter (where dias_prazo < 0),
-    string_agg(
-      ordem || '. ' || titulo || coalesce(' · ' || coalesce(nullif(cliente, ''), contato), '')
-        || coalesce(' (' || nullif(cidade, '') || coalesce('/' || uf, '') || ')', '') || E'\n'
+    count(*) filter (where etapa = 'recebida'), count(*) filter (where etapa = 'proposta'),
+    count(*) filter (where etapa = 'aprovada'), count(*) filter (where etapa = 'execucao'),
+    string_agg(ordem || '. ' || titulo || ' · ' || quem || E'\n'
         || '   Etapa: ' || rotulo || case when etapa <> 'recebida' then ' há ' || public.texto_dias(dias_etapa) else '' end
-        || ' · ' || case when dias_aberta <= 0 then 'aberta hoje' else 'aberta há ' || public.texto_dias(dias_aberta) end
-        || ' (desde ' || to_char(recebida_em, 'DD/MM') || ')' || E'\n'
-        || coalesce('   Prazo: ' || case when dias_prazo < 0 then 'atrasado há ' || public.texto_dias(-dias_prazo)
-                                         when dias_prazo = 0 then 'vence hoje'
-                                         when dias_prazo = 1 then 'vence amanhã'
-                                         else 'em ' || public.texto_dias(dias_prazo) end
-                    || ' (' || to_char(prazo, 'DD/MM') || ')' || E'\n', '')
-        || '   Próximo passo: ' || passo,
-      E'\n\n' order by ordem)
-    into n, vencidas, blocos
-    from ordenadas;
-  if n = 0 then
-    return 'Nenhuma demanda em andamento: o resumo não foi enviado.';
+        || ' · aberta ' || case when dias_aberta <= 0 then 'hoje' else 'há ' || aberta_txt end || ' (desde ' || to_char(recebida_em, 'DD/MM') || ')' || E'\n'
+        || coalesce('   Prazo: ' || prazo_txt || ' (' || to_char(prazo, 'DD/MM') || ')' || E'\n', '')
+        || '   Próximo passo: ' || passo, E'\n\n' order by ordem),
+    string_agg('<tr><td style="' || td || '"><b>' || public.html_esc(titulo) || '</b><br><span style="' || cinza || '">' || public.html_esc(quem) || '</span></td>'
+        || '<td style="' || td || '">' || rotulo || case when etapa <> 'recebida' then '<br><span style="' || cinza || '">há ' || public.texto_dias(dias_etapa) || '</span>' else '' end || '</td>'
+        || '<td style="' || td || ';white-space:nowrap">' || aberta_txt || '<br><span style="' || cinza || '">desde ' || to_char(recebida_em, 'DD/MM') || '</span></td>'
+        || '<td style="' || td || ';white-space:nowrap">' || case when prazo is null then '<span style="' || cinza || '">sem prazo</span>'
+             else '<span style="display:inline-block;padding:2px 6px;font-weight:bold;' || case when dias_prazo < 0 then 'background:#fbe5e3;color:#b3261e'
+                  when dias_prazo <= 1 then 'background:#fff6d6;color:#5c4500' else 'background:#f3f4f5;color:#1b1d21' end || '">'
+                  || to_char(prazo, 'DD/MM') || '</span><br><span style="' || cinza || '">' || prazo_txt || '</span>' end || '</td>'
+        || '<td style="' || td || '">' || public.html_esc(passo) || '</td></tr>', '' order by ordem)
+    into nd, nd_venc, q_rec, q_prop, q_aprov, q_exec, dem_txt, dem_html
+    from o;
+  dem_cont := 'Recebidas: ' || q_rec || ' · Propostas enviadas: ' || q_prop || ' · Aprovadas: ' || q_aprov || ' · Em execução: ' || q_exec;
+
+  -- ---------------- ARTs que pedem baixa ou ação (as mesmas regras de area/regras.js, precisaAcao)
+  with a as (
+    select x.*, x.fim - hoje as dias,
+      case x.acao when 'baixa' then 'Dar baixa' when 'substituta' then 'Emitir ART substituta'
+                  when 'complementar' then 'Emitir ART complementar' when 'nova' then 'Emitir nova ART' else 'Sem ação definida' end as rotulo_acao,
+      case x.acao
+        when 'baixa' then 'Concluir a obra ou o serviço, dar baixa por conclusão no portal do CREA e registrar a data da baixa aqui.'
+        when 'substituta' then 'Emitir a ART substituta no portal do CREA e importar aqui como ART vinculada.'
+        when 'complementar' then 'Emitir a ART complementar no portal do CREA e importar aqui como ART vinculada.'
+        when 'nova' then 'Emitir a nova ART no portal do CREA e importar aqui como ART vinculada.'
+        else 'Definir a ação no Controle de ART: dar baixa, emitir ART substituta, complementar ou nova, ou arquivar.'
+      end as passo
+    from public.arts x
+    where x.baixa_data is null and coalesce(x.acao, '') <> 'arquivada'
+      and ((x.fim is not null and x.fim <= hoje + 30) or x.acao in ('baixa', 'substituta', 'complementar', 'nova'))
+  ), o as (
+    select a.*, row_number() over (order by a.fim nulls last, a.numero) as ordem,
+      coalesce(nullif(a.contratante, ''), 'cliente não informado') as cli,
+      case when a.fim is null then 'sem data de término'
+           when a.dias < 0 then 'venceu há ' || public.texto_dias(-a.dias)
+           when a.dias = 0 then 'vence hoje' else 'vence em ' || public.texto_dias(a.dias) end as fim_txt
+    from a
+  )
+  select count(*), count(*) filter (where acao is null), count(*) filter (where dias < 0), count(*) filter (where dias between 0 and 30),
+    string_agg(ordem || '. ART nº ' || numero || ' · ' || cli || E'\n'
+        || '   Fim: ' || fim_txt || coalesce(' (' || to_char(fim, 'DD/MM/YYYY') || ')', '') || ' · Ação: ' || rotulo_acao || E'\n'
+        || '   Próximo passo: ' || passo, E'\n\n' order by ordem),
+    string_agg('<tr><td style="' || td || ';white-space:nowrap"><b>' || public.html_esc(numero) || '</b><br><span style="' || cinza || '">CREA-' || coalesce(public.html_esc(crea), '') || '</span></td>'
+        || '<td style="' || td || '">' || public.html_esc(cli) || '</td>'
+        || '<td style="' || td || ';white-space:nowrap"><span style="display:inline-block;padding:2px 6px;font-weight:bold;'
+             || case when dias < 0 then 'background:#fbe5e3;color:#b3261e' when dias <= 30 then 'background:#fff6d6;color:#5c4500' else 'background:#f3f4f5;color:#1b1d21' end
+             || '">' || coalesce(to_char(fim, 'DD/MM/YY'), '—') || '</span><br><span style="' || cinza || '">' || fim_txt || '</span></td>'
+        || '<td style="' || td || '"><b>' || rotulo_acao || '</b><br><span style="' || cinza || '">' || public.html_esc(passo) || '</span></td></tr>', '' order by ordem),
+    -- alertas do dia: 30 e 7 dias antes, no dia e uma vez por semana depois de vencida (como os alertas da plataforma)
+    string_agg(case when dias in (30, 7) then 'Daqui a ' || dias || ' dias a ART nº ' || numero || ' do cliente ' || cli || ' vencerá (fim previsto em ' || to_char(fim, 'DD/MM/YYYY') || ').'
+                    when dias = 0 then 'A ART nº ' || numero || ' do cliente ' || cli || ' vence hoje (' || to_char(fim, 'DD/MM/YYYY') || ').'
+                    when dias < 0 and (-dias) % 7 = 0 then 'A ART nº ' || numero || ' do cliente ' || cli || ' venceu em ' || to_char(fim, 'DD/MM/YYYY') || ' e ainda não tem baixa registrada.'
+               end, E'\n' order by ordem)
+    into na, na_sem, na_venc, na_30, art_txt, art_html, alertas_txt
+    from o;
+
+  if nd = 0 and na = 0 then
+    return 'Nenhuma demanda em andamento e nenhuma ART pedindo ação: o informativo não foi enviado.';
   end if;
-  select string_agg(r || ': ' || q, ' · ' order by o) into contagem
-    from (select case etapa when 'recebida' then 'Recebidas' when 'proposta' then 'Propostas enviadas'
-                            when 'aprovada' then 'Aprovadas' else 'Em execução' end as r,
-                 count(*) as q, min(array_position(array['recebida', 'proposta', 'aprovada', 'execucao'], etapa)) as o
-            from public.demandas where etapa in ('recebida', 'proposta', 'aprovada', 'execucao') group by etapa) t;
-  assunto := 'RESUMO DIÁRIO DAS DEMANDAS – ' || n || ' em andamento'
-    || case when vencidas > 0 then ', ' || vencidas || ' com prazo vencido' else '' end || ' (' || to_char(hoje, 'DD/MM') || ')';
-  texto := 'Demandas em andamento em ' || to_char(hoje, 'DD/MM/YYYY') || '.' || E'\n' || contagem || E'\n\n'
-    || blocos || E'\n\n'
-    || 'Ver e atualizar na plataforma: ' || link || E'\n'
-    || 'Este resumo chega todo dia enquanto houver demanda em andamento (de recebida até concluída ou não aprovada).';
+  select string_agg('<li style="margin-bottom:4px">' || public.html_esc(l) || '</li>', '') into alertas_html
+    from unnest(string_to_array(alertas_txt, E'\n')) as l;
+
+  assunto := 'INFORMATIVO DIÁRIO (' || to_char(hoje, 'DD/MM') || ') – '
+    || case nd when 0 then 'nenhuma demanda em andamento' when 1 then '1 demanda em andamento' else nd || ' demandas em andamento' end
+    || ' · ' || case na when 0 then 'nenhuma ART pede ação' when 1 then '1 ART pede ação' else na || ' ARTs pedem ação' end;
+
+  texto := 'INFORMATIVO DIÁRIO – ' || to_char(hoje, 'DD/MM/YYYY') || E'\n' || 'Marcos Zanette · Engenharia Mecânica' || E'\n\n'
+    || 'DEMANDAS EM ANDAMENTO (' || nd || ')' || E'\n'
+    || case when nd = 0 then 'Nenhuma demanda em andamento.'
+            else dem_cont || case when nd_venc > 0 then E'\nCom prazo vencido: ' || nd_venc else '' end || E'\n\n' || dem_txt end || E'\n\n'
+    || 'ARTs QUE PEDEM BAIXA OU AÇÃO (' || na || ')' || E'\n'
+    || case when na = 0 then 'Nenhuma ART pedindo ação.'
+            else 'Sem ação definida: ' || na_sem || ' · Vencidas sem baixa: ' || na_venc || ' · Vencem em até 30 dias: ' || na_30
+              || coalesce(E'\n\nAlertas de hoje:\n' || (select string_agg('• ' || l, E'\n') from unnest(string_to_array(alertas_txt, E'\n')) as l), '')
+              || E'\n\n' || art_txt end || E'\n\n'
+    || 'Demandas: ' || site || '/area/demandas.html#acompanhamento' || E'\n'
+    || 'Controle de ART: ' || site || '/area/art.html' || E'\n'
+    || 'Informativo automático da área restrita, todo dia às 7h, enquanto houver demanda em andamento ou ART pedindo ação.';
+
+  html := '<div style="background:#f3f4f5;padding:16px 0"><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0" '
+    || 'style="width:600px;max-width:100%;background:#ffffff;font-family:Arial,Helvetica,sans-serif;color:#1b1d21;border-collapse:collapse">'
+    || '<tr><td><img src="' || banner || '" width="600" alt="Informativo diário · Demandas e ARTs" style="display:block;width:100%;max-width:600px;height:auto;border:0"></td></tr>'
+    || '<tr><td style="padding:16px 22px 4px;font-size:13px;color:#6b6e73">' || to_char(hoje, 'DD/MM/YYYY') || ' · '
+    || case nd when 1 then '1 demanda em andamento' else nd || ' demandas em andamento' end || ' · '
+    || case na when 1 then '1 ART pedindo ação' else na || ' ARTs pedindo ação' end || '</td></tr>'
+    -- demandas
+    || '<tr><td style="padding:14px 22px 6px"><h2 style="margin:0;font-size:18px;border-left:5px solid #f5b800;padding-left:10px">Demandas em andamento</h2></td></tr>'
+    || '<tr><td style="padding:6px 22px"><table role="presentation" width="100%" cellpadding="0" cellspacing="6" style="border-collapse:separate"><tr>'
+    || (select string_agg('<td width="25%" style="background:#f3f4f5;border-top:4px solid ' || c || ';padding:10px"><div style="font-size:24px;font-weight:bold">' || n
+          || '</div><div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#6b6e73">' || r || '</div></td>', '' order by ord)
+        from (values (1, q_rec, 'Recebidas', '#c9ccd1'), (2, q_prop, 'Propostas enviadas', '#f5b800'), (3, q_aprov, 'Aprovadas', '#2f6fbf'), (4, q_exec, 'Em execução', '#111214')) v(ord, n, r, c))
+    || '</tr></table></td></tr>'
+    || case when nd = 0 then '<tr><td style="padding:4px 22px 10px;font-size:14px">Nenhuma demanda em andamento.</td></tr>'
+            else case when nd_venc > 0 then '<tr><td style="padding:4px 22px"><div style="background:#fbe5e3;border-left:3px solid #b3261e;padding:8px 10px;font-size:13px"><b>'
+                   || nd_venc || case when nd_venc = 1 then ' demanda está' else ' demandas estão' end || ' com o prazo vencido.</b></div></td></tr>' else '' end
+              || '<tr><td style="padding:6px 22px 10px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">'
+              || '<tr><th style="' || th || '">Demanda</th><th style="' || th || '">Etapa</th><th style="' || th || '">Aberta há</th><th style="' || th || '">Prazo</th><th style="' || th || '">Próximo passo</th></tr>'
+              || dem_html || '</table></td></tr>' end
+    -- ARTs
+    || '<tr><td style="padding:18px 22px 6px"><h2 style="margin:0;font-size:18px;border-left:5px solid #f5b800;padding-left:10px">ARTs que pedem baixa ou ação</h2></td></tr>'
+    || '<tr><td style="padding:6px 22px"><table role="presentation" width="100%" cellpadding="0" cellspacing="6" style="border-collapse:separate"><tr>'
+    || (select string_agg('<td width="25%" style="background:#f3f4f5;border-top:4px solid ' || c || ';padding:10px"><div style="font-size:24px;font-weight:bold">' || n
+          || '</div><div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#6b6e73">' || r || '</div></td>', '' order by ord)
+        from (values (1, na, 'Pedem ação', '#111214'), (2, na_sem, 'Sem ação definida', '#b3261e'), (3, na_venc, 'Vencidas sem baixa', '#b3261e'), (4, na_30, 'Vencem em 30 dias', '#f5b800')) v(ord, n, r, c))
+    || '</tr></table></td></tr>'
+    || case when na = 0 then '<tr><td style="padding:4px 22px 10px;font-size:14px">Nenhuma ART pedindo ação.</td></tr>'
+            else coalesce('<tr><td style="padding:4px 22px"><div style="background:#fff6d6;border-left:3px solid #f5b800;padding:8px 10px;font-size:13px"><b>Alertas de hoje</b><ul style="margin:6px 0 0;padding-left:18px">'
+                   || alertas_html || '</ul></div></td></tr>', '')
+              || '<tr><td style="padding:6px 22px 10px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">'
+              || '<tr><th style="' || th || '">ART</th><th style="' || th || '">Cliente</th><th style="' || th || '">Fim</th><th style="' || th || '">Ação e próximo passo</th></tr>'
+              || art_html || '</table></td></tr>' end
+    -- botões e rodapé
+    || '<tr><td style="padding:16px 22px 20px">'
+    || '<a href="' || site || '/area/demandas.html#acompanhamento" style="display:inline-block;background:#f5b800;color:#111214;text-decoration:none;font-weight:bold;padding:10px 16px;margin:0 8px 8px 0">Abrir as demandas</a>'
+    || '<a href="' || site || '/area/art.html" style="display:inline-block;background:#111214;color:#ffffff;text-decoration:none;font-weight:bold;padding:10px 16px;margin:0 8px 8px 0">Abrir o Controle de ART</a>'
+    || '</td></tr>'
+    || '<tr><td style="padding:12px 22px 18px;border-top:1px solid #e6e6e6;font-size:11px;color:#8a8d92">Informativo automático da área restrita, todo dia às 7h, enquanto houver demanda em andamento ou ART pedindo ação. O banner do dia vai também em anexo.</td></tr>'
+    || '</table></div>';
+
   if p_enviar then
-    perform public.enviar_aviso(assunto, texto,
-      '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1b1d21;max-width:680px">'
-      || '<div style="height:6px;background:#f5b800;margin-bottom:14px"></div>'
-      || '<pre style="font-family:inherit;white-space:pre-wrap;margin:0 0 18px">' || public.html_esc(texto) || '</pre>'
-      || '<a href="' || link || '" style="display:inline-block;background:#1b1d21;color:#fff;text-decoration:none;font-weight:bold;padding:10px 16px">Abrir as demandas</a></div>');
+    perform public.enviar_aviso(assunto, texto, html, null,
+      jsonb_build_array(jsonb_build_object('path', banner, 'filename', 'informativo-' || to_char(hoje, 'YYYY-MM-DD') || '.jpg')));
   end if;
   return assunto || E'\n\n' || texto;
 end $$;
 
-revoke all on function public.contato_para_demanda(), public.enviar_aviso(text, text, text, text),
-  public.demandas_resumo_diario(boolean) from public, anon, authenticated;
+revoke all on function public.contato_para_demanda(), public.enviar_aviso(text, text, text, text, jsonb),
+  public.informativo_diario(boolean) from public, anon, authenticated;
 
--- Agenda do resumo: 10h UTC = 7h em Brasília
+-- Agenda do informativo: 10h UTC = 7h em Brasília (substitui o antigo resumo só das demandas)
 do $$ begin
   if not exists (select 1 from pg_extension where extname = 'pg_cron') then
     begin
       create extension pg_cron;
     exception when others then
-      raise notice 'pg_cron indisponível (%): sem o resumo diário automático.', sqlerrm;
+      raise notice 'pg_cron indisponível (%): sem o informativo diário automático.', sqlerrm;
     end;
   end if;
   if exists (select 1 from pg_extension where extname = 'pg_cron') then
-    perform cron.schedule('resumo-diario-demandas', '0 10 * * *', 'select public.demandas_resumo_diario()');
+    if exists (select 1 from cron.job where jobname = 'resumo-diario-demandas') then
+      perform cron.unschedule('resumo-diario-demandas');
+    end if;
+    perform cron.schedule('informativo-diario', '0 10 * * *', 'select public.informativo_diario()');
   end if;
 end $$;
