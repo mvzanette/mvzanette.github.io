@@ -12,7 +12,7 @@ const CONFIG = {
   // Chave do Web3Forms (web3forms.com, gratuito): com ela, cada pedido do formulário chega no
   // e-mail cadastrado lá, com o assunto "ALERTA DE CONTATO NA PLATAFORMA". Essa chave pode
   // ficar pública: ela só envia para o e-mail dono da chave.
-  web3formsChave: "",
+  web3formsChave: "f395c3c9-4db5-4443-a691-783af9d7948e",
 
   // WhatsApp só com números: 55 + DDD + número.
   whatsapp: "5532998111414",
