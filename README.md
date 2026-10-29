@@ -75,25 +75,20 @@ A cada alteração enviada para essa branch, o GitHub publica a nova versão soz
 
 Nesse modo o formulário não envia e a área restrita não abre (o navegador bloqueia os módulos dela em arquivos locais). Para testar tudo, use o endereço do GitHub Pages.
 
-## 2. Ativar o formulário (uma única vez, ~10 minutos)
+## 2. Ativar o formulário (uma única vez)
 
-O formulário de contato grava cada pedido no banco da plataforma (Supabase, tabela `contatos`). O site só consegue gravar, não consegue ler; só o administrador vê os pedidos. A cada pedido, o próprio banco manda para `mvszanette@gmail.com` o e-mail **ALERTA DE CONTATO NA PLATAFORMA – <nome>**, com o resumo do pedido, todos os campos, os próximos passos e os botões *Chamar no WhatsApp* e *Responder por e-mail*. Responder ao e-mail responde direto ao cliente. Se o envio pelo site falhar, o próprio formulário oferece o WhatsApp com o pedido já escrito.
+Cada pedido do formulário de contato segue por dois caminhos ao mesmo tempo, e basta um dar certo:
 
-1. **Banco:** no Supabase, abra o *SQL Editor*. Copie do `supabase/schema.sql` a parte que começa em `-- ===… contatos do site` (até o fim do arquivo), cole e clique em *Run*. Isso cria a tabela, as regras de acesso e o envio do e-mail.
-2. **Resend** (envio de e-mails, gratuito até 3.000 por mês): crie a conta em resend.com **com o e-mail mvszanette@gmail.com**. Sem domínio próprio, o Resend só entrega para o e-mail da própria conta, o que basta aqui. Em *API Keys → Create API Key*, crie uma chave com permissão *Sending access* e copie (começa com `re_`).
-3. **Guardar a chave no banco:** no *SQL Editor*, rode o comando abaixo com a sua chave no lugar de `re_…`. A chave fica no cofre do Supabase (Vault) e não aparece no site nem no repositório. Não mande a chave por chat.
+- **E-mail pelo Web3Forms** (gratuito, até 250 pedidos por mês): chega em `mvszanette@gmail.com` com o assunto **ALERTA DE CONTATO NA PLATAFORMA – <nome>**, o resumo do pedido, todos os campos e os próximos passos (o que pedir ao cliente conforme o serviço, a proposta e a ART). *Responder* responde direto ao cliente.
+- **Registro na plataforma** (Supabase, tabela `contatos`): o site só consegue gravar, e só o administrador vê os pedidos.
 
-   ```sql
-   select vault.create_secret('re_…', 'resend_api_key', 'Chave do Resend para os e-mails do site');
-   ```
+Se os dois falharem, o formulário oferece o WhatsApp com o pedido já escrito.
 
-4. **Testar:** envie o formulário do site. O e-mail chega em segundos. Na primeira vez, olhe a caixa de spam e marque como "não é spam".
+**Ligar o e-mail (2 minutos):** em web3forms.com, digite `mvszanette@gmail.com` e clique em *Create Access Key*. A chave chega por e-mail. Cole em `web3formsChave` no `config.js`. Essa chave pode ficar pública: ela só envia para o e-mail dono dela.
 
-Onde ver os pedidos: no Supabase, *Table Editor → contatos*. Para conferir se o e-mail saiu, rode no SQL Editor `select status_code, content from net._http_response order by created desc limit 5;` (200 é enviado).
+**Ligar o registro na plataforma:** no Supabase, abra o *SQL Editor*, cole a parte do `supabase/schema.sql` que começa em `-- ===… contatos do site` (até o fim do arquivo) e clique em *Run*. Os pedidos aparecem em *Table Editor → contatos*. Contra robôs, o formulário tem um campo escondido, e o banco aceita no máximo 5 pedidos por hora do mesmo e-mail e 30 por hora no total.
 
-Sem a chave do passo 3, os pedidos continuam sendo guardados, só não sai o e-mail. Contra robôs, o formulário tem um campo escondido, e o banco aceita no máximo 5 pedidos por hora do mesmo e-mail e 30 por hora no total.
-
-**Bônus:** a mesma chave do Resend, cadastrada também nos *Secrets* do GitHub (`RESEND_API_KEY` e `ALERTA_EMAIL`), liga o e-mail diário de alertas das ARTs (passo 2 de "Ativar de verdade", abaixo).
+*(Alternativa ao Web3Forms)* O próprio banco pode mandar o e-mail pelo Resend: crie a conta em resend.com com `mvszanette@gmail.com`, gere uma chave de envio (`re_…`) e guarde no cofre do Supabase com `select vault.create_secret('re_…', 'resend_api_key', 'Chave do Resend');` no SQL Editor. Use um dos dois, para não receber o e-mail em dobro. A mesma chave do Resend, nos *Secrets* do GitHub (`RESEND_API_KEY` e `ALERTA_EMAIL`), liga o e-mail diário de alertas das ARTs.
 
 ## 3. Domínio próprio (recomendado, ~R$ 40/ano)
 

@@ -6,9 +6,13 @@
  *  Depois de salvar, o site inteiro é atualizado automaticamente.
  */
 const CONFIG = {
-  // E-mail de contato mostrado no site. Os pedidos do formulário chegam por e-mail pelo banco
-  // da plataforma (supabase/schema.sql, seção "contatos do site").
+  // E-mail de contato mostrado no site.
   email: "mvszanette@gmail.com",
+
+  // Chave do Web3Forms (web3forms.com, gratuito): com ela, cada pedido do formulário chega no
+  // e-mail cadastrado lá, com o assunto "ALERTA DE CONTATO NA PLATAFORMA". Essa chave pode
+  // ficar pública: ela só envia para o e-mail dono da chave.
+  web3formsChave: "",
 
   // WhatsApp só com números: 55 + DDD + número.
   whatsapp: "5532998111414",

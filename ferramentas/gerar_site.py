@@ -1117,7 +1117,7 @@ def pagina_privacidade():
         <p>O tratamento se baseia na execução de procedimentos preliminares relacionados a contrato, a pedido do titular dos dados (art. 7º, V, da LGPD).</p>
 
         <h2>Compartilhamento</h2>
-        <p>Os dados do formulário ficam guardados em banco de dados com acesso restrito (Supabase), e o aviso da solicitação é enviado por e-mail pelo serviço Resend. O site também carrega fontes do Google Fonts. Fora esses serviços técnicos necessários ao funcionamento do site, os dados não são compartilhados com terceiros.</p>
+        <p>Os dados do formulário ficam guardados em banco de dados com acesso restrito (Supabase), e o aviso da solicitação é enviado por e-mail por serviço de envio (Web3Forms ou Resend). O site também carrega fontes do Google Fonts. Fora esses serviços técnicos necessários ao funcionamento do site, os dados não são compartilhados com terceiros.</p>
 
         <h2>Armazenamento</h2>
         <p>Os dados são mantidos pelo tempo necessário para o atendimento da solicitação e para o cumprimento de obrigações legais, e então eliminados.</p>

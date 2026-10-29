@@ -117,11 +117,79 @@ document.addEventListener("DOMContentLoaded", () => {
   atualizar();
 
   // ---- Envio ----
-  // O pedido fica guardado na plataforma (Supabase, só gravação para o site) e o banco manda o e-mail
-  // "ALERTA DE CONTATO NA PLATAFORMA". Se não der para enviar, o aviso oferece o WhatsApp com o pedido já escrito.
+  // Dois caminhos ao mesmo tempo: o pedido fica guardado na plataforma (Supabase, só gravação para o site) e o
+  // e-mail "ALERTA DE CONTATO NA PLATAFORMA" sai pelo Web3Forms (com a chave em config.js). Basta um dar certo.
+  // Se nenhum der, o aviso oferece o WhatsApp com o pedido já escrito.
   const aviso = document.getElementById("form-aviso");
   const botao = form.querySelector("button[type=submit]");
   const campo = (nome) => (form.elements[nome] ? form.elements[nome].value.trim() : "");
+
+  const resumoDe = (p) =>
+    p.nome + (p.empresa ? " (" + p.empresa + ")" : "") + ", de " + p.cidade + "/" + p.uf + ", pediu orçamento de " + p.servico +
+    (p.quantidade ? " para " + p.quantidade + " equipamento(s)" : "") + (p.equipamento ? ". Equipamento: " + p.equipamento : "") + ".";
+  // O que pedir ao cliente para montar a proposta, conforme o serviço (o mesmo do e-mail enviado pelo banco)
+  const pedirDe = (servico) =>
+    /NR-12/i.test(servico) ? "fabricante, modelo, ano e número de série, fotos da placa de identificação e do equipamento e o local de uso"
+    : /NR-13/i.test(servico) ? "pressão máxima de operação, volume do reservatório e fotos da placa de identificação e do equipamento"
+    : /PMOC|ar-condicionado/i.test(servico) ? "quantidade, tipo e capacidade dos aparelhos de ar-condicionado e a área atendida"
+    : /frota/i.test(servico) ? "tamanho e composição da frota, tipo de operação e os dados de manutenção disponíveis"
+    : "fabricante, modelo e ano do equipamento, fotos e o local do serviço";
+  const passosDe = (p) => [
+    "1. Responder em até 1 dia útil: responda este e-mail (a resposta vai direto para " + p.email + ") ou chame no WhatsApp " + p.whatsapp +
+      ": https://wa.me/" + (p.whatsapp.replace(/\D/g, "").length <= 11 ? "55" : "") + p.whatsapp.replace(/\D/g, ""),
+    "2. Confirmar os dados do serviço: pedir " + pedirDe(p.servico) + ".",
+    "3. Enviar a proposta técnica com escopo, prazo, valor e a ART do serviço.",
+    "4. Serviço fechado: emitir a ART e cadastrar no Controle de ART da área restrita.",
+  ].join("\n");
+
+  async function gravarNaPlataforma(pedido) {
+    const { SUPABASE_URL: url, SUPABASE_ANON_KEY: chave } = await import("./area/config-area.js");
+    if (!url || !chave) throw new Error("banco não configurado");
+    const resposta = await fetch(url + "/rest/v1/contatos", {
+      method: "POST",
+      headers: {
+        apikey: chave,
+        // A chave nova (sb_publishable_…) vai só no apikey; a antiga (anon, JWT) também no Authorization
+        ...(chave.startsWith("sb_") ? {} : { Authorization: "Bearer " + chave }),
+        "Content-Type": "application/json",
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify(pedido),
+    });
+    if (!resposta.ok) throw new Error("plataforma: HTTP " + resposta.status);
+  }
+
+  async function enviarEmail(pedido) {
+    const quando = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" });
+    const resposta = await fetch("https://api.web3forms.com/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        access_key: CONFIG.web3formsChave,
+        subject: "ALERTA DE CONTATO NA PLATAFORMA – " + pedido.nome.slice(0, 60),
+        from_name: "Site Marcos Zanette",
+        email: pedido.email,
+        replyto: pedido.email,
+        "Recebido em": quando,
+        Resumo: resumoDe(pedido),
+        Nome: pedido.nome,
+        WhatsApp: pedido.whatsapp,
+        Empresa: pedido.empresa || "—",
+        Cidade: pedido.cidade + "/" + pedido.uf,
+        "CPF/CNPJ": pedido.documento || "—",
+        "Nº de equipamentos": pedido.quantidade || "—",
+        Serviço: pedido.servico,
+        "Código TOS (CREA)": pedido.codigo_tos || "—",
+        Equipamento: pedido.equipamento || "—",
+        Mensagem: pedido.mensagem || "—",
+        Página: pedido.pagina,
+        "Próximos passos": passosDe(pedido),
+      }),
+    });
+    const r = await resposta.json().catch(() => ({}));
+    if (!resposta.ok || !r.success) throw new Error("e-mail: " + (r.message || "HTTP " + resposta.status));
+  }
+
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (campo("_honey")) return; // robô preenchendo o campo escondido
@@ -144,45 +212,34 @@ document.addEventListener("DOMContentLoaded", () => {
     aviso.hidden = true;
     botao.disabled = true;
     botao.textContent = "Enviando…";
-    try {
-      const { SUPABASE_URL: url, SUPABASE_ANON_KEY: chave } = await import("./area/config-area.js");
-      if (!url || !chave) throw new Error("banco não configurado");
-      const resposta = await fetch(url + "/rest/v1/contatos", {
-        method: "POST",
-        headers: {
-          apikey: chave,
-          // A chave nova (sb_publishable_…) vai só no apikey; a antiga (anon, JWT) também no Authorization
-          ...(chave.startsWith("sb_") ? {} : { Authorization: "Bearer " + chave }),
-          "Content-Type": "application/json",
-          Prefer: "return=minimal",
-        },
-        body: JSON.stringify(pedido),
-      });
-      if (!resposta.ok) throw new Error("HTTP " + resposta.status);
+    const envios = [gravarNaPlataforma(pedido)];
+    if (CONFIG.web3formsChave) envios.push(enviarEmail(pedido));
+    const resultados = await Promise.allSettled(envios);
+    resultados.filter((r) => r.status === "rejected").forEach((r) => console.error("Formulário de contato:", r.reason));
+    if (resultados.some((r) => r.status === "fulfilled")) {
       location.href = "obrigado.html";
-    } catch (err) {
-      console.error("Formulário de contato:", err);
-      const texto =
-        "Olá! Gostaria de solicitar uma proposta técnica.\n" +
-        [
-          ["Nome", pedido.nome],
-          ["Empresa", pedido.empresa],
-          ["Cidade", pedido.cidade + "/" + pedido.uf],
-          ["Serviço", pedido.servico],
-          ["Equipamento", pedido.equipamento],
-          ["Nº de equipamentos", pedido.quantidade],
-          ["Mensagem", pedido.mensagem],
-        ]
-          .filter(([, v]) => v && v !== "/")
-          .map(([k, v]) => k + ": " + v)
-          .join("\n");
-      aviso.innerHTML =
-        'Não foi possível enviar pelo site agora. <a href="https://wa.me/' + CONFIG.whatsapp + "?text=" +
-        encodeURIComponent(texto) + '" target="_blank" rel="noopener">Envie pelo WhatsApp</a> (o pedido já vai escrito) ' +
-        'ou pelo e-mail <a href="mailto:' + CONFIG.email + '">' + CONFIG.email + "</a>.";
-      aviso.hidden = false;
-      botao.disabled = false;
-      botao.textContent = "Enviar solicitação";
+      return;
     }
+    const texto =
+      "Olá! Gostaria de solicitar uma proposta técnica.\n" +
+      [
+        ["Nome", pedido.nome],
+        ["Empresa", pedido.empresa],
+        ["Cidade", pedido.cidade + "/" + pedido.uf],
+        ["Serviço", pedido.servico],
+        ["Equipamento", pedido.equipamento],
+        ["Nº de equipamentos", pedido.quantidade],
+        ["Mensagem", pedido.mensagem],
+      ]
+        .filter(([, v]) => v && v !== "/")
+        .map(([k, v]) => k + ": " + v)
+        .join("\n");
+    aviso.innerHTML =
+      'Não foi possível enviar pelo site agora. <a href="https://wa.me/' + CONFIG.whatsapp + "?text=" +
+      encodeURIComponent(texto) + '" target="_blank" rel="noopener">Envie pelo WhatsApp</a> (o pedido já vai escrito) ' +
+      'ou pelo e-mail <a href="mailto:' + CONFIG.email + '">' + CONFIG.email + "</a>.";
+    aviso.hidden = false;
+    botao.disabled = false;
+    botao.textContent = "Enviar solicitação";
   });
 });
