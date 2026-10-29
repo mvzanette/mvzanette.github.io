@@ -88,7 +88,7 @@ Se os dois falharem, o formulário oferece o WhatsApp com o pedido já escrito.
 
 **Ligar o registro na plataforma:** no Supabase, abra o *SQL Editor*, cole a parte do `supabase/schema.sql` que começa em `-- ===… contatos do site` (até o fim do arquivo) e clique em *Run*. Os pedidos aparecem em *Table Editor → contatos*. Contra robôs, o formulário tem um campo escondido, e o banco aceita no máximo 5 pedidos por hora do mesmo e-mail e 30 por hora no total.
 
-*(Alternativa ao Web3Forms)* O próprio banco pode mandar o e-mail pelo Resend: crie a conta em resend.com com `mvszanette@gmail.com`, gere uma chave de envio (`re_…`) e guarde no cofre do Supabase com `select vault.create_secret('re_…', 'resend_api_key', 'Chave do Resend');` no SQL Editor. Use um dos dois, para não receber o e-mail em dobro. A mesma chave do Resend, nos *Secrets* do GitHub (`RESEND_API_KEY` e `ALERTA_EMAIL`), liga o e-mail diário de alertas das ARTs.
+**Resend (já ligado):** a chave de envio (`re_…`, conta de `mvszanette@gmail.com`) fica no cofre do Supabase com o nome `resend_api_key` e é usada no informativo diário, em HTML com banner. Para trocar, rode no SQL Editor `select vault.update_secret((select id from vault.secrets where name = 'resend_api_key'), 're_…');`. O alerta de cada contato continua saindo do site pelo Web3Forms (o banco não manda outro, para não chegar em dobro).
 
 ## 3. Domínio próprio (recomendado, ~R$ 40/ano)
 
