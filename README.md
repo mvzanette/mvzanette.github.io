@@ -59,14 +59,14 @@ Cabeçalho, formulário e rodapé são iguais em todas as páginas e saem do mes
 ## 1. Publicar de graça no GitHub Pages
 
 1. O repositório precisa ser **público** (no plano gratuito do GitHub).
-2. Nome do repositório: `mzengenharia` (*Settings → General → Repository name → Rename*). O nome do repositório é o que aparece no endereço.
+2. Nome do repositório: `mvzanette.github.io` (*Settings → General → Repository name → Rename*). Com o nome igual ao usuário do GitHub seguido de `.github.io`, o site fica no endereço curto, sem pasta no fim.
 3. No GitHub: **Settings → Pages → Build and deployment**.
 4. Em *Source*, escolha **Deploy from a branch**, selecione a branch principal do repositório (hoje `claude/exciting-curie-vngk32`) e a pasta `/ (root)`. Clique em **Save**.
-5. Em 1 ou 2 minutos o site estará no ar em `https://mvzanette.github.io/mzengenharia/`.
+5. Em 1 ou 2 minutos o site estará no ar em `https://mvzanette.github.io/`.
 
 A cada alteração enviada para essa branch, o GitHub publica a nova versão sozinho (leva 1 ou 2 minutos).
 
-**Endereço mais curto:** renomeie o repositório para `mvzanette.github.io` (o site passa a ficar em `https://mvzanette.github.io/`) ou use um domínio próprio (passo 3).
+**Endereço ainda mais curto:** use um domínio próprio (passo 3). Ao trocar o endereço do site, atualize também o *Site URL* e as *Redirect URLs* do Supabase ("Ativar de verdade", passo 1) e a variável `ALERTA_LINK` do GitHub.
 
 ### Ver o site no computador, sem publicar
 
@@ -84,7 +84,7 @@ Cada pedido do formulário de contato segue por dois caminhos ao mesmo tempo, e 
 
 Se os dois falharem, o formulário oferece o WhatsApp com o pedido já escrito.
 
-**Ligar o e-mail (2 minutos):** em web3forms.com, digite `mvszanette@gmail.com` e clique em *Create Access Key*. A chave chega por e-mail. Cole em `web3formsChave` no `config.js`. Essa chave pode ficar pública: ela só envia para o e-mail dono dela.
+**E-mail (já ligado):** a chave do Web3Forms de `mvszanette@gmail.com` está em `web3formsChave`, no `config.js`. Para trocar, crie outra em web3forms.com (digite o e-mail e clique em *Create Access Key*; a chave chega por e-mail) e cole no lugar. Essa chave pode ficar pública: ela só envia para o e-mail dono dela.
 
 **Ligar o registro na plataforma:** no Supabase, abra o *SQL Editor*, cole a parte do `supabase/schema.sql` que começa em `-- ===… contatos do site` (até o fim do arquivo) e clique em *Run*. Os pedidos aparecem em *Table Editor → contatos*. Contra robôs, o formulário tem um campo escondido, e o banco aceita no máximo 5 pedidos por hora do mesmo e-mail e 30 por hora no total.
 
@@ -361,8 +361,8 @@ Enquanto `area/config-area.js` estiver vazio, a área restrita funciona em **mod
 3. Em **Authentication → Users → Add user**, crie o seu usuário (e-mail e senha, marcando *Auto Confirm User*). No primeiro login, ele vira o administrador da área.
 4. Em **Authentication → Sign In / Providers**, **desative "Allow new users to sign up"**: assim ninguém mais consegue criar conta.
 5. Em **Authentication → URL Configuration**:
-   - *Site URL*: `https://mvzanette.github.io/mzengenharia/`;
-   - *Redirect URLs* → **Add URL**: `https://mvzanette.github.io/mzengenharia/area-restrita.html` (para onde volta o link de "Esqueci a senha").
+   - *Site URL*: `https://mvzanette.github.io/`;
+   - *Redirect URLs* → **Add URL**: `https://mvzanette.github.io/area-restrita.html` (para onde volta o link de "Esqueci a senha").
 6. Em **Project Settings → API Keys**, copie:
    - **Project URL** e a chave **Publishable** (`sb_publishable_…`, ou a **anon public** nos projetos antigos) → cole em `area/config-area.js`;
    - a chave **Secret** (`sb_secret_…`, ou a **service_role** nos projetos antigos) → **não** coloque no site; ela vai só para o GitHub (passo 3).
@@ -378,7 +378,7 @@ Enquanto `area/config-area.js` estiver vazio, a área restrita funciona em **mod
 Em **Settings → Secrets and variables → Actions**:
 
 - aba **Secrets** → *New repository secret*: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY` e `ALERTA_EMAIL` (o e-mail que recebe os alertas);
-- aba **Variables** → `ALERTA_LINK` = `https://mvzanette.github.io/mzengenharia/area/art.html` (link do e-mail; se não houver login, pede a senha e depois abre o Controle de ART).
+- aba **Variables** → `ALERTA_LINK` = `https://mvzanette.github.io/area/art.html` (link do e-mail; se não houver login, pede a senha e depois abre o Controle de ART).
 
 Para testar na hora: **Actions → Alertas de ART → Run workflow**. Depois disso a rotina roda todo dia às 8h (Brasília).
 
