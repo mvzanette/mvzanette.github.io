@@ -1070,3 +1070,184 @@ create trigger contatos_avisar after insert on public.contatos
   for each row execute function public.contato_avisar();
 
 revoke all on function public.contato_preparar(), public.contato_avisar() from public, anon, authenticated;
+
+-- ================================================================ demandas automáticas e resumo diário
+-- Cada pedido do formulário do site vira uma demanda (etapa "Recebida", com prazo de resposta no próximo dia útil),
+-- ligada ao contato. Todo dia às 7h (Brasília, antes do horário comercial) o banco manda o e-mail "RESUMO DIÁRIO DAS
+-- DEMANDAS" com as demandas em andamento (recebida, proposta enviada, aprovada, em execução): dias corridos, etapa,
+-- prazo e próximo passo, desde a chegada até ficar concluída ou não aprovada. O envio usa o Resend (chave
+-- resend_api_key no Vault) ou, sem ela, o Web3Forms (chave web3forms_key no Vault). O próximo passo de cada etapa é o
+-- mesmo do alerta em tela (area/regras-gestao.js, proximoPasso).
+alter table public.demandas add column if not exists contato_id uuid references public.contatos (id) on delete set null;
+
+-- Opção do formulário do site → tipo de serviço das demandas e do financeiro (o mesmo de area/demandas.js)
+create or replace function public.servico_da_demanda(p text) returns text
+language sql immutable set search_path = '' as $$
+  select case
+    when p ~* 'nr-?12' then 'Laudo NR-12'
+    when p ~* 'nr-?13' then 'Laudo NR-13'
+    when p ~* 'pmoc|climatiza|ar-condicionado' then 'PMOC e climatização'
+    when p ~* 'eletrifica' then 'Eletrificação de frota'
+    when p ~* 'treinamento' then 'Treinamentos técnicos'
+    when p ~* 'insumo' then 'Indicação de serviços técnicos'
+    when p ~* 'industri' then 'Manutenção industrial'
+    when p ~* 'frota' then 'Consultoria em gestão de frotas e ativos'
+    when p ~* 'laudo' then 'Laudos mecânicos e eletromecânicos'
+    else 'Outros'
+  end;
+$$;
+
+create or replace function public.contato_para_demanda() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare
+  dia date := (new.criado_em at time zone 'America/Sao_Paulo')::date;
+begin
+  insert into public.demandas (titulo, servico, cliente, contato, email, telefone, cidade, uf, origem, etapa, recebida_em, prazo,
+                               observacao, contato_id, user_id)
+  values (left(new.servico, 200), public.servico_da_demanda(new.servico), coalesce(nullif(new.empresa, ''), new.nome), new.nome,
+          new.email, new.whatsapp, new.cidade, new.uf, 'site', 'recebida', dia,
+          -- responder até o próximo dia útil
+          dia + case extract(isodow from dia)::int when 5 then 3 when 6 then 2 else 1 end,
+          concat_ws(E'\n',
+            'Pedido pelo formulário do site em ' || to_char(new.criado_em at time zone 'America/Sao_Paulo', 'DD/MM/YYYY "às" HH24:MI')
+              || coalesce(' (' || nullif(new.pagina, '') || ')', '') || '.',
+            'Equipamento: ' || nullif(new.equipamento, ''),
+            'Nº de equipamentos: ' || nullif(new.quantidade, ''),
+            'CPF/CNPJ: ' || nullif(new.documento, ''),
+            'Código TOS: ' || nullif(new.codigo_tos, ''),
+            'Mensagem: ' || nullif(new.mensagem, '')),
+          new.id, null);
+  return new;
+exception when others then
+  raise warning 'Contato guardado, mas a demanda não foi criada: %', sqlerrm;
+  return new;
+end $$;
+
+drop trigger if exists contatos_demanda on public.contatos;
+create trigger contatos_demanda after insert on public.contatos
+  for each row execute function public.contato_para_demanda();
+
+-- E-mail para mvszanette@gmail.com: Resend (com HTML) ou Web3Forms (texto), conforme a chave guardada no Vault
+create or replace function public.enviar_aviso(p_assunto text, p_texto text, p_html text default null, p_responder text default null)
+returns bigint
+language plpgsql security definer set search_path = '' as $$
+declare
+  resend text;
+  web3 text;
+  req bigint;
+begin
+  select decrypted_secret into resend from vault.decrypted_secrets where name = 'resend_api_key' limit 1;
+  select decrypted_secret into web3 from vault.decrypted_secrets where name = 'web3forms_key' limit 1;
+  if coalesce(resend, '') <> '' then
+    select net.http_post(
+      url := 'https://api.resend.com/emails',
+      body := jsonb_strip_nulls(jsonb_build_object('from', 'Plataforma Marcos Zanette <onboarding@resend.dev>',
+        'to', jsonb_build_array('mvszanette@gmail.com'), 'reply_to', p_responder, 'subject', p_assunto, 'text', p_texto, 'html', p_html)),
+      headers := jsonb_build_object('Authorization', 'Bearer ' || resend, 'Content-Type', 'application/json'),
+      timeout_milliseconds := 15000) into req;
+  elsif coalesce(web3, '') <> '' then
+    select net.http_post(
+      url := 'https://api.web3forms.com/submit',
+      body := jsonb_strip_nulls(jsonb_build_object('access_key', web3, 'subject', p_assunto, 'from_name', 'Plataforma Marcos Zanette',
+        'replyto', p_responder, 'message', p_texto)),
+      headers := jsonb_build_object('Content-Type', 'application/json', 'Accept', 'application/json'),
+      timeout_milliseconds := 15000) into req;
+  end if;
+  return req;
+end $$;
+
+create or replace function public.texto_dias(n int) returns text
+language sql immutable set search_path = '' as $$
+  select n || case when abs(n) = 1 then ' dia' else ' dias' end;
+$$;
+
+-- Resumo diário das demandas em andamento. Devolve o texto (ou o motivo de não enviar), para conferir no SQL Editor.
+create or replace function public.demandas_resumo_diario(p_enviar boolean default true) returns text
+language plpgsql security definer set search_path = '' as $$
+declare
+  hoje date := (now() at time zone 'America/Sao_Paulo')::date;
+  n int;
+  vencidas int;
+  blocos text;
+  contagem text;
+  assunto text;
+  texto text;
+  link text := 'https://mvzanette.github.io/area/demandas.html#acompanhamento';
+begin
+  with abertas as (
+    select d.*,
+      hoje - d.recebida_em as dias_aberta,
+      hoje - coalesce(case d.etapa when 'proposta' then d.proposta_em when 'aprovada' then d.aprovada_em
+                                   when 'execucao' then d.aprovada_em end, d.recebida_em) as dias_etapa,
+      d.prazo - hoje as dias_prazo,
+      case d.etapa when 'recebida' then 'Recebida' when 'proposta' then 'Proposta enviada'
+                   when 'aprovada' then 'Aprovada' else 'Em execução' end as rotulo,
+      case d.etapa
+        when 'recebida' then 'Responder o cliente e levantar os dados para a proposta.'
+        when 'proposta' then 'Cobrar o retorno do cliente sobre a proposta.'
+        when 'aprovada' then case when d.art_id is null then 'Emitir a ART e agendar a execução do serviço.'
+                                  else 'Agendar a execução do serviço.' end
+        else case when d.art_id is null then 'Emitir a ART, concluir o serviço e entregar o laudo.'
+                  else 'Concluir o serviço, entregar o laudo e lançar a receita.' end
+      end as passo
+    from public.demandas d
+    where d.etapa in ('recebida', 'proposta', 'aprovada', 'execucao')
+  ), ordenadas as (
+    select a.*, row_number() over (order by coalesce(a.dias_prazo, 100000), a.dias_aberta desc, a.titulo) as ordem from abertas a
+  )
+  select count(*), count(*) filter (where dias_prazo < 0),
+    string_agg(
+      ordem || '. ' || titulo || coalesce(' · ' || coalesce(nullif(cliente, ''), contato), '')
+        || coalesce(' (' || nullif(cidade, '') || coalesce('/' || uf, '') || ')', '') || E'\n'
+        || '   Etapa: ' || rotulo || case when etapa <> 'recebida' then ' há ' || public.texto_dias(dias_etapa) else '' end
+        || ' · ' || case when dias_aberta <= 0 then 'aberta hoje' else 'aberta há ' || public.texto_dias(dias_aberta) end
+        || ' (desde ' || to_char(recebida_em, 'DD/MM') || ')' || E'\n'
+        || coalesce('   Prazo: ' || case when dias_prazo < 0 then 'atrasado há ' || public.texto_dias(-dias_prazo)
+                                         when dias_prazo = 0 then 'vence hoje'
+                                         when dias_prazo = 1 then 'vence amanhã'
+                                         else 'em ' || public.texto_dias(dias_prazo) end
+                    || ' (' || to_char(prazo, 'DD/MM') || ')' || E'\n', '')
+        || '   Próximo passo: ' || passo,
+      E'\n\n' order by ordem)
+    into n, vencidas, blocos
+    from ordenadas;
+  if n = 0 then
+    return 'Nenhuma demanda em andamento: o resumo não foi enviado.';
+  end if;
+  select string_agg(r || ': ' || q, ' · ' order by o) into contagem
+    from (select case etapa when 'recebida' then 'Recebidas' when 'proposta' then 'Propostas enviadas'
+                            when 'aprovada' then 'Aprovadas' else 'Em execução' end as r,
+                 count(*) as q, min(array_position(array['recebida', 'proposta', 'aprovada', 'execucao'], etapa)) as o
+            from public.demandas where etapa in ('recebida', 'proposta', 'aprovada', 'execucao') group by etapa) t;
+  assunto := 'RESUMO DIÁRIO DAS DEMANDAS – ' || n || ' em andamento'
+    || case when vencidas > 0 then ', ' || vencidas || ' com prazo vencido' else '' end || ' (' || to_char(hoje, 'DD/MM') || ')';
+  texto := 'Demandas em andamento em ' || to_char(hoje, 'DD/MM/YYYY') || '.' || E'\n' || contagem || E'\n\n'
+    || blocos || E'\n\n'
+    || 'Ver e atualizar na plataforma: ' || link || E'\n'
+    || 'Este resumo chega todo dia enquanto houver demanda em andamento (de recebida até concluída ou não aprovada).';
+  if p_enviar then
+    perform public.enviar_aviso(assunto, texto,
+      '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1b1d21;max-width:680px">'
+      || '<div style="height:6px;background:#f5b800;margin-bottom:14px"></div>'
+      || '<pre style="font-family:inherit;white-space:pre-wrap;margin:0 0 18px">' || public.html_esc(texto) || '</pre>'
+      || '<a href="' || link || '" style="display:inline-block;background:#1b1d21;color:#fff;text-decoration:none;font-weight:bold;padding:10px 16px">Abrir as demandas</a></div>');
+  end if;
+  return assunto || E'\n\n' || texto;
+end $$;
+
+revoke all on function public.contato_para_demanda(), public.enviar_aviso(text, text, text, text),
+  public.demandas_resumo_diario(boolean) from public, anon, authenticated;
+
+-- Agenda do resumo: 10h UTC = 7h em Brasília
+do $$ begin
+  if not exists (select 1 from pg_extension where extname = 'pg_cron') then
+    begin
+      create extension pg_cron;
+    exception when others then
+      raise notice 'pg_cron indisponível (%): sem o resumo diário automático.', sqlerrm;
+    end;
+  end if;
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    perform cron.schedule('resumo-diario-demandas', '0 10 * * *', 'select public.demandas_resumo_diario()');
+  end if;
+end $$;

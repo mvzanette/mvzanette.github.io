@@ -1,6 +1,6 @@
 // Área restrita – Controle de demandas: solicitações, propostas, prazos e andamento dos serviços.
 import { abrirPagina } from "./sessao.js";
-import { dataBR, hojeISO } from "./regras.js";
+import { dataBR, diasAte, hojeISO } from "./regras.js";
 import * as G from "./regras-gestao.js";
 import { $, esc, moeda, avisar, baixarCsv, opcoes, prepararDialogos, numeroDigitado } from "./ui.js";
 
@@ -73,6 +73,11 @@ function prazoHtml(d) {
 }
 
 const etiquetaEtapa = (d) => `<span class="etapa etapa-${d.etapa}">${G.ROTULO_ETAPA[d.etapa]}</span>`;
+// Dias corridos desde a chegada (só para as demandas em andamento)
+const diasAberta = (d) => {
+  const n = Math.max(0, -diasAte(d.recebida_em || hoje, hoje));
+  return n ? `aberta há ${G.textoDias(n)}` : "aberta hoje";
+};
 
 function renderTabela() {
   const lista = filtradas();
@@ -82,7 +87,7 @@ function renderTabela() {
         <td class="data">${dataBR(d.recebida_em)}</td>
         <td><b>${esc(d.titulo)}</b>${d.servico ? `<br><span class="servico">${esc(d.servico)}</span>` : ""}</td>
         <td>${esc(d.cliente || d.contato || "—")}${d.cidade ? `<br><span class="servico">${esc(d.cidade)}${d.uf ? "/" + esc(d.uf) : ""}</span>` : ""}</td>
-        <td>${etiquetaEtapa(d)}</td>
+        <td>${etiquetaEtapa(d)}${G.emAberto(d) ? `<br><small class="servico">${diasAberta(d)}</small>` : ""}</td>
         <td class="num">${d.valor == null ? "—" : moeda(Number(d.valor))}</td>
         <td>${prazoHtml(d)}</td>
         <td>${esc(G.ROTULO_ORIGEM[d.origem] || "—")}</td>
@@ -128,6 +133,7 @@ function abrirDemanda(id, novo = {}) {
       <button class="btn-link" data-fechar type="button">Fechar</button>
     </div>
     <div class="dlg-corpo">
+      ${existente && G.emAberto(d) ? `<p class="demanda-passo"><b>Próximo passo:</b> ${esc(G.proximoPasso(d))} <small>${diasAberta(d)}${d.origem === "site" && d.contato_id ? " · veio do formulário do site" : ""}</small></p>` : ""}
       <div class="campos">
         <label class="c4">Serviço solicitado<input name="titulo" value="${esc(d.titulo)}" required placeholder="Ex.: Laudo NR-12 de 3 escavadeiras"></label>
         <label class="c2">Tipo de serviço<select name="servico"><option value="">—</option>${opcoes(G.SERVICOS, d.servico)}</select></label>
@@ -195,6 +201,41 @@ function abrirDemanda(id, novo = {}) {
   });
 
   dlg.showModal();
+}
+
+// ---------------------------------------------------------------- acompanhamento (pop-up ao entrar)
+// Como o resumo dos vencimentos das ARTs: abre ao entrar sempre que houver demanda em andamento, com os dias
+// corridos, o prazo e o próximo passo de cada uma. O mesmo resumo chega por e-mail todo dia às 7h.
+const CARTOES = [["recebida", "Recebidas"], ["proposta", "Propostas enviadas"], ["aprovada", "Aprovadas"], ["execucao", "Em execução"]];
+
+function textoPrazo(dias) {
+  if (dias === null) return "";
+  return dias < 0 ? `atrasado há ${G.textoDias(-dias)}` : dias === 0 ? "vence hoje" : dias === 1 ? "vence amanhã" : `em ${G.textoDias(dias)}`;
+}
+
+function abrirAcompanhamento(automatico = false) {
+  const lista = G.acompanhamentoDemandas(demandas, hoje);
+  if (automatico && !lista.length) return;
+  const vencidas = lista.filter((i) => i.prazo !== null && i.prazo < 0).length;
+  const linha = (i) => `<tr>
+      <td><b>${esc(i.d.titulo)}</b><br><small class="dica">${esc(i.d.cliente || i.d.contato || "cliente não informado")}${i.d.cidade ? ` · ${esc(i.d.cidade)}${i.d.uf ? "/" + esc(i.d.uf) : ""}` : ""}</small></td>
+      <td>${etiquetaEtapa(i.d)}${i.d.etapa !== "recebida" ? `<br><small class="dica">há ${G.textoDias(i.diasNaEtapa)}</small>` : ""}</td>
+      <td class="data">${i.diasAberta ? G.textoDias(i.diasAberta) : "hoje"}<br><small class="dica">desde ${dataBR(i.d.recebida_em)}</small></td>
+      <td>${i.prazo === null ? '<small class="dica">sem prazo</small>' : `<span class="etiqueta ${i.prazo < 0 ? "s-vencida" : i.prazo <= 1 ? "s-vencendo" : "s-ativa"}">${dataBR(i.d.prazo)}<small>${textoPrazo(i.prazo)}</small></span>`}</td>
+      <td class="passo">${esc(i.passo)}</td>
+      <td><button class="btn-link" type="button" data-ver="${esc(i.d.id)}">Abrir</button></td></tr>`;
+  const n = (e) => lista.filter((i) => i.d.etapa === e).length;
+  $("#dlg-acompanhamento").innerHTML = `<div class="dlg-cab"><h2 id="titulo-acompanhamento">Acompanhamento das demandas</h2><button class="btn-link" data-fechar type="button">Fechar</button></div>
+    <div class="dlg-corpo">
+      <p class="dica">Situação em ${dataBR(hoje)}. Entram as demandas de recebida até em execução; saem quando ficam concluídas ou não aprovadas. O mesmo resumo chega por e-mail todo dia às 7h.</p>
+      <div class="venc-cards acomp-cards">${CARTOES.map(([e, rotulo]) => `<button type="button" class="venc-card ac-${e}" data-ver-etapa="${e}"${n(e) ? "" : " disabled"}><strong>${n(e)}</strong><span>${rotulo}</span></button>`).join("")}</div>
+      ${!lista.length ? '<p class="venc-ok">Nenhuma demanda em andamento.</p>' : ""}
+      ${vencidas ? `<p class="venc-aviso"><b>${vencidas === 1 ? "1 demanda está" : `${vencidas} demandas estão`} com o prazo vencido.</b> Faça o próximo passo ou mude o prazo na demanda.</p>` : ""}
+      ${lista.length ? `<div class="tabela-wrap"><table class="tabela compacta acomp-tabela"><thead><tr><th>Demanda</th><th>Etapa</th><th>Aberta há</th><th>Prazo</th><th>Próximo passo</th><th></th></tr></thead>
+        <tbody>${lista.map(linha).join("")}</tbody></table></div>` : ""}
+    </div>
+    <div class="dlg-rodape"><button class="btn btn-primary" type="button" data-fechar>Entendi</button></div>`;
+  if (!$("#dlg-acompanhamento").open) $("#dlg-acompanhamento").showModal();
 }
 
 // ---------------------------------------------------------------- e-mail do formulário do site
@@ -320,6 +361,19 @@ function prepararEventos() {
     abrirDemanda(null, nova);
   });
   $("#btn-exportar").addEventListener("click", exportar);
+  $("#btn-acompanhamento").addEventListener("click", () => abrirAcompanhamento(false));
+  $("#dlg-acompanhamento").addEventListener("click", (e) => {
+    const ver = e.target.closest("[data-ver]");
+    const etapa = e.target.closest("[data-ver-etapa]");
+    if (ver) {
+      $("#dlg-acompanhamento").close();
+      abrirDemanda(ver.dataset.ver);
+    } else if (etapa) {
+      $("#dlg-acompanhamento").close();
+      filtro.etapa = etapa.dataset.verEtapa;
+      renderizar();
+    }
+  });
   $("#etapas").addEventListener("click", (e) => {
     const b = e.target.closest("[data-etapa]");
     if (!b) return;
@@ -352,6 +406,11 @@ async function iniciar() {
   $("#filtro-origem").innerHTML = `<option value="">Todas as origens</option>${opcoes(G.ORIGENS)}`;
   prepararEventos();
   await recarregar();
+  // Ao entrar, sempre que houver demanda em andamento (e por demandas.html#acompanhamento, mesmo sem nenhuma)
+  abrirAcompanhamento(location.hash !== "#acompanhamento");
+  window.addEventListener("hashchange", () => {
+    if (location.hash === "#acompanhamento") abrirAcompanhamento(false);
+  });
 }
 
 iniciar();

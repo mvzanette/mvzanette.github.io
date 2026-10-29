@@ -2282,3 +2282,14 @@ tr.marcada td { background: #fffbea; }
 @media (max-width: 560px) { .tarefa { grid-template-columns: auto minmax(0, 1fr); } .tarefa .btn { grid-column: 1 / -1; justify-self: start; } }
 .faixa-tarefas { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin: 0 0 20px; padding: 12px 16px; background: #fff8f7; border: 1px solid var(--gray-200); border-left: 5px solid var(--erro); }
 .faixa-tarefas p { margin: 0; }
+
+/* Demandas: acompanhamento (pop-up ao entrar) e próximo passo na demanda */
+.acomp-cards { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 760px) { .acomp-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.venc-card.ac-recebida { border-top-color: var(--gray-300); }
+.venc-card.ac-proposta { border-top-color: var(--yellow); }
+.venc-card.ac-aprovada { border-top-color: var(--serie-1); }
+.venc-card.ac-execucao { border-top-color: var(--graphite-900); }
+.acomp-tabela td.passo { min-width: 200px; font-size: 0.88rem; }
+.demanda-passo { margin: 0 0 16px; padding: 10px 12px; background: #fff6d6; border-left: 3px solid var(--yellow); font-size: 0.92rem; }
+.demanda-passo small { display: block; margin-top: 2px; color: var(--muted); }

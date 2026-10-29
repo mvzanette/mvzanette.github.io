@@ -181,6 +181,39 @@ export function resumoDemandas(demandas, p, hoje = hojeISO()) {
   };
 }
 
+// ---------------------------------------------------------------- acompanhamento diário (alerta em tela)
+// Próximo passo de cada etapa: o mesmo do e-mail diário, montado no banco (supabase/schema.sql, demandas_resumo_diario)
+export function proximoPasso(d) {
+  switch (d.etapa) {
+    case "recebida": return "Responder o cliente e levantar os dados para a proposta.";
+    case "proposta": return "Cobrar o retorno do cliente sobre a proposta.";
+    case "aprovada": return d.art_id ? "Agendar a execução do serviço." : "Emitir a ART e agendar a execução do serviço.";
+    case "execucao": return d.art_id ? "Concluir o serviço, entregar o laudo e lançar a receita." : "Emitir a ART, concluir o serviço e entregar o laudo.";
+    default: return "";
+  }
+}
+
+const DATA_DA_ETAPA = { proposta: "proposta_em", aprovada: "aprovada_em", execucao: "aprovada_em" };
+export const textoDias = (n) => `${n} ${Math.abs(n) === 1 ? "dia" : "dias"}`;
+
+// Demandas em andamento (de recebida a em execução) com os dias corridos desde a chegada, os dias na etapa, o prazo e
+// o próximo passo; prazos mais urgentes primeiro, depois as abertas há mais tempo
+export function acompanhamentoDemandas(demandas, hoje = hojeISO()) {
+  return demandas
+    .filter(emAberto)
+    .map((d) => {
+      const desde = d.recebida_em || hoje;
+      return {
+        d,
+        diasAberta: Math.max(0, -diasAte(desde, hoje)),
+        diasNaEtapa: Math.max(0, -diasAte(d[DATA_DA_ETAPA[d.etapa]] || desde, hoje)),
+        prazo: diasPrazo(d, hoje),
+        passo: proximoPasso(d),
+      };
+    })
+    .sort((a, b) => (a.prazo ?? 1e5) - (b.prazo ?? 1e5) || b.diasAberta - a.diasAberta || String(a.d.titulo).localeCompare(String(b.d.titulo)));
+}
+
 // ---------------------------------------------------------------- lembretes por e-mail
 // Sem tabela de controle: cada lembrete cai em um dia certo (véspera, dia e uma vez por semana em atraso).
 const diaDeLembrete = (dias) => dias === 1 || dias === 0 || (dias < 0 && -dias % 7 === 0);

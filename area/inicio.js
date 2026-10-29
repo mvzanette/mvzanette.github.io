@@ -6,7 +6,7 @@ import * as R from "./regras.js";
 import * as G from "./regras-gestao.js";
 import { resumoCaixa } from "./caixa-documentos.js";
 import { $, esc, moeda, moedaCurta } from "./ui.js";
-import { contarPendenciasFinancas, faixaTarefas, mostrarTarefas, tarefaAPagar, tarefaArts, tarefaCaixa, tarefaClassificar } from "./tarefas.js";
+import { contarPendenciasFinancas, faixaTarefas, mostrarTarefas, tarefaAPagar, tarefaArts, tarefaCaixa, tarefaClassificar, tarefaDemandas } from "./tarefas.js";
 
 const hoje = R.hojeISO();
 const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
@@ -84,6 +84,7 @@ async function resumos(armazem, perfil, empresas) {
   if (demandas) {
     const abertas = demandas.filter(G.emAberto);
     const vencidos = abertas.filter((d) => G.diasPrazo(d, hoje) < 0).length;
+    r.tarefas.push(tarefaDemandas(abertas.length, vencidos));
     r.demandas = vencidos ? { texto: plural(vencidos, "prazo vencido", "prazos vencidos"), alerta: true }
       : { texto: abertas.length ? plural(abertas.length, "demanda em aberto", "demandas em aberto") : "Nenhuma demanda em aberto" };
   }

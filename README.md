@@ -324,8 +324,10 @@ O dinheiro da engenharia que você faz por conta própria (autônomo). Os lança
 
 - Cada **solicitação de cliente**, com serviço, cliente, contato, cidade, origem (site, WhatsApp, e-mail, telefone, indicação), valor da proposta e ART vinculada.
 - **Etapas:** recebida → proposta enviada → aprovada → em execução → concluída (ou não aprovada). Ao mudar a etapa, a data correspondente é registrada.
-- **"Colar e-mail do site":** cole o e-mail que o formulário do site envia e os dados do cliente e do serviço são preenchidos sozinhos.
-- **Prazos e lembretes:** o prazo aparece no painel e no e-mail diário (na véspera, no dia e uma vez por semana enquanto estiver atrasado).
+- **Pedidos do site viram demanda sozinhos:** cada pedido do formulário de contato entra como demanda na etapa *Recebida*, com o prazo de resposta no próximo dia útil e os dados do equipamento e a mensagem nas observações (o banco faz isso ao gravar o contato). **"Colar e-mail do site"** fica para e-mails antigos do formulário.
+- **Acompanhamento (alerta em tela):** como o resumo dos vencimentos das ARTs, abre ao entrar sempre que houver demanda em andamento (de recebida até em execução), com cartões por etapa, as demandas com prazo vencido e, para cada uma, os dias corridos desde a chegada, os dias na etapa, o prazo e o **próximo passo** (responder o cliente, cobrar a proposta, emitir a ART, concluir o serviço). O botão **Acompanhamento** reabre; o próximo passo também aparece no alto de cada demanda, e os dias corridos, na lista. As demandas em andamento também entram nas tarefas pendentes do início.
+- **Resumo diário por e-mail:** todo dia às 7h (Brasília, antes do horário comercial), o banco manda para `mvszanette@gmail.com` o e-mail **RESUMO DIÁRIO DAS DEMANDAS**, com o mesmo conteúdo do acompanhamento e o link `area/demandas.html#acompanhamento`. Chega enquanto houver demanda em andamento, até ela ficar concluída ou não aprovada. O envio é agendado no próprio Supabase (`pg_cron`, tarefa `resumo-diario-demandas`) e sai pelo Web3Forms (chave `web3forms_key` no Vault) ou, se houver, pelo Resend (`resend_api_key`). Para conferir sem enviar: `select public.demandas_resumo_diario(false);` no SQL Editor.
+- **Prazos e lembretes:** o prazo aparece no painel e no acompanhamento.
 - Bloco **Financeiro** em cada demanda, com o que já foi recebido e o que falta receber, e **exportação em planilha**.
 
 ## Controle de ART

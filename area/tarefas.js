@@ -25,6 +25,13 @@ export const tarefaCaixa = (n, total, href = "caixa.html#caixa-pendentes") => ({
   texto: `RDV e fichas de custo que somam ${Number(total || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} e só entram no saldo do caixa depois de aprovados.`,
 });
 
+export const tarefaDemandas = (n, vencidas, href = "demandas.html") => ({
+  id: "demandas", n, href, botao: "Ver as demandas",
+  resumo: plural(n, "demanda em andamento", "demandas em andamento") + (vencidas ? ` (${vencidas} com prazo vencido)` : ""),
+  titulo: n === 1 ? "Demanda em andamento" : "Demandas em andamento",
+  texto: `${vencidas ? `${vencidas} com o prazo vencido. ` : ""}Veja os dias corridos e o próximo passo de cada uma: responder o cliente, cobrar a proposta, emitir a ART ou concluir o serviço.`,
+});
+
 export const tarefaAPagar = (n, total, href = "financas.html#gastos") => ({
   id: "apagar", n, href, botao: "Ver os gastos", resumo: plural(n, "gasto a pagar já vencido", "gastos a pagar já vencidos"),
   titulo: n === 1 ? "Gasto a pagar já vencido" : "Gastos a pagar já vencidos",
