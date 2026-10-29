@@ -77,7 +77,8 @@ export const ACOES = {
 // Ações que ainda pedem alguma coisa: a ART continua no indicador até a baixa, o arquivamento ou a nova ART
 export const ACOES_PENDENTES = ["baixa", "substituta", "complementar", "nova"];
 export const PASSOS_ACAO = {
-  baixa: ["Concluir a obra ou o serviço", "Dar baixa por conclusão no portal do CREA", "Registrar aqui a data da baixa ou arquivar a ART"],
+  baixa: ["Concluir a obra ou o serviço", "Dar baixa por conclusão no portal do CREA",
+    "Registrar a baixa aqui: “Registrar baixa” (na lista, no resumo dos vencimentos ou na ART), com a data em que foi feita no CREA"],
   substituta: [
     "Emitir a ART substituta no portal do CREA (use “Copiar dados para nova ART”)",
     "Importar aqui a ART substituta com “Importar nova ART vinculada”: esta ART fica baixada por substituição",

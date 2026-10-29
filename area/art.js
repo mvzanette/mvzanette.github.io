@@ -95,23 +95,37 @@ function etiqueta(art) {
 
 // Caixa de seleção da ação: na ART vencida, que vence nos próximos 90 dias ou que já tem uma ação (a arquivada
 // também, para voltar a acompanhá-la). A baixada no CREA não tem mais ação.
+// A baixa tem dois passos: sinalizar ("Dar baixa": a ART fica no indicador "a dar baixa") e, depois de dar a baixa no
+// portal do CREA, registrar aqui a data (a ART fica baixada e sai dos vencimentos, dos alertas e do indicador). Quem já
+// deu a baixa no CREA escolhe "Registrar a baixa agora" e faz os dois de uma vez.
+const REGISTRAR_BAIXA = "registrar-baixa";
 const opcoesAcao = (atual, vazio = "Definir ação…") =>
-  `<option value="">${esc(vazio)}</option>${Object.entries(R.ACOES).map(([v, t]) => `<option value="${v}"${atual === v ? " selected" : ""}>${esc(t)}</option>`).join("")}`;
+  `<option value="">${esc(vazio)}</option>${Object.entries(R.ACOES).map(([v, t]) => `<option value="${v}"${atual === v ? " selected" : ""}>${esc(t)}</option>`).join("")}
+  <option value="${REGISTRAR_BAIXA}">✓ Registrar a baixa agora (já feita no CREA)</option>`;
 function selectAcao(art) {
   const faixa = R.faixaVencimento(art, hoje);
   if (art.baixa_data || (!faixa && !art.acao)) return '<span class="dica">—</span>';
   // sem ação, fica em destaque na vencida e na que vence em até 30 dias
   const destaque = !art.acao && (faixa === "vencida" || faixa === "30");
-  return `<select class="sel-acao${destaque ? " sem-acao" : ""}" data-acao="${esc(art.id)}" aria-label="Ação para a ART ${esc(art.numero)}">${opcoesAcao(art.acao)}</select>`;
+  const sel = `<select class="sel-acao${destaque ? " sem-acao" : ""}" data-acao="${esc(art.id)}" aria-label="Ação para a ART ${esc(art.numero)}">${opcoesAcao(art.acao)}</select>`;
+  // Sinalizada para dar baixa: o botão conclui a baixa
+  return art.acao === "baixa"
+    ? `<div class="acao-cel">${sel}<button class="btn btn-dark mini" type="button" data-registrar-baixa="${esc(art.id)}">Registrar baixa</button></div>`
+    : sel;
 }
 
 // Arquivar guarda o dia; qualquer outra ação tira a ART do arquivo
 const comAcao = (art, acao) => ({ ...art, acao: acao || null, arquivada_em: acao === "arquivada" ? art.arquivada_em || hoje : null });
 const textoAcao = (acao) => (acao === "arquivada" ? "arquivada" : acao ? R.ACOES[acao].toLowerCase() : "ação desmarcada");
 
-async function salvarAcao(id, acao) {
+async function salvarAcao(id, acao, select = null) {
   const art = arts.find((a) => a.id === id);
   if (!art) return;
+  if (acao === REGISTRAR_BAIXA) {
+    if (select) select.value = art.acao || ""; // só muda depois de confirmar
+    abrirBaixa([art]);
+    return;
+  }
   try {
     const salvo = await armazem.salvar(comAcao(art, acao));
     arts = arts.map((a) => (a.id === id ? { ...a, ...salvo } : a));
@@ -123,11 +137,74 @@ async function salvarAcao(id, acao) {
   }
 }
 
+// Registrar a baixa (uma ART, pelo pop-up ou pela lista, ou várias, pela ação em lote): data e motivo, com a
+// confirmação de que a baixa já foi dada no portal do CREA
+function abrirBaixa(lista) {
+  const dlg = $("#dlg-baixa");
+  const uma = lista.length === 1 ? lista[0] : null;
+  const sinalizadas = lista.filter((a) => a.acao === "baixa").length;
+  dlg.innerHTML = `<form id="form-baixa" novalidate>
+    <div class="dlg-cab"><h2 id="titulo-baixa">Registrar baixa${uma ? ` da ART nº ${esc(uma.numero)}` : ` de ${lista.length} ARTs`}</h2><button class="btn-link" data-fechar type="button">Fechar</button></div>
+    <div class="dlg-corpo">
+      ${uma ? `<p>${esc(uma.contratante || "Cliente não informado")}${uma.fim ? ` · fim previsto em ${R.dataBR(uma.fim)}` : ""}</p>`
+        : `<p class="lista-baixa">${lista.map((a) => esc(a.numero)).join(", ")}</p>`}
+      <ol class="passos-baixa">
+        <li class="${sinalizadas === lista.length ? "feito" : ""}"><b>Sinalizar</b> a ação “Dar baixa”${sinalizadas === lista.length ? " (feito)" : " (feito agora, junto com o registro)"}</li>
+        <li><b>Dar a baixa no portal do CREA</b> (obra ou serviço concluído, ou interrompido)</li>
+        <li><b>Registrar aqui</b> a data da baixa: a ART sai dos vencimentos, dos alertas e do indicador de ação</li>
+      </ol>
+      <div class="campos">
+        <label class="c3">Data da baixa no CREA<input type="date" name="data" value="${hoje}" max="${hoje}" required></label>
+        <label class="c3">Motivo<select name="motivo"><option value="conclusao">Conclusão</option><option value="interrupcao">Interrupção</option></select></label>
+      </div>
+      <label class="opcao-linha confirma-baixa"><input type="checkbox" name="confirmo"> <span>Já dei a baixa ${uma ? "desta ART" : "destas ARTs"} no portal do CREA</span></label>
+      <p class="erro" id="erro-baixa" role="alert" hidden></p>
+    </div>
+    <div class="dlg-rodape">
+      <button class="btn btn-claro" type="button" data-fechar>Cancelar</button>
+      <button class="btn btn-primary" type="submit" disabled>Registrar baixa</button>
+    </div>
+  </form>`;
+  const form = $("#form-baixa", dlg);
+  const botao = form.querySelector("[type=submit]");
+  form.elements.confirmo.addEventListener("change", (e) => { botao.disabled = !e.target.checked; });
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = form.elements.data.value;
+    const falha = (t) => { $("#erro-baixa", dlg).textContent = t; $("#erro-baixa", dlg).hidden = false; };
+    if (!form.elements.confirmo.checked) return falha("Confirme que a baixa já foi dada no portal do CREA.");
+    if (!data || data > hoje) return falha("Informe a data em que a baixa foi dada no CREA (hoje ou antes).");
+    botao.disabled = true;
+    try {
+      const motivo = form.elements.motivo.value;
+      // A ação fica como "Dar baixa" (o histórico mostra o que foi feito) e a ART sai do arquivo, se estava nele
+      const salvos = await armazem.salvarVarios(lista.map((a) => ({ ...a, acao: a.acao && a.acao !== "arquivada" ? a.acao : "baixa", arquivada_em: null,
+        baixa_data: data, baixa_motivo: motivo })));
+      const porId = new Map(salvos.map((x) => [x.id, x]));
+      arts = arts.map((a) => (porId.has(a.id) ? { ...a, ...porId.get(a.id) } : a));
+      lista.forEach((a) => selecionadas.delete(a.id));
+      $("#lote-acao").value = "";
+      dlg.close();
+      renderizar();
+      if ($("#dlg-vencimentos").open) renderVencimentos();
+      avisar(uma ? `Baixa registrada na ART ${uma.numero} (${R.dataBR(data)}).` : `Baixa registrada em ${plural(lista.length, "ART", "ARTs")} (${R.dataBR(data)}).`);
+    } catch (err) {
+      falha("Não foi possível registrar a baixa: " + err.message);
+      botao.disabled = false;
+    }
+  });
+  dlg.showModal();
+}
+
 // Ação escolhida para as ARTs marcadas na lista
 async function aplicarEmLote() {
   const escolha = $("#lote-acao").value;
   const lista = arts.filter((a) => selecionadas.has(a.id) && !a.baixa_data);
   if (!lista.length || !escolha) return;
+  if (escolha === REGISTRAR_BAIXA) {
+    abrirBaixa(lista);
+    return;
+  }
   const acao = escolha === "nenhuma" ? null : escolha;
   const botao = $("#btn-lote-aplicar");
   botao.disabled = true;
@@ -365,6 +442,7 @@ function renderVencimentos() {
       </div>
       ${nada ? '<p class="venc-ok">Nenhuma ART vencida nem a vencer nos próximos 90 dias.</p>' : ""}
       ${r.semAcao ? `<p class="venc-aviso"><b>${plural(r.semAcao, "ART vencida ou a vencer em 30 dias está", "ARTs vencidas ou a vencer em 30 dias estão")} sem ação definida.</b> Escolha para cada uma: dar baixa, emitir ART substituta, complementar ou nova, ou arquivar quando não houver outra ART que a continue.</p>` : ""}
+      <p class="dica">Baixa em dois passos: “Dar baixa” sinaliza (a ART fica em “a dar baixa”); depois de dar a baixa no portal do CREA, <b>Registrar baixa</b> conclui. Se já deu a baixa no CREA, escolha “Registrar a baixa agora”.</p>
       ${grupo("Vencidas sem baixa", r.vencidas, "vg-vencida", true)}
       ${grupo("Vencem nos próximos 30 dias", r.ate30, "vg-30", true)}
       ${grupo("Vencem em 31 a 90 dias", r.ate90, "vg-90", !r.vencidas.length && !r.ate30.length)}
@@ -521,12 +599,17 @@ function abrirArt(id, opcoes = {}) {
         ${s === "baixada"
           ? `<p>Baixa registrada em <b>${R.dataBR(art.baixa_data)}</b> (${{ interrupcao: "interrupção", substituicao: "substituída por outra ART" }[art.baixa_motivo] || "conclusão"}).</p>
              <button class="btn btn-claro" type="button" id="btn-desfazer-baixa">Desfazer baixa</button>`
-          : `<div class="linha-acoes">
-              <label>Data da baixa<input type="date" name="baixa_data_nova" value="${hoje}"></label>
+          : `<ol class="passos-baixa">
+              <li class="${art.acao === "baixa" ? "feito" : ""}"><b>Sinalizar</b> a ação “Dar baixa” acima${art.acao === "baixa" ? " (feito)" : ""}</li>
+              <li><b>Dar a baixa no portal do CREA</b></li>
+              <li><b>Registrar aqui</b> a data da baixa</li>
+            </ol>
+            <div class="linha-acoes">
+              <label>Data da baixa no CREA<input type="date" name="baixa_data_nova" value="${hoje}" max="${hoje}"></label>
               <label>Motivo<select name="baixa_motivo_novo"><option value="conclusao">Conclusão</option><option value="interrupcao">Interrupção</option><option value="substituicao">Substituição</option></select></label>
-              <button class="btn btn-dark" type="button" id="btn-baixa">Registrar baixa</button>
             </div>
-            <p class="dica">Registre aqui depois de dar a baixa no portal do CREA.</p>`}
+            <label class="opcao-linha confirma-baixa"><input type="checkbox" name="baixa_confirmo"> <span>Já dei a baixa desta ART no portal do CREA</span></label>
+            <div class="linha-acoes"><button class="btn btn-dark" type="button" id="btn-baixa" disabled>Registrar baixa</button></div>`}
       </div>
 
       ${blocoFinanceiro(art)}
@@ -606,10 +689,16 @@ function abrirArt(id, opcoes = {}) {
     }
   });
 
+  form.elements.baixa_confirmo?.addEventListener("change", (e) => { $("#btn-baixa", dlg).disabled = !e.target.checked; });
   $("#btn-baixa", dlg)?.addEventListener("click", async () => {
     const data = form.elements.baixa_data_nova.value || hoje;
     const motivo = form.elements.baixa_motivo_novo.value;
-    if (await salvar({ baixa_data: data, baixa_motivo: motivo })) {
+    if (!form.elements.baixa_confirmo.checked) return avisar("Confirme que a baixa já foi dada no portal do CREA.");
+    if (data > hoje) return avisar("A data da baixa é a do CREA: hoje ou antes.");
+    // Sem ação escolhida, a ação fica como "Dar baixa" (o histórico mostra o que foi feito)
+    const acao = (form.querySelector("input[name=acao]:checked") || {}).value;
+    const extra = acao ? {} : { acao: "baixa", arquivada_em: null };
+    if (await salvar({ ...extra, baixa_data: data, baixa_motivo: motivo })) {
       dlg.close();
       avisar(`Baixa registrada na ART ${art.numero}.`);
     }
@@ -845,6 +934,9 @@ document.addEventListener("click", async (e) => {
     $("#filtro-situacao").value = filtro.situacao;
     renderizar();
     $("#tabela").scrollIntoView({ behavior: "smooth", block: "start" });
+  } else if (alvo.matches("[data-registrar-baixa]")) {
+    const art = arts.find((a) => a.id === alvo.dataset.registrarBaixa);
+    if (art) abrirBaixa([art]);
   } else if (alvo.matches("[data-ver]")) {
     alternarAlertas(false);
     if ($("#dlg-vencimentos").open) $("#dlg-vencimentos").close();
@@ -865,7 +957,7 @@ document.addEventListener("keydown", (e) => {
   if (cl && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); cl.click(); }
 });
 $("#tabela").addEventListener("keydown", (e) => {
-  if (e.target.closest("select, input")) return;
+  if (e.target.closest("select, input, button")) return;
   const tr = e.target.closest("tr.clicavel");
   if (tr && (e.key === "Enter" || e.key === " ")) {
     e.preventDefault();
@@ -921,7 +1013,7 @@ $("#btn-limpar-filtros").addEventListener("click", () => {
   renderizar();
 });
 // Ação escolhida na lista ou no resumo dos vencimentos
-document.addEventListener("change", (e) => { if (e.target.matches("select[data-acao]")) salvarAcao(e.target.dataset.acao, e.target.value); });
+document.addEventListener("change", (e) => { if (e.target.matches("select[data-acao]")) salvarAcao(e.target.dataset.acao, e.target.value, e.target); });
 window.addEventListener("hashchange", () => {
   if (location.hash !== "#acao") return;
   filtro.situacao = "acao";

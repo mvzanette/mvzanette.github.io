@@ -1145,7 +1145,7 @@ begin
       case x.acao when 'baixa' then 'Dar baixa' when 'substituta' then 'Emitir ART substituta'
                   when 'complementar' then 'Emitir ART complementar' when 'nova' then 'Emitir nova ART' else 'Sem ação definida' end as rotulo_acao,
       case x.acao
-        when 'baixa' then 'Concluir a obra ou o serviço, dar baixa por conclusão no portal do CREA e registrar a data da baixa aqui.'
+        when 'baixa' then 'Concluir a obra ou o serviço, dar baixa no portal do CREA e depois clicar em Registrar baixa no Controle de ART.'
         when 'substituta' then 'Emitir a ART substituta no portal do CREA e importar aqui como ART vinculada.'
         when 'complementar' then 'Emitir a ART complementar no portal do CREA e importar aqui como ART vinculada.'
         when 'nova' then 'Emitir a nova ART no portal do CREA e importar aqui como ART vinculada.'

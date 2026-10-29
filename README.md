@@ -345,7 +345,8 @@ O dinheiro da engenharia que você faz por conta própria (autônomo). Os lança
   - 30 dias antes: "Daqui a 30 dias a ART nº … do cliente … vencerá (fim previsto em …)."
   - 7 dias antes e no dia;
   - depois de vencida, uma vez por semana até a baixa ser registrada ou a ART ser arquivada.
-- **Registro de baixa** (conclusão, interrupção ou substituição), vínculo entre a ART anterior e a nova (renovação, substituta ou complementar) e **"Copiar dados para nova ART"**, para colar no portal do CREA.
+- **Baixa em dois passos:** primeiro **sinalizar** (ação "Dar baixa": a ART fica em "a dar baixa" no indicador, nos alertas e no informativo); depois de dar a baixa no portal do CREA, **registrar** com o botão **Registrar baixa**, que aparece ao lado da ação na lista e no resumo dos vencimentos, e também na ficha da ART. Quem já deu a baixa no CREA escolhe **"Registrar a baixa agora (já feita no CREA)"** na própria caixa da ação (os dois passos de uma vez), inclusive para várias ARTs marcadas na lista. O registro pede a data da baixa no CREA (hoje ou antes), o motivo (conclusão ou interrupção) e a confirmação "Já dei a baixa no portal do CREA"; a ART fica baixada e sai dos vencimentos, dos alertas, do indicador e do informativo. **Desfazer baixa**, na ficha da ART, volta a deixá-la em "a dar baixa".
+- **Vínculo entre a ART anterior e a nova** (renovação, substituta ou complementar; a substituta deixa a anterior baixada por substituição) e **"Copiar dados para nova ART"**, para colar no portal do CREA.
 - **Exportação em planilha (CSV)**, que também serve como cópia de segurança.
 
 A emissão e a baixa da ART continuam sendo feitas no portal de cada CREA. Nenhum dos três CREAs oferece integração oficial para sistemas externos; por isso a plataforma trabalha com os PDFs.
