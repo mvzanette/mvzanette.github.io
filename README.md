@@ -291,12 +291,23 @@ A classificação fica no site e continua valendo depois de cada importação (o
 - **Investimento não é gasto.** O que é lançado na categoria Investimentos sai do caixa como investimento: fica fora dos gastos pagos, do quadro "Gastos do dia a dia" e da média fora do cartão. O balanço diz quanto entrou, quanto se gastou e quanto se investiu.
 - **Pagamento de recorrente é fixo.** O gasto que paga um recorrente (aluguel, escola, assinatura) conta como fixo fora do cartão, não como Pix do dia a dia: no balanço, na previsão, na visão do casal e nos gastos pagos.
 - **Sobra (previsão dos próximos meses) = entradas − fatura que vence − investimento − fixos fora do cartão**, a mesma conta em todos os meses. A tabela mostra cada parte, a fatura com o valor que entra na conta (a ainda aberta conta pelo menos a previsão do cartão) e um gráfico de linha da sobra.
-- **Uma fonte para cada número.** Aporte previsto de cada um: a previsão do mês de cada painel (Cadastros); sem ela, o aporte da pessoa na carteira conjunta do projeto. Valor da carteira conjunta: a soma dos investimentos conjuntos cadastrados um a um (a foto do projeto aparece como referência). Data: uma só, "Última atualização", no topo.
+- **Uma fonte para cada número.** Aporte previsto de cada um: o plano de aportes (Cadastros); sem plano, a previsão do mês de cada painel (Cadastros); sem ela, o aporte da pessoa na carteira conjunta do projeto. Valor da carteira conjunta: a soma dos investimentos conjuntos cadastrados um a um (a foto do projeto aparece como referência). Data: uma só, "Última atualização", no topo.
 - **Média fora do cartão** (lista de desejos): os três últimos meses fechados com gastos ou, sem eles, o mês atual até agora, sem os investimentos e os fixos; sem nenhum gasto, a tela diz isso em vez de mostrar R$ 0,00.
 - **Recorrente parcelado:** com o primeiro e o último mês (ou "1/15" no nome e o primeiro mês), a parcela do mês avança sozinha ("parcela 3 de 15"), entra na descrição do pagamento e o recorrente termina na última.
 - **Datas:** gasto e entrada só aceitam datas de até 5 anos atrás ou 3 à frente (um ano digitado errado, como 2006, criava um mês perdido).
 - **Carteira conjunta:** projeção conservadora por padrão (11% ao ano, líquida de IR e em dinheiro de hoje; a taxa de 2026 fica como opção), com saldo de hoje e aportes em colunas separadas; aviso quando o rendimento do ano não bate com a soma por classe; selo "atualizado há N dias"; os aportes lançados no caixa (categoria Investimentos) aparecem no quadro de aportes com o previsto do mês.
 - **Cartão:** pontos de atenção com os de prioridade alta e média no topo e as compras parceladas acima de R$ 1.000; o resto fica recolhido, contado por tipo. "Tarifas, juros e IOF" soma a categoria Tarifas e encargos. A próxima parcela aparece como "2 de 12", e um gráfico mostra quanto das próximas faturas já está comprometido.
+
+### Plano de aportes com datas
+
+Em **Cadastros → Plano de aportes**, cada pessoa do casal tem degraus: destino (ex.: conta conjunta), valor por mês e o mês a partir do qual vale. O valor de um mês é, em cada destino, o do degrau com a maior data "a partir de" até aquele mês; os destinos somam e valor zero pausa um destino. Os dois veem e alteram os degraus dos dois (mesma regra de acesso das finanças). Do primeiro degrau em diante, o plano vale no lugar do "Investimento mensal" das Previsões do mês (que continua para quem não tem plano e para os meses antes do plano):
+
+- **Balanço do mês:** a linha "(−) Investimento" prevista é o valor vigente menos o já lançado, com "Aporte de nov/26: R$ 500,00 de R$ 1.250,00 (faltam R$ 750,00)";
+- **Previsão dos próximos meses:** cada mês desconta o aporte vigente naquele mês (e, por ela, a sobra da lista de desejos);
+- **Projeção da carteira:** "Seguir o plano de aportes" (marcado por padrão) faz os aportes mudarem nas datas dos degraus; desmarcado, simula um valor fixo;
+- **Previsto × feito do mês por pessoa** na aba Investimentos e na visão do casal (o feito são os investimentos lançados no caixa de cada painel; o painel da outra pessoa é lido só para o cálculo).
+
+Fica na tabela `planos_aporte` (perfil_id de quem aporta, destino, valor, vigente_desde no dia 1).
 
 ### Lançamento dividido em mais de uma categoria
 

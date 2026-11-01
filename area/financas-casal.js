@@ -11,6 +11,7 @@
 import { desenharFinancas } from "./financas-painel.js";
 import { lerCategorias } from "./financas-classificacao.js";
 import { CLASSES, INDEXADORES, TIPOS, rendeuNoMes, registroAte, resumir, serieMensal, ultimoMes } from "./financas-investimentos.js";
+import { textoPrevistoFeito } from "./financas-plano.js";
 import { $, esc } from "./ui.js";
 
 const brl = (v) => Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -32,23 +33,33 @@ const chaveDesc = (s) => semAcento(s).toUpperCase().replace(/\s*-?\s*PARCELA\s*\
   .replace(/[^A-Z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
 const ROTULO_ESS = (v) => (v === true ? "Essencial" : v === false ? "Não essencial" : "Sem classificação");
 
+// O painel de uma pessoa só para os cálculos (sem desenhar nada), com as preferências e a classificação dela:
+// recorrentes do site, gastos a pagar, fixos trocados, previsões do mês, plano de aportes, categorias (e as juntadas),
+// ajustes e lançamentos divididos. Usado na visão do casal e, no painel de uma pessoa, para os números da outra.
+export async function lerPainelSoCalculo(armazem, p, { planoAporte = null } = {}) {
+  const registro = await armazem.financas.ler(p.id);
+  if (!registro) return null;
+  const [gastos, entradas, prefs, ajustes] = await Promise.all([
+    armazem.financas.gastos(p.id).catch(() => []),
+    armazem.financas.entradas(p.id).catch(() => []),
+    armazem.financas.preferencias(p.id).catch(() => null),
+    armazem.financas.ajustes(p.id).catch(() => []),
+  ]);
+  const painel = desenharFinancas({ dados: registro.dados, modo: registro.modo, nome: p.nome, gastosSite: gastos, entradasSite: entradas,
+    recorrentes: Array.isArray(prefs && prefs.recorrentes) ? prefs.recorrentes : [], caixa: (prefs && prefs.caixa) || {},
+    categorias: lerCategorias(prefs, registro.dados), ajustes, comMeses: true, somenteCalculo: true, planoAporte });
+  return { registro, prefs, painel };
+}
+
 // pessoas: [{ id, nome, link }], na ordem das colunas
 export async function mostrarCasal({ armazem, pessoas }) {
+  // Plano de aportes dos dois (sem a tabela no banco, cada painel segue a previsão do mês)
+  const planos = await armazem.financas.planosAporte(pessoas.map((p) => p.id)).catch(() => []);
   const lidos = await Promise.all(pessoas.map(async (p) => {
     const base = { ...p, curto: primeiro(p), painel: null, investimentos: [], carteira: null };
-    const registro = await armazem.financas.ler(p.id);
-    if (!registro) return base;
-    const [gastos, entradas, prefs, ajustes] = await Promise.all([
-      armazem.financas.gastos(p.id).catch(() => []),
-      armazem.financas.entradas(p.id).catch(() => []),
-      armazem.financas.preferencias(p.id).catch(() => null),
-      armazem.financas.ajustes(p.id).catch(() => []),
-    ]);
-    // Com as preferências e a classificação de cada painel: recorrentes do site, gastos a pagar, fixos trocados,
-    // previsões do mês, categorias (e as juntadas), ajustes e lançamentos divididos
-    const painel = desenharFinancas({ dados: registro.dados, modo: registro.modo, nome: p.nome, gastosSite: gastos, entradasSite: entradas,
-      recorrentes: Array.isArray(prefs && prefs.recorrentes) ? prefs.recorrentes : [], caixa: (prefs && prefs.caixa) || {},
-      categorias: lerCategorias(prefs, registro.dados), ajustes, comMeses: true, somenteCalculo: true });
+    const lido = await lerPainelSoCalculo(armazem, p, { planoAporte: planos.filter((d) => d.perfil_id === p.id) });
+    if (!lido) return base;
+    const { registro, prefs, painel } = lido;
     return { ...base, painel, investimentos: Array.isArray(prefs && prefs.investimentos) ? prefs.investimentos : [], carteira: registro.investimentos || null };
   }));
   const comPainel = lidos.filter((p) => p.painel);
@@ -136,6 +147,13 @@ export async function mostrarCasal({ armazem, pessoas }) {
         ${linha("(−) Fixos fora do cartão", (r) => r.fixosFora)}
         <tr class="casal-saldo"><th scope="row">Saldo do mês</th>${res.map((r) => (r ? `<td class="r${r.saldo < 0 ? " neg" : ""}">${brl(r.saldo)}</td>` : '<td class="r"><span class="sem">—</span></td>')).join("")}<td class="r casal-total${saldo < 0 ? " neg" : ""}">${brl(saldo)}</td></tr>
       </tbody>`;
+    // Previsto × feito dos aportes no mês (plano de aportes ou previsão do mês de cada painel); só do mês atual em diante
+    const aps = lidos.map((p, i) => (res[i] && res[i].aporte ? { p, a: res[i].aporte } : null)).filter((x) => x && (x.a.previsto > 0 || x.a.feito > 0));
+    $("#casal-aportes").hidden = atual < hoje || !aps.length;
+    $("#casal-aportes").innerHTML = aps.length ? `<b>Aportes de ${esc(meses.get(atual) || "")}</b> (previsto × feito): ${aps.map(({ p, a }) => {
+      const ok = a.previsto > 0 && a.feito >= a.previsto - 0.005;
+      return `<span class="${ok ? "ok" : ""}">${esc(p.curto)} ${esc(textoPrevistoFeito(a.feito, a.previsto))}${a.plano ? "" : " · previsão do mês"}</span>`;
+    }).join(" · ")}` : "";
     const inv = investimentosDoCasal();
     const kpis = [
       ["entradas", "Entradas do casal", brl(entra), `${meses.get(atual)} · ${lidos.map((p, i) => `${p.curto} ${res[i] ? brl(res[i].receitas) : "—"}`).join(" · ")}`],

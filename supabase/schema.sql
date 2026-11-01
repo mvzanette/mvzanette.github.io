@@ -1304,3 +1304,76 @@ begin
   end loop;
 end $$;
 alter default privileges in schema public revoke truncate, trigger, references on tables from anon, authenticated;
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- Plano de aportes com datas: quanto cada pessoa (perfil_id) aporta por mês em cada destino, a partir de um mês.
+-- O valor de um mês é, em cada destino, o do degrau com a maior data "a partir de" até aquele mês; os destinos somam.
+-- Valor zero a partir de um mês pausa os aportes naquele destino.
+create table if not exists public.planos_aporte (
+  id            uuid primary key default gen_random_uuid(),
+  perfil_id     uuid not null references public.perfis (id) on delete cascade,
+  destino       text not null check (length(trim(destino)) between 1 and 80),
+  valor         numeric(12, 2) not null check (valor >= 0),
+  vigente_desde date not null check (extract(day from vigente_desde) = 1),
+  criado_em     timestamptz not null default now(),
+  criado_por    uuid default auth.uid() references auth.users (id) on delete set null
+);
+create unique index if not exists planos_aporte_degrau_key on public.planos_aporte (perfil_id, lower(trim(destino)), vigente_desde);
+
+-- Caixinhas de provisão para gastos futuros (IPTU, IPVA, seguro, viagem, casa...).
+--   dono: pessoal (de quem cadastrou, perfil_id) ou casal (dos dois; aparece nos dois painéis)
+--   tipo: recorrente (repete todo ano; "Paguei" zera o saldo e leva a data alvo um ano à frente) ou meta (única)
+--   saldo e saldo_em: o saldo informado e a data; o site soma os depósitos e tira os gastos pagos com a caixinha
+--     lançados depois dessa data. inicio: começo do período (para saber se está em dia ou atrasada)
+--   divisao (só casal): 50/50, renda (proporcional às entradas do mês de cada um) ou fixo (parte = % de quem cadastrou)
+create table if not exists public.caixinhas (
+  id            uuid primary key default gen_random_uuid(),
+  perfil_id     uuid not null references public.perfis (id) on delete cascade,
+  nome          text not null check (length(trim(nome)) between 1 and 80),
+  dono          text not null default 'pessoal' check (dono in ('pessoal', 'casal')),
+  tipo          text not null default 'meta' check (tipo in ('recorrente', 'meta')),
+  meta          numeric(12, 2) not null check (meta > 0),
+  data_alvo     date not null,
+  inicio        date not null default current_date,
+  saldo         numeric(12, 2) not null default 0 check (saldo >= 0),
+  saldo_em      date,
+  divisao       text not null default 'renda' check (divisao in ('50/50', 'renda', 'fixo')),
+  parte         numeric(5, 2) check (parte is null or parte between 0 and 100),
+  ativa         boolean not null default true,
+  criado_em     timestamptz not null default now(),
+  atualizado_em timestamptz not null default now(),
+  criado_por    uuid default auth.uid() references auth.users (id) on delete set null
+);
+create index if not exists caixinhas_perfil_idx on public.caixinhas (perfil_id);
+
+drop trigger if exists caixinhas_atualizado_em on public.caixinhas;
+create trigger caixinhas_atualizado_em before update on public.caixinhas
+  for each row execute function public.tocar_atualizado_em();
+
+-- Gasto ligado a uma caixinha. Na categoria "Caixinhas" é um depósito nela (sai do caixa na linha própria, não é gasto);
+-- em outra categoria foi pago com o dinheiro dela (não entra nos gastos nem no caixa do mês, só tira do saldo).
+alter table public.financas_gastos add column if not exists caixinha_id uuid references public.caixinhas (id) on delete set null;
+-- Desejo ligado a uma caixinha: o "já guardado" vem do saldo dela
+alter table public.financas_desejos add column if not exists caixinha_id uuid references public.caixinhas (id) on delete set null;
+-- Aba Investimentos (onde investir): premissas (Selic, IPCA), ofertas, comparador e divisão do aporte
+alter table public.financas_preferencias add column if not exists investir jsonb not null default '{}'::jsonb
+  check (jsonb_typeof(investir) = 'object');
+
+-- Mesmo acesso das finanças: a pessoa, quem forma casal com ela e o administrador
+alter table public.planos_aporte enable row level security;
+alter table public.caixinhas enable row level security;
+revoke all on public.planos_aporte, public.caixinhas from anon;
+grant select, insert, update, delete on public.planos_aporte, public.caixinhas to authenticated, service_role;
+revoke truncate, trigger, references on public.planos_aporte, public.caixinhas from authenticated;
+
+drop policy if exists "planos de aporte do proprio perfil" on public.planos_aporte;
+create policy "planos de aporte do proprio perfil" on public.planos_aporte
+  for all to authenticated
+  using (public.financas_acesso(perfil_id))
+  with check (public.financas_acesso(perfil_id));
+
+drop policy if exists "caixinhas do proprio perfil" on public.caixinhas;
+create policy "caixinhas do proprio perfil" on public.caixinhas
+  for all to authenticated
+  using (public.financas_acesso(perfil_id))
+  with check (public.financas_acesso(perfil_id));

@@ -128,8 +128,61 @@ function limparGasto(g) {
     conta: contaValida(g.conta),
     recorrente: texto(g.recorrente, 120), // pagamento recorrente que o gasto paga
     ...("partes" in g ? { partes: limparPartes(g.partes) } : {}),
+    // Caixinha ligada: depósito nela (categoria Caixinhas) ou gasto pago com o dinheiro dela (nunca no cartão)
+    ...("caixinha_id" in g ? { caixinha_id: forma === "cartao" ? null : idValido(g.caixinha_id) } : {}),
   };
 }
+const idValido = (v) => (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || "")) ? String(v) : null);
+const centavos = (v) => Math.round(Number(v) * 100) / 100;
+const MES_VALIDO = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+// Degrau do plano de aportes: quem aporta (perfil), o destino, o valor por mês e o mês a partir do qual vale
+function limparDegrau(d) {
+  const valor = centavos(d.valor);
+  if (!Number.isFinite(valor) || valor < 0) throw new Error("Informe o valor do aporte por mês (zero pausa os aportes nesse destino).");
+  const destino = texto(d.destino, 80);
+  if (!destino) throw new Error("Informe o destino do aporte (ex.: conta conjunta).");
+  const mes = String(d.vigente_desde || "").slice(0, 7);
+  if (!MES_VALIDO.test(mes)) throw new Error("Informe a partir de que mês o valor vale.");
+  exigirDataPlausivel(`${mes}-01`, "de início");
+  if (!idValido(d.perfil_id)) throw new Error("Escolha de quem é o aporte.");
+  return { ...(d.id ? { id: d.id } : {}), perfil_id: d.perfil_id, destino, valor, vigente_desde: `${mes}-01` };
+}
+const numerosDegrau = (d) => ({ ...d, valor: Number(d.valor) });
+
+// Caixinha de provisão: só as colunas da tabela, com tipos certos
+function limparCaixinha(c) {
+  const nome = texto(c.nome, 80);
+  if (!nome) throw new Error("Informe o nome da caixinha.");
+  const meta = centavos(c.meta);
+  if (!(meta > 0)) throw new Error("Informe a meta (maior que zero).");
+  const saldo = c.saldo == null || c.saldo === "" ? 0 : centavos(c.saldo);
+  if (!Number.isFinite(saldo) || saldo < 0) throw new Error("O saldo não pode ser negativo.");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(c.data_alvo || ""))) throw new Error("Informe a data alvo.");
+  const ano = Number(c.data_alvo.slice(0, 4)), agora = new Date().getFullYear();
+  if (ano < agora - 1 || ano > agora + 40) throw new Error("Confira o ano da data alvo.");
+  const dono = c.dono === "casal" ? "casal" : "pessoal";
+  const divisao = ["50/50", "renda", "fixo"].includes(c.divisao) ? c.divisao : "renda";
+  const parte = divisao === "fixo" && c.parte != null && c.parte !== "" ? Math.min(100, Math.max(0, Number(c.parte))) : null;
+  if (dono === "casal" && divisao === "fixo" && !Number.isFinite(parte)) throw new Error("Informe o percentual da divisão fixa.");
+  const data = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || "")) ? v : null);
+  return {
+    ...(c.id ? { id: c.id } : {}),
+    perfil_id: c.perfil_id,
+    nome,
+    dono,
+    tipo: c.tipo === "recorrente" ? "recorrente" : "meta",
+    meta,
+    data_alvo: c.data_alvo,
+    inicio: data(c.inicio) || hojeLocal(),
+    saldo,
+    saldo_em: data(c.saldo_em),
+    divisao,
+    parte: dono === "casal" ? parte : null,
+    ativa: c.ativa !== false,
+  };
+}
+const numerosCaixinha = (c) => ({ ...c, meta: Number(c.meta), saldo: Number(c.saldo), parte: c.parte == null ? null : Number(c.parte) });
 
 // Lançamento dividido em mais de uma categoria: [{ valor, categoria, subcategoria, conta }], de duas a oito partes
 function limparPartes(lista) {
@@ -228,6 +281,7 @@ function limparDesejo(d) {
     observacao: texto(d.observacao, 300),
     situacao,
     comprado_em: situacao === "comprado" ? d.comprado_em || hojeLocal() : null,
+    ...("caixinha_id" in d ? { caixinha_id: idValido(d.caixinha_id) } : {}),
   };
 }
 const numerosDesejo = (d) => ({ ...d, valor: Number(d.valor), guardado: Number(d.guardado), parte: Number(d.parte) });
@@ -350,6 +404,8 @@ function armazemDemo() {
   const PREFS = "mz-area-demo-financas-prefs";
   const AJUSTES = "mz-area-demo-financas-ajustes";
   const DESEJOS = "mz-area-demo-financas-desejos";
+  const PLANOS = "mz-area-demo-financas-planos";
+  const CAIXINHAS = "mz-area-demo-financas-caixinhas";
   const pdfsFinancas = []; // PDFs só durante a sessão
   const lerPerfis = () => lerJson(PERFIS, []);
   const eu = () => {
@@ -587,7 +643,7 @@ function armazemDemo() {
       async salvarPreferencias(perfilId, campos) {
         exigirDono(perfilId);
         const todos = lerJson(PREFS, {});
-        todos[perfilId] = { perfil_id: perfilId, categorias: {}, plano: {}, contas: {}, caixa: {}, recorrentes: [], investimentos: [], ...todos[perfilId], ...soCampos(campos, ["categorias", "plano", "contas", "caixa", "recorrentes", "investimentos"]),
+        todos[perfilId] = { perfil_id: perfilId, categorias: {}, plano: {}, contas: {}, caixa: {}, recorrentes: [], investimentos: [], investir: {}, ...todos[perfilId], ...soCampos(campos, ["categorias", "plano", "contas", "caixa", "recorrentes", "investimentos", "investir"]),
           atualizado_em: new Date().toISOString() };
         gravarJson(PREFS, todos);
         return structuredClone(todos[perfilId]);
@@ -627,6 +683,41 @@ function armazemDemo() {
       },
       async apagarDesejo(idDesejo) {
         gravarJson(DESEJOS, lerJson(DESEJOS, []).filter((d) => d.id !== idDesejo || !doDesejo(d)));
+      },
+      // Plano de aportes com datas (degraus de cada pessoa) e caixinhas de provisão: mesmas regras do banco
+      async planosAporte(perfilIds) {
+        return lerJson(PLANOS, []).filter((d) => perfilIds.includes(d.perfil_id) && acessoFinancas(d.perfil_id))
+          .sort((a, b) => a.vigente_desde.localeCompare(b.vigente_desde));
+      },
+      async salvarDegrau(degrau) {
+        const linha = limparDegrau(degrau);
+        exigirDono(linha.perfil_id);
+        const todos = lerJson(PLANOS, []);
+        const igual = (x) => x.perfil_id === linha.perfil_id && x.vigente_desde === linha.vigente_desde && x.destino.trim().toLowerCase() === linha.destino.toLowerCase();
+        if (todos.some((x) => x.id !== linha.id && igual(x))) throw new Error("Já existe um degrau para esse destino nesse mês.");
+        let d = linha.id && todos.find((x) => x.id === linha.id);
+        if (d) { exigirDono(d.perfil_id); Object.assign(d, linha); }
+        else todos.push((d = { id: novoId(), criado_em: new Date().toISOString(), ...linha }));
+        gravarJson(PLANOS, todos);
+        return structuredClone(d);
+      },
+      async apagarDegrau(id) {
+        gravarJson(PLANOS, lerJson(PLANOS, []).filter((d) => d.id !== id || !acessoFinancas(d.perfil_id)));
+      },
+      async caixinhas(perfilIds) {
+        return lerJson(CAIXINHAS, []).filter((c) => perfilIds.includes(c.perfil_id) && acessoFinancas(c.perfil_id))
+          .sort((a, b) => a.data_alvo.localeCompare(b.data_alvo));
+      },
+      async salvarCaixinha(caixinha) {
+        const linha = limparCaixinha(caixinha);
+        exigirDono(linha.perfil_id);
+        const todas = lerJson(CAIXINHAS, []);
+        const agora = new Date().toISOString();
+        let c = linha.id && todas.find((x) => x.id === linha.id);
+        if (c) { exigirDono(c.perfil_id); Object.assign(c, linha, { atualizado_em: agora }); }
+        else todas.push((c = { id: novoId(), criado_em: agora, ...linha, atualizado_em: agora }));
+        gravarJson(CAIXINHAS, todas);
+        return structuredClone(c);
       },
       // Quem usa as finanças (para dividir desejos): só o primeiro nome
       async pessoas() {
@@ -915,11 +1006,11 @@ async function armazemSupabase(url, chave) {
       async salvarPreferencias(perfilId, campos) {
         const { data, error } = await sb
           .from("financas_preferencias")
-          .upsert({ perfil_id: perfilId, ...soCampos(campos, ["categorias", "plano", "contas", "caixa", "recorrentes", "investimentos"]) }, { onConflict: "perfil_id" })
+          .upsert({ perfil_id: perfilId, ...soCampos(campos, ["categorias", "plano", "contas", "caixa", "recorrentes", "investimentos", "investir"]) }, { onConflict: "perfil_id" })
           .select()
           .single();
         if (error) throw new Error(error.code === "42501" || error.code === "PGRST116" ? "Sem permissão para alterar estas preferências."
-          : /contas|caixa|recorrentes|investimentos/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+          : /contas|caixa|recorrentes|investimentos|investir/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
         return data;
       },
       async ajustes(perfilId) {
@@ -952,6 +1043,36 @@ async function armazemSupabase(url, chave) {
       async apagarDesejo(idDesejo) {
         const { error } = await sb.from("financas_desejos").delete().eq("id", idDesejo);
         falhou(error);
+      },
+      // Plano de aportes com datas (degraus de cada pessoa) e caixinhas de provisão
+      async planosAporte(perfilIds) {
+        const { data, error } = await sb.from("planos_aporte").select("*").in("perfil_id", perfilIds).order("vigente_desde");
+        if (error) throw new Error(/planos_aporte/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+        return (data || []).map(numerosDegrau);
+      },
+      async salvarDegrau(degrau) {
+        const { id, ...campos } = limparDegrau(degrau);
+        const consulta = id ? sb.from("planos_aporte").update(campos).eq("id", id) : sb.from("planos_aporte").insert(campos);
+        const { data, error } = await consulta.select().single();
+        if (error) throw new Error(error.code === "23505" ? "Já existe um degrau para esse destino nesse mês."
+          : error.code === "42501" || error.code === "PGRST116" ? "Sem permissão para alterar este plano." : error.message);
+        return numerosDegrau(data);
+      },
+      async apagarDegrau(id) {
+        const { error } = await sb.from("planos_aporte").delete().eq("id", id);
+        falhou(error);
+      },
+      async caixinhas(perfilIds) {
+        const { data, error } = await sb.from("caixinhas").select("*").in("perfil_id", perfilIds).order("data_alvo");
+        if (error) throw new Error(/caixinhas/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+        return (data || []).map(numerosCaixinha);
+      },
+      async salvarCaixinha(caixinha) {
+        const { id, ...campos } = limparCaixinha(caixinha);
+        const consulta = id ? sb.from("caixinhas").update(campos).eq("id", id) : sb.from("caixinhas").insert(campos);
+        const { data, error } = await consulta.select().single();
+        if (error) throw new Error(error.code === "42501" || error.code === "PGRST116" ? "Sem permissão para alterar esta caixinha." : error.message);
+        return numerosCaixinha(data);
       },
       async pessoas() {
         const { data, error } = await sb.rpc("pessoas_financas");

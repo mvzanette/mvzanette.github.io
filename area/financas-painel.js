@@ -6,6 +6,7 @@
 import { outrasPessoas } from "./financas-importar.js";
 import { chavesFatura, chavesGastos, efetivo, lerCategorias, nomeConta, partesDe, textoPartes } from "./financas-classificacao.js";
 import { ordemFatura } from "./financas-previa.js";
+import { mudancas, primeiroMes, rotuloMes as rotuloPlano, textoPrevistoFeito, vigenteNoMes } from "./financas-plano.js";
 
 const MESES_PADRAO = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 const VAZIO = {arquivo: "", faturas: [], parcelamentos: [], comprometido: {}, categorias: {}, postos: {}, lancamentos: [], alertas: []};
@@ -46,7 +47,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   comMeses = false, somenteCalculo = false, caixa: caixaPrefs = null, aoSalvarSaldo = null, aoMudarRecebimento = null,
   recorrentes: recorrentesSite = [], aoPagarRecorrente = null, aoDesmarcarRecorrente = null, aoEditarRecorrente = null, aoValorRecorrente = null,
   aoMudarPendencias = null, aoEditarGasto = null, aoPagarGasto = null, aoEditarMetas = null,
-  aoEditarEntrada = null, aoReceberEntrada = null, outroAporte = null, investimentosCasal = null }) {
+  aoEditarEntrada = null, aoReceberEntrada = null, outroAporte = null, investimentosCasal = null,
+  planoAporte = null, planoCasal = null }) {
   const D = completar(dados);
   let CATS = categorias || lerCategorias(null, dados);
   let AJ = new Map(ajustes.map(a => [a.chave, a]));
@@ -110,6 +112,18 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     INV_NOME = m.investimento_nome || (INV_DA_CARTEIRA ? "Aporte na carteira conjunta" : "");
   };
   lerMetas(caixaPrefs);
+  // Plano de aportes com datas (Cadastros): do primeiro degrau em diante, o investimento previsto de cada mês é o valor
+  // vigente naquele mês; antes dele (e sem plano) continua a previsão do mês (Investimento mensal)
+  let PLANO = Array.isArray(planoAporte) ? planoAporte : [];
+  let PLANO_CASAL = planoCasal || null;
+  let PARCEIRO = null; // { nome, aporte(chave) → { previsto, feito } } da outra pessoa do casal, quando carregada
+  const comPlano = chave => PLANO.length > 0 && chave >= primeiroMes(PLANO);
+  const invDoMes = chave => (comPlano(chave) ? vigenteNoMes(PLANO, chave).total : INV);
+  const nomeInvDoMes = chave => {
+    if (!comPlano(chave)) return INV_NOME || "Investimento";
+    const itens = vigenteNoMes(PLANO, chave).itens;
+    return itens.length === 1 ? `Aporte: ${itens[0].destino}` : "Aportes do plano";
+  };
   // Gastos lançados no site ainda a pagar (ids) e fixos do projeto trocados por um recorrente do site ou tirados
   let APAGAR = new Set((caixaPrefs && caixaPrefs.aPagar) || []);
   let OCULTOS = new Set((caixaPrefs && caixaPrefs.fixosOcultos) || []);
@@ -377,7 +391,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const lancCartao = m.lancamentos.filter(l => card(l.forma));
     const outros = sum(m.lancamentos.filter(l => !card(l.forma)), l => l.valor);
     const linhas = [];
-    if (INV) linhas.push({t: INV_NOME || "Investimento", v: INV, cor: "var(--inv)", leg: "Investimento"});
+    if (invDoMes(m.chave)) linhas.push({t: nomeInvDoMes(m.chave), v: invDoMes(m.chave), cor: "var(--inv)", leg: "Investimento"});
     let cartao, parcelas = parcelasDaFatura(m.fatura);
     if (parcelas == null) parcelas = sum(m.compromissos, c => c.valor);
     if (snap) {
@@ -524,9 +538,10 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     for (const l of m ? m.lancamentos : []) if (!card(l.forma)) saidas.push({tipo: ehInvestimento(l) ? "investimento" : l.recorrente ? "fixo" : "dia", forma: FORMA_CAIXA(l.forma), desc: l.desc, valor: l.valor, data: l.data || null, st: aPagar(l) ? "previsto" : situacao(l.data), aPagar: aPagar(l), l});
     const rec = m ? statusRecorrentes(m) : recorrentesDe(chave).map(r => ({...r, pendente: r.valor || 0}));
     for (const r of rec) if (!card(r.forma) && r.pendente > 0) saidas.push({tipo: "fixo", desc: r.nome, valor: r.pendente, data: r.dia ? diaDe(chave, r.dia) : null, st: passado ? "realizado" : "previsto", r});
-    // A previsão de investimento do mês (metas do projeto) só conta no que ainda não foi lançado
+    // A previsão de investimento do mês (plano de aportes ou previsão do mês) só conta no que ainda não foi lançado
     const investido = sum(saidas.filter(x => x.tipo === "investimento"), x => x.valor);
-    if (INV && INV - investido > 0.005) saidas.push({tipo: "investimento", desc: INV_NOME || "Investimento", valor: Math.round((INV - investido) * 100) / 100, data: null, st: passado ? "realizado" : "previsto", meta: true});
+    const invMes = invDoMes(chave);
+    if (invMes && invMes - investido > 0.005) saidas.push({tipo: "investimento", desc: nomeInvDoMes(chave), valor: Math.round((invMes - investido) * 100) / 100, data: null, st: passado ? "realizado" : "previsto", meta: true, plano: comPlano(chave)});
     const total = (lista, st) => Math.round(sum(lista.filter(x => x.st === st), x => x.valor) * 100) / 100;
     const ent = {realizado: total(entradas, "realizado"), previsto: total(entradas, "previsto")};
     const sai = {realizado: total(saidas, "realizado"), previsto: total(saidas, "previsto")};
@@ -949,6 +964,11 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   }
 
   const investido = cx => cx.saidas.some(x => x.tipo === "investimento" && x.l);
+  // Aporte do mês: o previsto (plano de aportes ou previsão do mês) e o feito (investimentos lançados no mês)
+  function aporteDoMes(chave) {
+    const cx = caixa(chave);
+    return {previsto: invDoMes(chave), feito: Math.round(sum(cx.saidas.filter(x => x.tipo === "investimento" && x.l), x => x.valor) * 100) / 100, plano: comPlano(chave)};
+  }
   function renderHero(m) {
     const cx = caixa(m.chave);
     HERO_ENT = cx.entradas;
@@ -973,7 +993,11 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     [...porForma.values()].sort((a, b) => b.v - a.v).forEach(o => saidas.push(linha(esc(o.forma), `${o.q} ${o.q === 1 ? "gasto" : "gastos"}${o.st === "previsto" ? (o.ap === o.q ? " a pagar" : o.ap ? `, ${o.ap} a pagar` : " com data futura") : ""}`, o.v, o.st)));
     cx.saidas.filter(x => x.tipo === "fixo").forEach(s => saidas.push(linha(esc(s.desc), s.l ? `recorrente ${s.aPagar ? "lançado, a pagar" : "pago"}${s.data ? ` em ${dBR(s.data)}` : ""} · ${esc(s.forma)}` : `${s.r && s.r.site ? "recorrente ainda não pago" : "fixo fora do cartão"}${s.data ? ` · dia ${dBR(s.data)}` : ""}`, s.valor, s.st)));
     const alterar = aoEditarMetas ? ' · <button type="button" class="btn-link" data-editar-metas>alterar</button>' : "";
-    const investimentos = cx.saidas.filter(x => x.tipo === "investimento").map(s => linha(esc(s.desc), s.l ? `investimento lançado${s.data ? ` em ${dBR(s.data)}` : ""}` : `${investido(cx) ? "previsão de investimento do mês, menos o já lançado" : "investimento mensal previsto"}${alterar}`, s.valor, s.st, "investimento"));
+    const investimentos = cx.saidas.filter(x => x.tipo === "investimento").map(s => linha(esc(s.desc), s.l ? `investimento lançado${s.data ? ` em ${dBR(s.data)}` : ""}`
+      : `${s.plano ? (investido(cx) ? "previsto no plano de aportes, menos o já lançado" : "previsto no plano de aportes") : investido(cx) ? "previsão de investimento do mês, menos o já lançado" : "investimento mensal previsto"}${alterar}`, s.valor, s.st, "investimento"));
+    // Previsto × feito do mês (plano de aportes): quanto já foi lançado contra o previsto
+    const aporteMes = aporteDoMes(m.chave);
+    if (investimentos.length && comPlano(m.chave) && !passado) investimentos.unshift(`<tr class="cx-aporte"><td colspan="3">Aporte de ${esc(m.rotulo)}: ${esc(textoPrevistoFeito(aporteMes.feito, aporteMes.previsto))}</td></tr>`);
     const somaSt = (tipos, st) => Math.round(sum(cx.saidas.filter(x => tipos.includes(x.tipo) && x.st === st), x => x.valor) * 100) / 100;
     const GASTOS = ["fatura", "dia", "fixo"];
     // Saldo do início do mês: informado, continuação do mês anterior ou ainda sem valor
@@ -1248,10 +1272,10 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const linhas = [
       {t: "Entradas", p: recPrev, h: entra},
       {t: `Fatura ${cx.fatura ? cx.fatura.rotulo : m.rotulo} (vence no mês)`, p: META, h: tipo("fatura"), gasto: true},
-      {t: INV_NOME || "Investimento", p: INV, h: tipo("investimento"), gasto: true},
+      {t: nomeInvDoMes(m.chave), p: invDoMes(m.chave), h: tipo("investimento"), gasto: true},
       {t: "Pix, débito, dinheiro e fixos fora do cartão", p: null, h: tipo("dia") + tipo("fixo"), gasto: true},
     ];
-    const prevSobra = recPrev - META - INV;
+    const prevSobra = recPrev - META - invDoMes(m.chave);
     const dif = l => (l.p == null ? null : l.gasto ? l.p - l.h : l.h - l.p);
     const cel = v => (v == null ? '<td class="r num muted">—</td>' : `<td class="r num ${v < -0.005 ? "neg" : v > 0.005 ? "pos" : ""}">${n(v)}</td>`);
     $id("comparativo").hidden = false;
@@ -1261,7 +1285,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       ${linhas.map(l => `<tr><td>${esc(l.t)}</td><td class="r num">${n(l.p)}</td><td class="r num">${n(l.h)}</td>${cel(dif(l))}</tr>`).join("")}
       <tr class="total"><td>Sobra do mês no caixa</td><td class="r num">${n(prevSobra)}</td><td class="r num">${n(cx.saldoMes)}</td>${cel(cx.saldoMes - prevSobra)}</tr>
       </tbody></table></div>
-      <p class="muted" style="font-size:.85rem;margin:10px 0 0">Pelo caixa: sai inteira a fatura que vence no mês, e as compras no cartão de ${esc(m.rotulo)} vão para a fatura ${esc(m.fatura)}. A sua previsão é ${brl(META)} por fatura e ${brl(INV)} de investimento por mês. A sobra aqui não conta o saldo do início do mês.</p>`;
+      <p class="muted" style="font-size:.85rem;margin:10px 0 0">Pelo caixa: sai inteira a fatura que vence no mês, e as compras no cartão de ${esc(m.rotulo)} vão para a fatura ${esc(m.fatura)}. A sua previsão é ${brl(META)} por fatura e ${brl(invDoMes(m.chave))} de investimento em ${esc(m.rotulo)}${comPlano(m.chave) ? " (plano de aportes)" : ""}. A sobra aqui não conta o saldo do início do mês.</p>`;
   }
 
   // Pagamentos recorrentes do mês: marcar como pago lança o gasto (com o valor para conferir); desmarcar apaga esse
@@ -1298,7 +1322,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       <tr class="total"><td></td><td>Total do mês</td><td></td><td class="r num">${n(sum(c.rec, r => valorDe(r) || 0))}</td></tr>
       </tbody></table></div>` : `<p class="muted" style="margin:0">Nenhum pagamento recorrente. Cadastre aluguel, condomínio, escola, plano de saúde ou assinaturas: cada mês ele fica pendente até você marcar como pago.</p>`}
       <p class="erro" role="alert" hidden></p>
-      ${semValor || INV || aoEditarMetas ? `<p class="muted" style="font-size:.85rem;margin:10px 0 0">${semValor ? "Falta o valor de algum gasto fixo. " : ""}${INV ? `O investimento mensal de ${brl(INV)} aparece separado, no balanço.` : ""}${aoEditarMetas ? ` <button type="button" class="btn-link" data-editar-metas>${INV ? "Alterar o investimento e a previsão do cartão" : "Previsões do mês (investimento e cartão)"}</button>` : ""}</p>` : ""}`;
+      ${semValor || invDoMes(m.chave) || aoEditarMetas ? `<p class="muted" style="font-size:.85rem;margin:10px 0 0">${semValor ? "Falta o valor de algum gasto fixo. " : ""}${invDoMes(m.chave) ? `O investimento ${comPlano(m.chave) ? "do plano de aportes" : "mensal"} de ${brl(invDoMes(m.chave))} aparece separado, no balanço.` : ""}${aoEditarMetas ? ` <button type="button" class="btn-link" data-editar-metas>${invDoMes(m.chave) ? "Alterar o investimento e a previsão do cartão" : "Previsões do mês (investimento e cartão)"}</button>` : ""}</p>` : ""}`;
   }
   // Data sugerida para o pagamento: hoje no mês atual; nos outros meses, o dia do vencimento
   const dataDoPagamento = (r, chave) => (chave === hojeKey ? hojeIso : diaDe(chave, r.dia || (chave < hojeKey ? diasDoMes(chave) : 1)));
@@ -1903,8 +1927,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const cx = caixa(chave);
     const tipo = t => sum(cx.saidas.filter(x => x.tipo === t), x => x.valor);
     return {receitas: cx.ent.realizado + cx.ent.previsto, entradas: cx.entradas.map(e => ({desc: e.desc, liquido: e.valor, site: !!(e.r && e.r.origem === "site"), previsto: e.st === "previsto"})),
-      investimento: tipo("investimento"), investimentoNome: INV_NOME || "Investimento", cartao: tipo("fatura"), fatura: rotuloDe(chave),
-      fora: tipo("dia"), fixosFora: tipo("fixo"), saldo: cx.saldoMes};
+      investimento: tipo("investimento"), investimentoNome: nomeInvDoMes(chave), cartao: tipo("fatura"), fatura: rotuloDe(chave),
+      fora: tipo("dia"), fixosFora: tipo("fixo"), saldo: cx.saldoMes, aporte: aporteDoMes(chave)};
   }
   // Detalhe do mês para a visão do casal: cada entrada, cada gasto pago no mês (uma linha por parte do lançamento
   // dividido, com a categoria, a subcategoria, o essencial e a conta) e cada saída do caixa
@@ -1927,7 +1951,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   // Gastos lançados no site marcados como a pagar com a data até hoje (vencidos ou para hoje)
   const aPagarVencidos = () => D.meses.flatMap(m => m.lancamentos).filter(l => aPagar(l) && l.data && l.data <= hojeIso);
   if (somenteCalculo) return {meses: () => D.meses.map(m => ({chave: m.chave, rotulo: m.rotulo})), resumo, detalhe, investimentos: D.investimentos || null, pendentes, aPagarVencidos,
-    metas: {investimento_mensal: INV || 0, investimento_nome: INV_NOME || "", cartao_mensal: META}};
+    aporteDoMes, metas: {investimento_mensal: INV || 0, investimento_nome: INV_NOME || "", cartao_mensal: META}};
 
   iniciarAbas();
 
@@ -2160,24 +2184,44 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   $id("f-busca").addEventListener("input", () => seguro("f-itens", renderFaturaLista));
 
   // ---------- Investimentos ----------
-  if (CARTEIRA) {
+  function desenharCarteira() {
+    if (!CARTEIRA) return;
     try {
-      // Aporte previsto de cada um: a previsão do mês de cada painel (Cadastros); sem ela, o da carteira do projeto
+      // Aporte previsto de cada um: o plano de aportes (Cadastros) no mês atual; sem plano, a previsão do mês de cada
+      // painel; sem ela, o da carteira do projeto
       const previstos = {...(CARTEIRA.aportes_mensais || {})};
       const kDono = TEM_NOME ? chaveNomeIgual(previstos, DONO) : null;
       if (kDono && INV > 0 && !INV_DA_CARTEIRA) previstos[kDono] = INV;
       const kOutro = outroAporte && outroAporte.nome ? chaveNomeIgual(previstos, outroAporte.nome) : null;
       if (kOutro && outroAporte.valor != null && outroAporte.valor !== "") previstos[kOutro] = Number(outroAporte.valor) || 0;
+      // Degraus do plano de cada pessoa do casal, pela chave do nome na carteira (quem tem plano e não está na carteira entra)
+      const porChave = {}, feitos = {};
+      const todos = (PLANO_CASAL && PLANO_CASAL.degraus) || PLANO;
+      for (const p of (PLANO_CASAL && PLANO_CASAL.pessoas) || []) {
+        const meus = todos.filter(d => d.perfil_id === p.id);
+        const k = chaveNomeIgual(previstos, p.nome) || (meus.length ? p.nome : null);
+        if (!k) continue;
+        if (meus.length) {
+          porChave[k] = meus;
+          if (hojeKey >= primeiroMes(meus)) previstos[k] = vigenteNoMes(meus, hojeKey).total;
+          else if (previstos[k] == null) previstos[k] = 0;
+        }
+        // Feito no mês: o lançado no painel de cada um (o da outra pessoa quando o painel dela já carregou)
+        const ehDono = semAcento(p.nome) === semAcento(DONO);
+        const a = ehDono ? aporteDoMes(hojeKey) : PARCEIRO && semAcento(PARCEIRO.nome) === semAcento(p.nome) ? PARCEIRO.aporte(hojeKey) : null;
+        if (a) feitos[k] = {feito: a.feito, previsto: previstos[k] != null ? Number(previstos[k]) : a.previsto};
+      }
       // Aportes lançados no caixa deste painel (categoria Investimentos) desde o início dos aportes da carteira
       const desde = CARTEIRA.aporte_inicio || "0000-00";
       const lancados = D.meses.flatMap(m => m.lancamentos).filter(l => ehInvestimento(l) && String(l.data || "").slice(0, 7) >= desde)
         .map(l => ({data: l.data, quem: DONO, valor: l.valor, desc: l.desc})).sort((a, b) => String(a.data).localeCompare(String(b.data)));
-      desenharInvestimentos(CARTEIRA, {previstos, lancados, atual: investimentosCasal, dono: DONO, hojeKey});
+      desenharInvestimentos(CARTEIRA, {previstos, lancados, atual: investimentosCasal, dono: DONO, hojeKey, plano: porChave, feitos});
     } catch (e) {
       console.error(e);
       $id("cj-app").innerHTML = `<p class="muted">A carteira de investimentos não carregou (${esc(e.message)}).</p>`;
     }
   }
+  desenharCarteira();
 
   avisarPendencias();
   return {
@@ -2195,6 +2239,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       GASTOS_SITE = lista;
       mesclarSite();
       avisarPendencias();
+      desenharCarteira(); // aportes lançados e previsto × feito
       if (!COM_MESES) return;
       seguro(null, render);
       seguro("parcelas", renderParcelas);
@@ -2212,6 +2257,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       avisarPendencias();
       if (COM_MESES) seguro(null, render);
       mostrarQuem();
+      if (novos) desenharCarteira(); // um lançamento que passou a ser (ou deixou de ser) investimento
     },
     // Depois de cadastrar, mudar ou apagar um pagamento recorrente
     atualizarRecorrentes(lista) {
@@ -2227,6 +2273,20 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       memoCaixa.clear();
       if (COM_MESES) seguro(null, render);
     },
+    // Depois de mudar o plano de aportes (Cadastros): degraus de quem é o painel e os do casal
+    atualizarPlano(degrausDono, casal = null) {
+      PLANO = Array.isArray(degrausDono) ? degrausDono : [];
+      if (casal) PLANO_CASAL = casal;
+      memoCaixa.clear();
+      if (COM_MESES) seguro(null, render);
+      desenharCarteira();
+    },
+    // O painel da outra pessoa do casal carregou (só cálculo): o "feito" do mês dela entra no previsto × feito
+    definirParceiro(p) {
+      PARCEIRO = p;
+      desenharCarteira();
+    },
+    aporteDoMes,
     // Para a lista de desejos: previsão dos próximos meses (com as receitas do projeto ou as lançadas no site)
     previsao: n => (SO_FATURAS && !(ENTRADAS_SITE || []).length ? [] : previsaoMeses(n)),
     mediaForaCartao: () => (COM_MESES ? mediaForaCartao() : 0),
@@ -2242,7 +2302,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
 // Carteira de investimentos: posição, distribuição, projeção interativa e análise (adaptado do painel da carteira)
 // extras: previstos (aporte mensal previsto de cada um), lancados (aportes lançados no caixa deste painel), atual (a soma
 // dos investimentos conjuntos cadastrados um a um, a fonte do valor da carteira quando existe) e o nome do dono
-function desenharInvestimentos(D, { previstos = null, lancados = [], atual = null, dono = "", hojeKey = "" } = {}) {
+// plano: degraus do plano de aportes de cada pessoa (pela chave do nome); feitos: previsto × feito do mês de cada uma
+function desenharInvestimentos(D, { previstos = null, lancados = [], atual = null, dono = "", hojeKey = "", plano = {}, feitos = {} } = {}) {
   if (!Array.isArray(D.posicoes) || !D.posicoes.length || !D.projecao) {
     document.getElementById("cj-app").innerHTML = '<p class="note">Os dados da carteira vieram incompletos no arquivo importado.</p>';
     return;
@@ -2286,6 +2347,14 @@ function desenharInvestimentos(D, { previstos = null, lancados = [], atual = nul
   const mesAtualK = hojeKey || new Date().toISOString().slice(0,7);
   const doMesLanc = lancados.filter(a => String(a.data).slice(0,7) === mesAtualK).reduce((s,a)=>s+a.valor,0);
   const kDono = pessoas.find(k => k.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase() === String(dono).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase());
+  // Plano de aportes: quem tem degraus segue o valor vigente em cada m\u00eas da proje\u00e7\u00e3o
+  const comPlano = pessoas.filter(k => Array.isArray(plano[k]) && plano[k].length);
+  const somarK = (chave, k) => { const [a, m] = chave.split('-').map(Number); const t = a*12 + m - 1 + k; return `${Math.floor(t/12)}-${String(t%12+1).padStart(2,'0')}`; };
+  const aporteDoPlano = (k, chave) => (chave >= primeiroMes(plano[k]) ? vigenteNoMes(plano[k], chave).total : Number(AP[k]) || 0);
+  const mesTxt = c => esc(rotuloPlano(c));
+  const linhaPlano = k => { const ls = mudancas(plano[k], plano[k][0].perfil_id, mesAtualK);
+    return `<b>${esc(k)}</b>: ${brl(ls[0].total)} por m\u00eas${ls.slice(1).map(x => ` \u2192 ${brl(x.total)} a partir de ${mesTxt(x.mes)}`).join('')}`; };
+  const pfs = pessoas.filter(k => feitos[k]);
 
   let h = `
   <header class="hero">
@@ -2315,6 +2384,10 @@ function desenharInvestimentos(D, { previstos = null, lancados = [], atual = nul
     <span class="eyebrow">Projeção</span>
     <h2>Quanto a carteira pode virar</h2>
     <p class="note">Parte de ${brl(TOTAL)}, juros sobre juros, aporte no fim de cada mês. O padrão é conservador: ${fmtBR(TAXA_PADRAO,1)}% ao ano, líquido de IR e em dinheiro de hoje. Em 2026 a carteira rendeu ${esc(PJ.taxa_origem)}, um ano de juros altos.</p>
+    ${comPlano.length ? `<div class="cj-plano">
+      <label><input type="checkbox" id="cj-plano" checked> Seguir o plano de aportes (os valores mudam nas datas cadastradas)</label>
+      <p class="note">${comPlano.map(linhaPlano).join(' · ')}. Desmarque para simular um valor fixo por mês.</p>
+    </div>` : ''}
     <div class="controls">
       ${pessoas.map(k=>`<div class="field"><label for="cj-ap-${k}">Aporte mensal de ${esc(k)}</label><div class="money"><span>R$</span><input id="cj-ap-${k}" type="text" inputmode="decimal" autocomplete="off" value="${fmtBR(Number(AP[k])||0)}"></div></div>`).join('')}
       <div class="chips" role="group" aria-label="Aporte igual para os dois">
@@ -2339,8 +2412,12 @@ function desenharInvestimentos(D, { previstos = null, lancados = [], atual = nul
 
   <section class="card">
     <h2>Aportes</h2>
-    <p>Previsto: ${pessoas.map(k=>`<b class="num">${brl(Number(AP[k])||0)}</b> de ${esc(k)}`).join(' e ')} por mês, <b class="num">${brl(aporteMes)}</b> no total. <span class="note">A previsão de cada um vem das Previsões do mês (Cadastros) de cada painel.</span></p>
-    ${kDono ? `<p>Em ${esc(mesAtualK.slice(5,7))}/${esc(mesAtualK.slice(0,4))}, ${esc(kDono)} lançou <b class="num">${brl(doMesLanc)}</b> em investimentos no caixa${Number(AP[kDono]) ? ` (previsto ${brl(Number(AP[kDono]))}${doMesLanc > Number(AP[kDono]) + 0.005 ? `, ${brl(doMesLanc - Number(AP[kDono]))} a mais` : doMesLanc < Number(AP[kDono]) - 0.005 ? `, faltam ${brl(Number(AP[kDono]) - doMesLanc)}` : ''})` : ''}.</p>` : ''}
+    <p>Previsto em ${mesTxt(mesAtualK)}: ${pessoas.map(k=>`<b class="num">${brl(Number(AP[k])||0)}</b> de ${esc(k)}`).join(' e ')}, <b class="num">${brl(aporteMes)}</b> no total. <span class="note">${comPlano.length ? 'Vem do plano de aportes (Cadastros)' : 'A previsão de cada um vem das Previsões do mês (Cadastros) de cada painel'}${comPlano.length && comPlano.length < pessoas.length ? '; quem não tem plano segue as Previsões do mês' : ''}.</span></p>
+    ${comPlano.length ? `<p class="note">Plano: ${comPlano.map(linhaPlano).join(' · ')}.</p>` : ''}
+    ${pfs.length ? `<ul class="cj-feito">${pfs.map(k => { const f = feitos[k], ok = f.previsto > 0 && f.feito >= f.previsto - 0.005;
+        return `<li class="${ok ? 'ok' : f.feito > 0 ? 'parcial' : ''}"><b>${esc(k)}</b>: ${esc(textoPrevistoFeito(f.feito, f.previsto))}</li>`; }).join('')}</ul>
+      <p class="note">Previsto × feito em ${mesTxt(mesAtualK)}: o feito são os investimentos lançados no caixa de cada painel (categoria Investimentos).</p>`
+    : kDono ? `<p>Em ${esc(mesAtualK.slice(5,7))}/${esc(mesAtualK.slice(0,4))}, ${esc(kDono)} lançou <b class="num">${brl(doMesLanc)}</b> em investimentos no caixa${Number(AP[kDono]) ? ` (previsto ${brl(Number(AP[kDono]))}${doMesLanc > Number(AP[kDono]) + 0.005 ? `, ${brl(doMesLanc - Number(AP[kDono]))} a mais` : doMesLanc < Number(AP[kDono]) - 0.005 ? `, faltam ${brl(Number(AP[kDono]) - doMesLanc)}` : ''})` : ''}.</p>` : ''}
     ${aportes.length ? `<div class="scroll"><table><thead><tr><th>Data</th><th>Quem</th><th>Lançamento</th><th>Valor</th></tr></thead><tbody>${aportes.map(a=>`<tr><td>${dt(a.data)}</td><td>${esc(a.quem)}</td><td>${esc(a.desc || (a.origem === 'projeto' ? 'projeto Financeiro' : ''))}</td><td class="num">${brl(a.valor)}</td></tr>`).join('')}<tr><td><b>Total</b></td><td></td><td></td><td class="num"><b>${brl(totApor)}</b></td></tr></tbody></table></div>
       <p class="note">Aportes lançados no caixa deste painel (categoria Investimentos)${D.aportes && D.aportes.length ? ' e os registrados no projeto Financeiro' : ''}. Os do outro painel aparecem lá e na visão do casal.</p>`
      : `<p class="note">Nenhum aporte lançado ainda. Lance a transferência para a carteira como gasto na categoria Investimentos: ela sai do caixa como investimento e aparece aqui.</p>`}
@@ -2370,7 +2447,9 @@ function desenharInvestimentos(D, { previstos = null, lancados = [], atual = nul
   const G0 = PJ.ganho_embutido || 0, IDADE0 = PJ.idade_inicial_meses || 0;
 
   // Simula mês a mês. Cada aporte é um "lote" com sua idade, para o IR sair pela alíquota certa.
+  // aporte: valor fixo por mês ou a lista do aporte de cada mês (índice 1 = primeiro mês), para seguir o plano de aportes
   function projetar(P0, aporte, taxaAnual, inflAnual, comIR, real){
+    const apK = k => (Array.isArray(aporte) ? aporte[k] || 0 : aporte);
     const rm = Math.pow(1+taxaAnual/100, 1/12) - 1;
     const fi = Math.pow(1+inflAnual/100, 1/12);
     const g = Array.from({length:MESES+1}, (_,m)=>Math.pow(1+rm, m)); // fator de crescimento por idade
@@ -2379,10 +2458,10 @@ function desenharInvestimentos(D, { previstos = null, lancados = [], atual = nul
       // lote inicial (idade m) + aportes feitos nos meses 1..m (idade m-k)
       // o saldo atual já carrega G0 de rendimento ainda não tributado e tem IDADE0 meses de aplicação
       let bruto = P0*g[m], ir = comIR ? aliquota(m+IDADE0)*(P0*(g[m]-1) + G0) : 0;
-      for(let k=1;k<=m;k++){ const age=m-k; bruto += aporte*g[age]; if(comIR) ir += aliquota(age)*aporte*(g[age]-1); }
+      for(let k=1;k<=m;k++){ const age=m-k, a=apK(k); bruto += a*g[age]; if(comIR) ir += aliquota(age)*a*(g[age]-1); }
       // Em dinheiro de hoje, cada aporte é corrigido pela inflação até a data em que entrou.
       let colocado = P0;
-      for(let k=1;k<=m;k++) colocado += real ? aporte/Math.pow(fi, k) : aporte;
+      for(let k=1;k<=m;k++) colocado += real ? apK(k)/Math.pow(fi, k) : apK(k);
       const saldo = (bruto - ir)/(real ? Math.pow(fi, m) : 1);
       out.push({m, saldo, colocado, juros: saldo - colocado});
     }
@@ -2403,23 +2482,31 @@ function desenharInvestimentos(D, { previstos = null, lancados = [], atual = nul
   const STORE = 'mz-fin-carteira-v2'; // v2: padrão conservador (11% ao ano, líquido de IR, em dinheiro de hoje)
   function carregar(){ try{ const s = JSON.parse(localStorage.getItem(STORE)||'null'); if(!s) return;
     pessoas.forEach(k=>{ if(s['ap-'+k]!=null) $('ap-'+k).value = s['ap-'+k]; });
+    if($('plano') && s.plano === false) $('plano').checked = false;
     ['taxa','infl'].forEach(k=>{ if(s[k]!=null) $(k).value = s[k]; });
     ['ir','real'].forEach(k=>{ if(s[k]!=null) $(k).checked = s[k]; });
   }catch(e){} }
   function salvar(){ try{ const s={}; pessoas.forEach(k=>s['ap-'+k]=$('ap-'+k).value);
-    s.taxa=$('taxa').value; s.infl=$('infl').value; s.ir=$('ir').checked; s.real=$('real').checked;
+    s.taxa=$('taxa').value; s.infl=$('infl').value; s.ir=$('ir').checked; s.real=$('real').checked; if($('plano')) s.plano=$('plano').checked;
     localStorage.setItem(STORE, JSON.stringify(s)); }catch(e){} }
 
   let estado = null;
   function calcular(){
+    // Seguindo o plano: quem tem degraus aporta o valor vigente em cada mês (o campo mostra o valor de agora)
+    const segue = !!($('plano') && $('plano').checked);
+    pessoas.forEach(k=>{ const el = $('ap-'+k), doPlano = segue && comPlano.includes(k);
+      if(doPlano) el.value = fmtBR(aporteDoPlano(k, mesAtualK));
+      el.disabled = doPlano; el.closest('.field').classList.toggle('do-plano', doPlano); });
     const aportes = pessoas.map(k=>num('ap-'+k, Number(AP[k])||0));
     const aporte = aportes.reduce((a,b)=>a+b,0);
+    const porMes = segue ? Array.from({length:MESES+1}, (_,m)=>m ? pessoas.reduce((t,k,i)=>t + (comPlano.includes(k) ? aporteDoPlano(k, somarK(mesAtualK, m)) : aportes[i]), 0) : 0) : null;
     const base = PJ.aporte_base_por_pessoa*pessoas.length;
     const taxa = num('taxa', TAXA_PADRAO), infl = num('infl', PJ.inflacao_padrao), ir = $('ir').checked, real = $('real').checked;
-    const serie = projetar(TOTAL, aporte, taxa, infl, ir, real);
+    const serie = projetar(TOTAL, porMes || aporte, taxa, infl, ir, real);
     const serieBase = projetar(TOTAL, base, taxa, infl, ir, real);
-    estado = {aportes, aporte, base, taxa, infl, ir, real, serie, serieBase, difere: Math.abs(aporte-base)>0.005};
-    document.querySelectorAll('[data-cada]').forEach(b=>b.setAttribute('aria-pressed', aportes.every(v=>Math.abs(v-+b.dataset.cada)<0.005)));
+    const final = porMes ? porMes[MESES] : aporte;
+    estado = {aportes, aporte, base, taxa, infl, ir, real, serie, serieBase, segue, final, difere: segue ? true : Math.abs(aporte-base)>0.005};
+    document.querySelectorAll('[data-cada]').forEach(b=>b.setAttribute('aria-pressed', !segue && aportes.every(v=>Math.abs(v-+b.dataset.cada)<0.005)));
     document.querySelectorAll('[data-taxa]').forEach(b=>b.setAttribute('aria-pressed', Math.abs(taxa-+b.dataset.taxa)<0.005));
     salvar(); textos(); tabela(); grafico();
   }
@@ -2427,14 +2514,15 @@ function desenharInvestimentos(D, { previstos = null, lancados = [], atual = nul
   function textos(){
     const e = estado, f = e.serie[MESES], anos = MESES/12;
     const qual = (e.ir?'líquidos de IR':'brutos') + (e.real?', em dinheiro de hoje':'');
-    $('headline').innerHTML = `Com <b>${brl(e.aporte)}</b> por mês somando os dois, em ${anos} anos vocês teriam <b>${curto(f.saldo)}</b>. `
+    $('headline').innerHTML = (e.segue ? `Seguindo o plano de aportes (<b>${brl(e.aporte)}</b> por mês agora${Math.abs(e.final-e.aporte)>0.005 ? `, <b>${brl(e.final)}</b> depois do último degrau` : ''}), em ${anos} anos vocês teriam <b>${curto(f.saldo)}</b>. `
+      : `Com <b>${brl(e.aporte)}</b> por mês somando os dois, em ${anos} anos vocês teriam <b>${curto(f.saldo)}</b>. `)
       + (f.juros>=0 ? `Desse total, <b>${curto(f.juros)}</b> seriam juros.` : `Isso é <b>${curto(-f.juros)}</b> a menos do que vocês colocaram, uma perda${e.real?' real':''}.`);
     const leg = [`<span><i style="background:var(--s-aporte)"></i>Vocês colocam</span>`,`<span><i style="background:var(--s-juros)"></i>Juros</span>`];
     if(e.difere) leg.push(`<span><i class="dash"></i>Com R$ ${PJ.aporte_base_por_pessoa.toLocaleString('pt-BR')} cada</span>`);
     $('legend').innerHTML = leg.join('');
     $('projnota').textContent = `Valores ${qual}. `
       + (e.ir?`IR de CDB e Tesouro pela tabela regressiva (22,5% a 15%) sobre o rendimento de cada aporte e sobre os ${brl(G0)} de rendimento que já estão no saldo, como se tudo fosse resgatado no fim do prazo. LCI e LCA seriam isentas. `:'Sem desconto de imposto de renda; marque a opção acima para ver o líquido. ')
-      + (e.real?`Inflação de ${fmtBR(e.infl)}% ao ano descontada; os aportes ficam fixos, sem reajuste. `:'')
+      + (e.real?`Inflação de ${fmtBR(e.infl)}% ao ano descontada; ${e.segue ? 'os aportes seguem os degraus do plano, sem outro reajuste' : 'os aportes ficam fixos, sem reajuste'}. `:'')
       + (e.taxa>12 ? `Um rendimento de ${fmtBR(e.taxa)}% ao ano por 20 anos é otimista: reflete os juros altos de 2026. Teste 10% ou 12% para um cenário mais conservador.` : '');
   }
 
@@ -2518,7 +2606,8 @@ function desenharInvestimentos(D, { previstos = null, lancados = [], atual = nul
   pessoas.forEach(k=>$('ap-'+k).addEventListener('input', calcular));
   ['taxa','infl'].forEach(k=>$(k).addEventListener('input', calcular));
   ['ir','real'].forEach(k=>$(k).addEventListener('change', calcular));
-  document.querySelectorAll('[data-cada]').forEach(b=>b.addEventListener('click',()=>{ pessoas.forEach(k=>$('ap-'+k).value=fmtBR(+b.dataset.cada)); calcular(); }));
+  document.querySelectorAll('[data-cada]').forEach(b=>b.addEventListener('click',()=>{ if($('plano')) $('plano').checked = false; pessoas.forEach(k=>$('ap-'+k).value=fmtBR(+b.dataset.cada)); calcular(); }));
+  if($('plano')) $('plano').addEventListener('change', calcular);
   document.querySelectorAll('[data-taxa]').forEach(b=>b.addEventListener('click',()=>{ $('taxa').value=fmtBR(+b.dataset.taxa); calcular(); }));
   // Redesenha quando a largura muda (inclusive quando a aba fica visível depois de escondida).
   let rz, larg = 0;

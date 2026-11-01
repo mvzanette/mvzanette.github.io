@@ -794,3 +794,25 @@
 .fin-app .cj .velho { display: inline-block; margin-left: 6px; padding: 1px 8px; background: var(--warn-soft); color: var(--warn); font-size: 0.75rem; font-weight: 600; }
 .fin-app .cj .aviso-cj { margin: 10px 0 0; padding: 8px 12px; background: var(--warn-soft); color: var(--warn); font-size: 0.86rem; }
 .fin .desejo-status.info { color: var(--muted); }
+
+/* ---------- Plano de aportes (Cadastros, balanço, carteira e casal) ---------- */
+.plano-pessoa { display: grid; gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--gray-200); }
+.plano-pessoa:last-child { border-bottom: 0; }
+.plano-cab { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+.plano-cab span { color: var(--muted); font-size: 0.85rem; }
+.plano-tabela { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.plano-tabela th, .plano-tabela td { padding: 6px 8px; border-bottom: 1px solid var(--gray-200); text-align: left; }
+.plano-tabela th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+.plano-tabela .r { text-align: right; }
+.plano-tabela tr.plano-passou td { color: var(--muted); }
+.plano-tabela .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fin .cx-aporte td { font-size: 0.82rem; color: var(--muted); padding-top: 2px; }
+.fin-app .cj .cj-plano { margin: 10px 0 4px; padding: 10px 12px; background: var(--accent-soft); }
+.fin-app .cj .cj-plano label { font-weight: 600; display: flex; gap: 8px; align-items: center; text-transform: none; letter-spacing: 0; font-size: 0.95rem; color: var(--ink); }
+.fin-app .cj .cj-plano .note { margin: 4px 0 0; }
+.fin-app .cj .field.do-plano input { color: var(--mute); }
+.fin-app .cj .cj-feito { list-style: none; margin: 8px 0 4px; padding: 0; display: grid; gap: 4px; }
+.fin-app .cj .cj-feito li { padding: 6px 10px; border-left: 4px solid var(--warn); background: var(--warn-soft); }
+.fin-app .cj .cj-feito li.ok { border-left-color: #2e7d32; background: #e8f3ea; }
+.casal-aportes { margin: 10px 0 0; font-size: 0.9rem; color: var(--graphite-900); }
+.casal-aportes .ok { color: #2e7d32; }

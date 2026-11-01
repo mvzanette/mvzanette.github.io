@@ -13,7 +13,8 @@ import { lerArquivoFinancas, outrasPessoas, soFaturas } from "./financas-importa
 import { desenharFinancas } from "./financas-painel.js";
 import { desenharDesejos } from "./financas-desejos.js";
 import { desenharInvestimentosPessoais, resumir, ultimoMes } from "./financas-investimentos.js";
-import { mostrarCasal } from "./financas-casal.js";
+import { lerPainelSoCalculo, mostrarCasal } from "./financas-casal.js";
+import { prepararPlanoAporte } from "./financas-plano.js";
 import { categoriaDe, categoriasEscolhiveis, chavesFatura, chavesGastos, contasDisponiveis, juntarCategorias, lerCategorias, lerContas, normalizarCategoria, partesDe, semClassificacao } from "./financas-classificacao.js";
 import { aplicarFatura, herdarClassificacao, historicoDeCategorias, lerFaturaPdf, manterFaturasDoSite, montarFatura } from "./financas-faturas.js";
 import { decodificarExtrato, lerExtrato, MOTIVOS, saidasDoExtrato } from "./financas-extrato.js";
@@ -764,6 +765,12 @@ async function salvarMetas(e) {
 // Os links "alterar" da visão geral levam para as previsões nos Cadastros
 function abrirMetas() {
   $("#tab-cadastros").click();
+  // Com plano de aportes, o investimento do mês muda lá
+  if (!$("#cad-plano").hidden && $("#lista-plano [data-editar-degrau]")) {
+    $("#cad-plano").scrollIntoView({ block: "start" });
+    $("#btn-novo-degrau").focus();
+    return;
+  }
   preencherMetas();
   $("#cad-metas").scrollIntoView({ block: "start" });
   $("#form-metas").elements.investimento_mensal.focus();
@@ -2445,6 +2452,11 @@ async function iniciar() {
   const mesConj = ultimoMes(conjuntos, hojeISO().slice(0, 7));
   const resConj = mesConj ? resumir(conjuntos, mesConj) : null;
   const metasOutro = prefsOutro && prefsOutro.caixa && prefsOutro.caixa.metas;
+  // Plano de aportes com datas: os degraus de quem é o painel e os de quem forma casal (Cadastros e projeção da carteira)
+  const pessoasPlano = [{ id: dono.id, nome: curto(dono) }, ...(outroDoCasal ? [{ id: outroDoCasal.id, nome: curto(outroDoCasal) }] : [])];
+  const idsPlano = pessoasPlano.map((p) => p.id);
+  let planos = await armazem.financas.planosAporte(idsPlano).catch(() => null);
+  const planoDoDono = (lista) => (lista || []).filter((d) => d.perfil_id === dono.id);
   painel = desenharFinancas({
     dados: registro.dados,
     carteira: registro.investimentos,
@@ -2481,7 +2493,26 @@ async function iniciar() {
     aoMudarPendencias: renderPendencias,
     comDesejos: !!desejos,
     comInvestimentos: true,
+    planoAporte: planos ? planoDoDono(planos) : null,
+    planoCasal: planos ? { degraus: planos, pessoas: pessoasPlano } : null,
   });
+  if (planos) {
+    $("#cad-plano").hidden = false;
+    const recarregar = async () => (planos = await armazem.financas.planosAporte(idsPlano));
+    prepararPlanoAporte({
+      pessoas: pessoasPlano,
+      degraus: () => planos,
+      salvar: async (d) => { await armazem.financas.salvarDegrau(d); return recarregar(); },
+      apagar: async (id) => { await armazem.financas.apagarDegrau(id); return recarregar(); },
+      aoMudar: (lista) => painel.atualizarPlano(planoDoDono(lista), { degraus: lista, pessoas: pessoasPlano }),
+    });
+  }
+  // O painel da outra pessoa do casal, só para os cálculos: o "feito" do mês dela no previsto × feito dos aportes
+  if (outroDoCasal) {
+    lerPainelSoCalculo(armazem, outroDoCasal, { planoAporte: (planos || []).filter((d) => d.perfil_id === outroDoCasal.id) })
+      .then((lido) => { if (lido) painel.definirParceiro({ id: outroDoCasal.id, nome: curto(outroDoCasal), aporte: lido.painel.aporteDoMes, resumo: lido.painel.resumo }); })
+      .catch((e) => console.warn("Painel da outra pessoa do casal:", e.message));
+  }
   // Vindo das tarefas pendentes (financas.html#classificar): direto para a lista; senão, a janela de tarefas avisa
   // (uma vez por sessão) quando há lançamentos a classificar no próprio painel
   if (location.hash === "#classificar") $("#classificar").scrollIntoView({ block: "start" });
