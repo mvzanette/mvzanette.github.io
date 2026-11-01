@@ -12,6 +12,7 @@ import { desenharFinancas } from "./financas-painel.js";
 import { lerCategorias } from "./financas-classificacao.js";
 import { CLASSES, INDEXADORES, TIPOS, rendeuNoMes, registroAte, resumir, serieMensal, ultimoMes } from "./financas-investimentos.js";
 import { textoPrevistoFeito } from "./financas-plano.js";
+import { desenharOndeInvestir } from "./financas-onde-investir.js";
 import { $, esc } from "./ui.js";
 
 const brl = (v) => Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -62,7 +63,7 @@ export async function mostrarCasal({ armazem, pessoas }) {
     const lido = await lerPainelSoCalculo(armazem, p, { planoAporte: planos.filter((d) => d.perfil_id === p.id), caixinhas });
     if (!lido) return base;
     const { registro, prefs, painel, gastos } = lido;
-    return { ...base, painel, gastos, investimentos: Array.isArray(prefs && prefs.investimentos) ? prefs.investimentos : [], carteira: registro.investimentos || null };
+    return { ...base, painel, gastos, prefs, investimentos: Array.isArray(prefs && prefs.investimentos) ? prefs.investimentos : [], carteira: registro.investimentos || null };
   }));
   // Cada painel conhece o outro: a renda do mês (divisão das caixinhas do casal) e os depósitos dele nas caixinhas
   lidos.forEach((p) => {
@@ -131,6 +132,32 @@ export async function mostrarCasal({ armazem, pessoas }) {
     const temAlgum = totalTudo > 0;
     const total = temAlgum ? (r ? r.total : 0) : ver === "tudo" && resumoCarteira ? Number(resumoCarteira.total) || 0 : 0;
     return { ver, todos, itens, lista, mes, r, total, totalTudo, porDono, saldoDe, temAlgum, temLista: !!(r && r.itens.length) };
+  }
+
+  // ---------------------------------------------------------------- onde investir (o casal todo)
+  // Os investimentos dos dois, o aporte previsto dos dois no mês e o custo essencial do último mês fechado dos dois;
+  // o que se digita fica nas preferências de quem está usando (a primeira pessoa da lista)
+  function desenharInvestir() {
+    const box = $("#casal-investir");
+    if (!box || !comPainel.length) return;
+    box.hidden = false;
+    const mesFechado = chaves.filter((c) => c < hoje).at(-1) || hoje;
+    desenharOndeInvestir({
+      raiz: $("#casal-oi"),
+      prefixo: "coi",
+      estado: (lidos[0].prefs && lidos[0].prefs.investir) || {},
+      salvar: async (investir) => { lidos[0].prefs = await armazem.financas.salvarPreferencias(lidos[0].id, { investir }); },
+      dados: () => {
+        const todos = lidos.flatMap((p) => p.investimentos.map((inv) => ({ inv, dono: inv.conta === "casal" ? "conjunto" : `só de ${String(inv.conta || "").startsWith("pessoa:") ? curtoDe(inv.conta.slice(7)) : p.curto}` })));
+        const mes = ultimoMes(todos.map((x) => x.inv), hoje);
+        const essencial = soma(lidos.filter((p) => p.painel).flatMap((p) => p.painel.detalhe(mesFechado).gastos.filter((g) => g.essencial === true)), (g) => g.valor);
+        return {
+          investimentos: todos.map((x) => ({ ...x, saldo: mes ? Number((registroAte(x.inv, mes) || {}).saldo) || 0 : 0 })),
+          aporte: soma(comPainel, (p) => p.painel.aporteDoMes(hoje).previsto), nomeAporte: "os dois, pelo plano de aportes",
+          essencial, essencialMes: meses.get(mesFechado) || rotuloMes(mesFechado),
+        };
+      },
+    });
   }
 
   // ---------------------------------------------------------------- tela
@@ -587,4 +614,5 @@ export async function mostrarCasal({ armazem, pessoas }) {
     });
   }
   desenhar();
+  desenharInvestir();
 }

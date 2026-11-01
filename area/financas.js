@@ -12,10 +12,11 @@ import { linkFinancas, pode } from "./modulos.js";
 import { lerArquivoFinancas, outrasPessoas, soFaturas } from "./financas-importar.js";
 import { desenharFinancas } from "./financas-painel.js";
 import { desenharDesejos } from "./financas-desejos.js";
-import { desenharInvestimentosPessoais, resumir, ultimoMes } from "./financas-investimentos.js";
+import { desenharInvestimentosPessoais, registroAte, resumir, ultimoMes } from "./financas-investimentos.js";
 import { lerPainelSoCalculo, mostrarCasal } from "./financas-casal.js";
 import { prepararPlanoAporte } from "./financas-plano.js";
 import { CATEGORIA as CAT_CAIXINHA, prepararCaixinhas } from "./financas-caixinhas.js";
+import { desenharOndeInvestir } from "./financas-onde-investir.js";
 import { categoriaDe, categoriasEscolhiveis, chavesFatura, chavesGastos, contasDisponiveis, juntarCategorias, lerCategorias, lerContas, normalizarCategoria, partesDe, semClassificacao } from "./financas-classificacao.js";
 import { aplicarFatura, herdarClassificacao, historicoDeCategorias, lerFaturaPdf, manterFaturasDoSite, montarFatura } from "./financas-faturas.js";
 import { decodificarExtrato, lerExtrato, MOTIVOS, saidasDoExtrato } from "./financas-extrato.js";
@@ -2552,6 +2553,35 @@ async function iniciar() {
       aoMudar: (lista) => painel.atualizarPlano(planoDoDono(lista), { degraus: lista, pessoas: pessoasPlano }),
     });
   }
+  // Onde investir (aba Investimentos): os investimentos de quem é o painel e os conjuntos da outra pessoa, o aporte
+  // previsto do mês e o custo essencial do último mês fechado (dos dois, quando o painel da outra pessoa carrega)
+  let essencialOutro = 0;
+  const mesFechado = somarMes(hojeISO().slice(0, 7), -1);
+  const essencialDe = (p) => { try { return p.detalhe(mesFechado).gastos.filter((g) => g.essencial === true).reduce((t, g) => t + (Number(g.valor) || 0), 0); } catch { return 0; } };
+  const minhasPrefs = dono.id === perfil.id ? prefs : prefsOutro;
+  const oiUI = desenharOndeInvestir({
+    raiz: $("#oi-app"),
+    prefixo: "oi",
+    estado: (minhasPrefs && minhasPrefs.investir) || {},
+    salvar: async (investir) => {
+      const r = await armazem.financas.salvarPreferencias(perfil.id, { investir });
+      if (dono.id === perfil.id) prefs = r;
+    },
+    dados: () => {
+      const lista = [
+        ...(Array.isArray(prefs && prefs.investimentos) ? prefs.investimentos : []).map((inv) => ({ inv, dono: inv.conta === "casal" ? "conjunto" : `só de ${curto(dono)}` })),
+        ...(outroDoCasal && Array.isArray(prefsOutro && prefsOutro.investimentos) ? prefsOutro.investimentos.filter((i) => i.conta === "casal") : []).map((inv) => ({ inv, dono: "conjunto" })),
+      ];
+      const mes = ultimoMes(lista.map((x) => x.inv), hojeISO().slice(0, 7));
+      const ap = painel.aporteDoMes(hojeISO().slice(0, 7));
+      return {
+        investimentos: lista.map((x) => ({ ...x, saldo: mes ? Number((registroAte(x.inv, mes) || {}).saldo) || 0 : 0 })),
+        aporte: ap.previsto, nomeAporte: ap.plano ? "plano de aportes" : "previsões do mês",
+        essencial: Math.round((essencialDe(painel) + essencialOutro) * 100) / 100, essencialMes: rotuloMes(mesFechado),
+      };
+    },
+  });
+  $("#oi-raiz").hidden = false;
   // Vindo das tarefas pendentes (financas.html#classificar): direto para a lista; senão, a janela de tarefas avisa
   // (uma vez por sessão) quando há lançamentos a classificar, gastos a pagar vencidos ou caixinhas atrasadas perto da data
   const avisarTarefas = () => {
@@ -2572,6 +2602,7 @@ async function iniciar() {
         if (lido) painel.definirParceiro({ id: outroDoCasal.id, nome: curto(outroDoCasal), aporte: lido.painel.aporteDoMes, resumo: lido.painel.resumo,
           receitas: lido.painel.receitasDoMes, gastos: lido.gastos });
         if (caixinhasUI) caixinhasUI.desenhar();
+        if (lido) { essencialOutro = essencialDe(lido.painel); oiUI.desenhar(); }
       })
       .catch((e) => console.warn("Painel da outra pessoa do casal:", e.message))
       .finally(avisarTarefas);

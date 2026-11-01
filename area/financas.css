@@ -848,3 +848,67 @@
 @media (max-width: 520px) { .casal-cx li { grid-template-columns: minmax(0, 1fr) auto; } .casal-cx-barra { grid-column: 1 / -1; } }
 /* O rótulo escondido (sr-only) é absoluto: a tabela vira a referência, para ele não alargar a página no celular */
 .fin .cx-tabela, .fin .cx-mov, .plano-tabela { position: relative; }
+
+/* ---------- Onde investir (aba Investimentos e visão do casal) ---------- */
+.fin-app .cj, .casal .cj {
+  --card: var(--white); --ink: var(--graphite-900); --mute: #5f646b; --line: var(--gray-200); --grid: var(--gray-200);
+  --accent: var(--graphite-900); --accent-soft: #fff6d6; --warn: #8a5608; --warn-soft: #fff6d6; --bad: #c62828; --ok: #2e7d32;
+  --c1: #2a78d6; --c2: #1baf7a; --display: var(--font-head); --mono: var(--font-body);
+}
+.fin-app .cj.oi .wrap { max-width: 1080px; padding-block: 20px 0; }
+.cj.oi .oi-topo { margin: 0 0 14px; }
+.cj.oi .oi-topo h1 { font: 700 1.4rem/1.2 var(--font-head); letter-spacing: 0.04em; text-transform: uppercase; margin: 2px 0 0; }
+.cj.oi .oi-card { margin-bottom: 18px; border-top: 4px solid var(--gray-300); }
+.cj.oi .oi-card:first-of-type { border-top-color: var(--yellow, #f5c400); }
+.cj.oi .controls.oi-geral { grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); margin: 12px 0; }
+.cj.oi .money select, .cj.oi .oi-select { font: inherit; border: 0; background: transparent; color: var(--ink); padding: 10px 4px; }
+.cj.oi .oi-select { border: 1px solid var(--line); background: var(--bg, #fff); padding: 10px; }
+.cj.oi table { width: 100%; border-collapse: collapse; font-size: 0.88rem; position: relative; }
+.cj.oi th, .cj.oi td { padding: 8px 6px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.cj.oi th.num, .cj.oi td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cj.oi .oi-linhas { min-width: 900px; }
+.cj.oi .oi-linhas select, .cj.oi .oi-linhas input, .cj.oi .oi-edita select, .cj.oi .oi-edita input { font: inherit; font-size: 0.88rem; border: 1px solid var(--line); background: #fff; padding: 6px; max-width: 160px; }
+.cj.oi .oi-linhas input[data-c="taxa"], .cj.oi .oi-edita input[data-of="taxa"] { width: 70px; }
+.cj.oi tr.oi-vence td { background: #fff6d6; }
+.cj.oi tr.oi-vence td:first-child { box-shadow: inset 4px 0 0 var(--yellow, #f5c400); }
+.cj.oi .oi-isento { font-weight: 700; color: var(--ok); }
+.cj.oi .headline { margin: 12px 0 6px; }
+.cj.oi .oi-ranking { min-width: 760px; }
+.cj.oi .oi-edita { min-width: 720px; }
+.cj.oi .oi-selos { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.cj.oi .oi-selo { display: inline-block; font-size: 0.72rem; font-weight: 600; padding: 2px 7px; background: var(--gray-100, #f2f3f4); color: var(--ink); white-space: nowrap; }
+.cj.oi .oi-selo.ok { background: #e8f3ea; color: var(--ok); }
+.cj.oi .oi-selo.info { background: #e9f1fb; color: #1d5fa8; }
+.cj.oi .oi-selo.warn { background: var(--warn-soft); color: var(--warn); }
+.cj.oi .oi-selo.bad { background: #fbe5e3; color: var(--bad); }
+.cj.oi .oi-exemplo { display: inline-block; font-size: 0.7rem; color: var(--warn); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.cj.oi .oi-barra { display: block; height: 8px; background: var(--line); min-width: 80px; }
+.cj.oi .oi-barra span { display: block; height: 100%; background: var(--c2); }
+.cj.oi .oi-barra-grande { height: 12px; margin-top: 6px; }
+.cj.oi .oi-decisao { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin: 6px 0 12px; padding: 12px 14px; background: var(--graphite-900, #15171a); color: #fff; }
+.cj.oi .oi-decisao .eyebrow { color: var(--yellow, #f5c400); display: block; }
+.cj.oi .oi-decisao .btn { background: var(--yellow, #f5c400); color: var(--graphite-900, #15171a); border: 0; }
+.cj.oi .oi-reserva-topo { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.cj.oi .oi-divisao { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 10px; margin-top: 8px; }
+.cj.oi .oi-parte { display: grid; gap: 3px; align-content: start; padding: 12px; border: 1px solid var(--line); border-top: 3px solid var(--graphite-900, #15171a); }
+.cj.oi .oi-parte > b { font-size: 1.2rem; }
+.cj.oi .oi-parte small b { font-size: inherit; }
+.cj.oi .oi-parte small { color: var(--mute); font-size: 0.8rem; }
+.cj.oi .oi-grupos td small, .cj.oi .oi-temos td small { display: block; color: var(--mute); font-size: 0.78rem; }
+.cj.oi .oi-fgc ul { list-style: none; padding: 0; display: grid; gap: 6px; }
+.cj.oi .oi-fgc li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(80px, 160px) auto; gap: 10px; align-items: center; }
+.cj.oi .oi-grafico { display: block; width: 100%; height: auto; margin: 8px 0; }
+.cj.oi .oi-grafico .oi-g-rot { font-size: 12px; fill: var(--ink); }
+.cj.oi .oi-grafico .oi-g-val { font-size: 12px; fill: var(--ink); font-weight: 600; }
+.cj.oi .oi-regras { margin-top: 10px; font-size: 0.9rem; }
+.cj.oi details > summary { cursor: pointer; }
+.cj.oi .oi-rodape { position: sticky; bottom: 0; z-index: 2; margin: 0 0 18px; padding: 10px 14px; background: var(--graphite-900, #15171a); color: #fff; font-size: 0.85rem; border-bottom: 3px solid var(--yellow, #f5c400); }
+.casal-investir > summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.casal-investir > summary small { color: #5f646b; }
+.casal-investir .cj.oi { margin-top: 12px; }
+@media (max-width: 520px) { .cj.oi .oi-fgc li { grid-template-columns: minmax(0, 1fr) auto; } .cj.oi .oi-fgc .oi-barra { grid-column: 1 / -1; } }
+.casal .cj .note { margin: 0; padding: 0; background: none; font-size: 0.88rem; color: var(--mute); }
+.cj.oi .aviso-cj { margin: 10px 0 0; padding: 8px 12px; background: var(--warn-soft); color: var(--warn); font-size: 0.86rem; }
+/* A regra global .field (formulário do site) ocupa 3 colunas: aqui cada campo fica numa coluna da grade */
+.cj.oi .field { grid-column: auto; }
+.cj.oi .money select { width: auto; border: 0; padding: 10px 4px; background: transparent; }

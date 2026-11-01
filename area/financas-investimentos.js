@@ -368,6 +368,7 @@ export function desenharInvestimentosPessoais({ raiz, lista: inicial = [], nomeD
     form.elements.indexador.value = inv ? inv.indexador || "" : "cdi";
     form.elements.taxa.value = inv ? inv.taxa || "" : "";
     form.elements.vencimento.value = inv ? inv.vencimento || "" : "";
+    form.elements.liquidez.value = inv && inv.liquidez ? inv.liquidez : "";
     preencherContas(form, inv ? inv.conta : filtro !== "tudo" ? filtro : null);
     form.querySelector("[data-so-novo]").hidden = !!inv;
     form.elements.data.value = hojeISO();
@@ -391,6 +392,7 @@ export function desenharInvestimentosPessoais({ raiz, lista: inicial = [], nomeD
     const antigo = lista.find((x) => x.id === editando);
     const inv = { ...(antigo || { id: novoId(), meses: {}, criado: hojeISO() }), nome, tipo: form.elements.tipo.value, instituicao: form.elements.instituicao.value.trim().slice(0, 60) || null,
       indexador: form.elements.indexador.value || null, taxa: form.elements.taxa.value.trim().slice(0, 60) || null, vencimento: form.elements.vencimento.value || null,
+      liquidez: ["diaria", "vencimento"].includes(form.elements.liquidez.value) ? form.elements.liquidez.value : null,
       conta: form.elements.conta.value && form.elements.conta.value !== "pessoal" ? form.elements.conta.value : null };
     let gasto = null;
     if (!antigo) {

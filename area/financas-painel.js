@@ -2381,6 +2381,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     },
     estadoCaixinhas,
     receitasDoMes,
+    resumo,
+    detalhe,
     aporteDoMes,
     // Para a lista de desejos: previsão dos próximos meses (com as receitas do projeto ou as lançadas no site)
     previsao: n => (SO_FATURAS && !(ENTRADAS_SITE || []).length ? [] : previsaoMeses(n)),

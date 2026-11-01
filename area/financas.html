@@ -11,9 +11,9 @@
   <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@500;600;700;800&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../styles.css?v=69f81afa">
   <link rel="stylesheet" href="area.css?v=ec6c0301">
-  <link rel="stylesheet" href="financas.css?v=d48ec094">
-  <script type="importmap" data-versoes>{"imports": {"./art.js": "./art.js?v=c36b7b16", "./caixa-documentos.js": "./caixa-documentos.js?v=7c2bf156", "./caixa.js": "./caixa.js?v=d61657d1", "./config-area.js": "./config-area.js?v=c77553f2", "./conta.js": "./conta.js?v=fdce23ea", "./dados.js": "./dados.js?v=5057488e", "./demandas.js": "./demandas.js?v=bf374ec7", "./financas-caixinhas.js": "./financas-caixinhas.js?v=f60536af", "./financas-casal.js": "./financas-casal.js?v=e9b8906b", "./financas-classificacao.js": "./financas-classificacao.js?v=0f7a2cce", "./financas-desejos.js": "./financas-desejos.js?v=81b3e8e1", "./financas-extrato.js": "./financas-extrato.js?v=6a8ecce9", "./financas-faturas.js": "./financas-faturas.js?v=07623b15", "./financas-importar.js": "./financas-importar.js?v=71dfaaa4", "./financas-investimentos.js": "./financas-investimentos.js?v=24dfd0b1", "./financas-painel.js": "./financas-painel.js?v=1a7d894a", "./financas-plano.js": "./financas-plano.js?v=cc5c0c68", "./financas-previa.js": "./financas-previa.js?v=bfb16e3d", "./financas.js": "./financas.js?v=688688ab", "./financeiro.js": "./financeiro.js?v=3d080ed0", "./inicio.js": "./inicio.js?v=c228470e", "./leitores.js": "./leitores.js?v=7eec42d0", "./login.js": "./login.js?v=f434d5fc", "./modulos.js": "./modulos.js?v=6ba48297", "./painel.js": "./painel.js?v=0fe885d9", "./pdf-texto.js": "./pdf-texto.js?v=b5de895d", "./planilha.js": "./planilha.js?v=ce3e0414", "./regras-gestao.js": "./regras-gestao.js?v=8fcde8ed", "./regras.js": "./regras.js?v=d828568d", "./sessao.js": "./sessao.js?v=ff1b532e", "./tarefas.js": "./tarefas.js?v=a0219209", "./ui.js": "./ui.js?v=efb69f88", "./usuarios.js": "./usuarios.js?v=43715674", "./vendor/pdf.min.mjs": "./vendor/pdf.min.mjs?v=f548e26b", "./vendor/pdf.worker.min.mjs": "./vendor/pdf.worker.min.mjs?v=8860b503"}}</script>
-  <script type="module" src="financas.js?v=688688ab"></script>
+  <link rel="stylesheet" href="financas.css?v=2db08adf">
+  <script type="importmap" data-versoes>{"imports": {"./art.js": "./art.js?v=c36b7b16", "./caixa-documentos.js": "./caixa-documentos.js?v=7c2bf156", "./caixa.js": "./caixa.js?v=d61657d1", "./config-area.js": "./config-area.js?v=c77553f2", "./conta.js": "./conta.js?v=fdce23ea", "./dados.js": "./dados.js?v=5057488e", "./demandas.js": "./demandas.js?v=bf374ec7", "./financas-caixinhas.js": "./financas-caixinhas.js?v=f60536af", "./financas-casal.js": "./financas-casal.js?v=996e4d6a", "./financas-classificacao.js": "./financas-classificacao.js?v=0f7a2cce", "./financas-desejos.js": "./financas-desejos.js?v=81b3e8e1", "./financas-extrato.js": "./financas-extrato.js?v=6a8ecce9", "./financas-faturas.js": "./financas-faturas.js?v=07623b15", "./financas-importar.js": "./financas-importar.js?v=71dfaaa4", "./financas-investimentos.js": "./financas-investimentos.js?v=43637625", "./financas-onde-investir.js": "./financas-onde-investir.js?v=6ef11f3e", "./financas-painel.js": "./financas-painel.js?v=32441ffd", "./financas-plano.js": "./financas-plano.js?v=cc5c0c68", "./financas-previa.js": "./financas-previa.js?v=bfb16e3d", "./financas.js": "./financas.js?v=f15d2d56", "./financeiro.js": "./financeiro.js?v=3d080ed0", "./inicio.js": "./inicio.js?v=c228470e", "./leitores.js": "./leitores.js?v=7eec42d0", "./login.js": "./login.js?v=f434d5fc", "./modulos.js": "./modulos.js?v=6ba48297", "./painel.js": "./painel.js?v=0fe885d9", "./pdf-texto.js": "./pdf-texto.js?v=b5de895d", "./planilha.js": "./planilha.js?v=ce3e0414", "./regras-gestao.js": "./regras-gestao.js?v=8fcde8ed", "./regras.js": "./regras.js?v=d828568d", "./sessao.js": "./sessao.js?v=ff1b532e", "./tarefas.js": "./tarefas.js?v=a0219209", "./ui.js": "./ui.js?v=efb69f88", "./usuarios.js": "./usuarios.js?v=43715674", "./vendor/pdf.min.mjs": "./vendor/pdf.min.mjs?v=f548e26b", "./vendor/pdf.worker.min.mjs": "./vendor/pdf.worker.min.mjs?v=8860b503"}}</script>
+  <script type="module" src="financas.js?v=f15d2d56"></script>
 </head>
 <body class="area">
 
@@ -76,6 +76,8 @@
       <div class="tabela-wrap"><table class="tabela casal-tabela" id="casal-tabela"></table></div>
       <p class="casal-aportes" id="casal-aportes" hidden></p>
       <section class="cartao casal-bloco" id="casal-caixinhas" aria-label="Caixinhas do casal" hidden></section>
+      <details class="cartao casal-bloco casal-investir" id="casal-investir" hidden><summary><b>Onde investir cada aporte</b> <small>comparador, ranking de ofertas, divisão do aporte do casal, o que já temos e ações</small></summary>
+        <div class="cj oi"><div id="casal-oi"></div></div></details>
       <section class="cartao casal-bloco" id="casal-entradas" aria-label="Entradas do casal"></section>
       <section class="cartao casal-bloco" id="casal-gastos" aria-label="Gastos pagos do casal"></section>
       <div class="casal-links" id="casal-links"></div>
@@ -314,6 +316,7 @@
       </div>
 
       <div id="view-inv" role="tabpanel" aria-labelledby="tab-inv" hidden>
+        <div class="cj oi" id="oi-raiz" hidden><div class="wrap"><header class="oi-topo"><span class="eyebrow">Investimentos</span><h1>Onde investir cada aporte</h1></header><div id="oi-app"></div></div></div>
         <div class="fin" id="inv-pessoal-raiz" hidden><div class="wrap inv-pessoal" id="inv-pessoal"></div></div>
         <div class="cj" id="cj-raiz"><div class="wrap" id="cj-app"></div></div>
       </div>
@@ -773,6 +776,7 @@
           <label class="c2">Indexador<select name="indexador"></select></label>
           <label class="c2">Taxa<input name="taxa" maxlength="60" autocomplete="off" placeholder="ex.: 90% do CDI"></label>
           <label class="c2">Vencimento<input name="vencimento" type="date"></label>
+          <label class="c3">Resgate<select name="liquidez"><option value="">Pelo tipo e pelo nome</option><option value="diaria">Diário (liquidez diária)</option><option value="vencimento">Só no vencimento</option></select></label>
           <label class="c3" data-campo-conta hidden>Conta (de quem é o dinheiro)<select name="conta"></select></label>
         </div>
         <p class="dica">O tipo, o indexador, a taxa e o vencimento são preenchidos pelo nome quando ele vem como no app do banco; confira.</p>
