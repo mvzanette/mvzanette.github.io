@@ -1292,3 +1292,15 @@ begin
     execute format('alter table public.%I add constraint %I check (partes is null or (jsonb_typeof(partes) = ''array'' and jsonb_array_length(partes) between 2 and 8))', t, t || '_partes_check');
   end loop;
 end $$;
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- Permissões que o Supabase dá por padrão e o site não usa: TRUNCATE (apaga a tabela inteira e não passa pelo RLS),
+-- TRIGGER e REFERENCES. Ficam só com o service_role; o RLS continua decidindo o que cada pessoa lê e grava.
+do $$
+declare t text;
+begin
+  for t in select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' loop
+    execute format('revoke truncate, trigger, references on public.%I from anon, authenticated', t);
+  end loop;
+end $$;
+alter default privileges in schema public revoke truncate, trigger, references on tables from anon, authenticated;

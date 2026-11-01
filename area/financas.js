@@ -12,7 +12,7 @@ import { linkFinancas, pode } from "./modulos.js";
 import { lerArquivoFinancas, outrasPessoas, soFaturas } from "./financas-importar.js";
 import { desenharFinancas } from "./financas-painel.js";
 import { desenharDesejos } from "./financas-desejos.js";
-import { desenharInvestimentosPessoais } from "./financas-investimentos.js";
+import { desenharInvestimentosPessoais, resumir, ultimoMes } from "./financas-investimentos.js";
 import { mostrarCasal } from "./financas-casal.js";
 import { categoriaDe, categoriasEscolhiveis, chavesFatura, chavesGastos, contasDisponiveis, juntarCategorias, lerCategorias, lerContas, normalizarCategoria, partesDe, semClassificacao } from "./financas-classificacao.js";
 import { aplicarFatura, herdarClassificacao, historicoDeCategorias, lerFaturaPdf, manterFaturasDoSite, montarFatura } from "./financas-faturas.js";
@@ -60,9 +60,13 @@ const semAcento = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, ""
 const primeiroNome = (p) => semAcento((p.nome || p.email || "").split(/[\s@]/)[0]);
 const nomeDe = (p) => (p.id === perfil.id ? `${p.nome || p.email} (você)` : p.nome || p.email);
 
+// Uma data só: a última mudança no painel (arquivo importado, fatura, gasto, entrada, classificação ou preferências)
 function mostrarStatus() {
-  const gerado = registro.dados && registro.dados.gerado_em ? `Dados do projeto Financeiro de ${registro.dados.gerado_em}` : "Dados do projeto Financeiro";
-  $("#fin-status").textContent = `${dono.id !== perfil.id ? `Painel de ${dono.nome} · ` : ""}${gerado} · atualizados em ${dataHora(registro.atualizado_em)}${registro.modo === "faturas" ? " · cartão e faturas" : ""}.`;
+  const datas = [registro && registro.atualizado_em, prefs && prefs.atualizado_em,
+    ...gastos.map((g) => g.atualizado_em || g.criado_em), ...entradas.map((e) => e.atualizado_em || e.criado_em), ...ajustes.map((a) => a.atualizado_em)]
+    .filter((d) => d && !Number.isNaN(Date.parse(d))).sort();
+  const ultima = datas.at(-1);
+  $("#fin-status").textContent = `${dono.id !== perfil.id ? `Painel de ${dono.nome} · ` : ""}${ultima ? `Última atualização: ${dataHora(ultima)}` : "Ainda sem atualização"}${registro.modo === "faturas" ? " · cartão e faturas" : ""}.`;
 }
 
 // ---------------------------------------------------------------- categorias e contas nos formulários
@@ -1055,6 +1059,16 @@ function prepararEntrada() {
   });
   form.addEventListener("submit", lancarEntrada);
   $("#btn-entrada-topo").addEventListener("click", () => abrirEntrada());
+  // Menu "+ Mais" do topo: fecha ao escolher, ao clicar fora e com Esc
+  const menu = $("#menu-mais");
+  menu.addEventListener("click", (e) => { if (e.target.closest(".menu-mais-lista button, .menu-mais-lista a")) menu.open = false; });
+  document.addEventListener("click", (e) => { if (menu.open && !menu.contains(e.target)) menu.open = false; });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && menu.open) { menu.open = false; menu.querySelector("summary").focus(); } });
+  // Sem nenhuma ação disponível (ex.: visão do casal), o menu some
+  const itensMenu = [...menu.querySelectorAll(".menu-mais-lista > *")];
+  const ajustarMenu = () => { const v = !itensMenu.some((el) => !el.hidden); if (menu.hidden !== v) menu.hidden = v; };
+  new MutationObserver(ajustarMenu).observe(menu, { subtree: true, attributes: true, attributeFilter: ["hidden"] });
+  ajustarMenu();
 }
 
 // ---------------------------------------------------------------- classificar um lançamento
@@ -2421,9 +2435,21 @@ async function iniciar() {
   $("#btn-entrada-topo").hidden = false;
   $("#btn-extrato").hidden = false;
   $("#fin-app").hidden = false;
+  // A outra pessoa do casal: a previsão de aporte dela (Cadastros do painel dela) e os investimentos conjuntos que ela
+  // cadastrou, para a carteira conjunta e o aporte previsto terem uma fonte só nos dois painéis
+  const outroDoCasal = parceiro ? (dono.id === perfil.id ? parceiro : { id: perfil.id, nome: perfil.nome || perfil.email }) : null;
+  const prefsOutro = outroDoCasal ? await armazem.financas.preferencias(outroDoCasal.id).catch(() => null) : null;
+  const curto = (p) => String((p && (p.nome || p.email)) || "").trim().split(/[\s@]/)[0];
+  const conjuntos = [...(Array.isArray(prefs && prefs.investimentos) ? prefs.investimentos : []), ...(Array.isArray(prefsOutro && prefsOutro.investimentos) ? prefsOutro.investimentos : [])]
+    .filter((i) => i.conta === "casal");
+  const mesConj = ultimoMes(conjuntos, hojeISO().slice(0, 7));
+  const resConj = mesConj ? resumir(conjuntos, mesConj) : null;
+  const metasOutro = prefsOutro && prefsOutro.caixa && prefsOutro.caixa.metas;
   painel = desenharFinancas({
     dados: registro.dados,
     carteira: registro.investimentos,
+    investimentosCasal: resConj && resConj.total > 0 ? { total: resConj.total, mes: mesConj, data: resConj.data, n: resConj.itens.length } : null,
+    outroAporte: outroDoCasal ? { nome: curto(outroDoCasal), valor: metasOutro && metasOutro.investimento_mensal != null && metasOutro.investimento_mensal !== "" ? Number(metasOutro.investimento_mensal) : null } : null,
     modo: registro.modo,
     nome: dono.nome || "",
     linkClaude: link,
@@ -2466,10 +2492,6 @@ async function iniciar() {
       aoAbrir: (href) => (href === "#gastos" ? $("#tab-gastos").click() : $("#classificar").scrollIntoView({ block: "start", behavior: "smooth" })),
     });
   }
-  // Investimentos conjuntos cadastrados no painel da outra pessoa do casal: aparecem aqui só para ver
-  const outroDoCasal = parceiro ? (dono.id === perfil.id ? parceiro : { id: perfil.id, nome: perfil.nome || perfil.email }) : null;
-  const prefsOutro = outroDoCasal ? await armazem.financas.preferencias(outroDoCasal.id).catch(() => null) : null;
-  const curto = (p) => String((p && (p.nome || p.email)) || "").trim().split(/[\s@]/)[0];
   desenharInvestimentosPessoais({
     raiz: $("#inv-pessoal"),
     lista: Array.isArray(prefs && prefs.investimentos) ? prefs.investimentos : [],

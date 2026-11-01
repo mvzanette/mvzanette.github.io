@@ -750,3 +750,47 @@
 .fin .chip.inv-dono { margin-left: 6px; font-size: 0.68rem; vertical-align: 1px; }
 .fin .chip.inv-dono-casal { background: #e9f1fb; color: #1d4f8f; }
 .fin .chip.inv-dono-eu, .fin .chip.inv-dono-outro { background: #fdeee6; color: #9a3f12; }
+
+/* ---------- Topo: ação principal e menu "+ Mais" ---------- */
+.menu-mais { position: relative; }
+.menu-mais > summary { list-style: none; cursor: pointer; }
+.menu-mais > summary::-webkit-details-marker { display: none; }
+.menu-mais-lista { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; display: grid; min-width: 260px; background: var(--white); border: 1px solid var(--gray-300); box-shadow: 0 12px 32px rgba(17, 18, 20, 0.18); }
+.menu-mais-lista > button, .menu-mais-lista > a { display: grid; gap: 2px; text-align: left; padding: 11px 14px; font: 600 0.92rem var(--font-body); color: var(--graphite-900); background: none; border: 0; border-bottom: 1px solid var(--gray-200); cursor: pointer; text-decoration: none; }
+.menu-mais-lista > :last-child { border-bottom: 0; }
+.menu-mais-lista small { font-weight: 400; font-size: 0.78rem; color: #5f646b; }
+.menu-mais-lista > button:hover, .menu-mais-lista > a:hover { background: var(--gray-100); }
+@media (max-width: 640px) { .menu-mais-lista { right: auto; left: 0; min-width: min(260px, calc(100vw - 32px)); } }
+
+/* ---------- "Como é calculado?" recolhível ---------- */
+.fin details.como { font-size: 0.84rem; color: var(--muted); margin-top: 8px; }
+.fin details.como > summary { cursor: pointer; font-weight: 600; color: var(--ink); width: fit-content; }
+.fin details.como > summary::before { content: "ⓘ "; }
+.fin details.como p { margin: 6px 0 0; line-height: 1.5; }
+
+/* ---------- Categorias: a maior em destaque e a comparação com o mês anterior ---------- */
+.fin .cat-resumo { display: grid; gap: 6px; margin: 4px 0 12px; }
+.fin .cat-maior { margin: 0; font-size: 0.92rem; }
+.fin .cat-pilha { display: flex; height: 14px; gap: 2px; }
+.fin .cat-pilha span { display: block; min-width: 2px; }
+.fin .chip.ok-chip { background: #e6f3e7; color: var(--ok); }
+.fin .gm-cat .chip { margin-left: 6px; font-size: 0.68rem; }
+
+/* ---------- Previsão: gráfico da sobra ---------- */
+.fin .prev-grafico { width: 100%; height: auto; max-height: 200px; margin: 4px 0 10px; font-size: 11px; fill: var(--muted); }
+.fin .prev-grafico text { fill: var(--muted); }
+
+/* ---------- Cartão: parcelas futuras, pontos de atenção e conferência ---------- */
+.fin .comprometido { display: flex; align-items: flex-end; gap: 6px; height: 150px; padding-top: 16px; overflow-x: auto; }
+.fin .comp-col { flex: 1 0 38px; display: grid; grid-template-rows: auto 1fr auto; justify-items: center; height: 100%; gap: 3px; }
+.fin .comp-barra { align-self: end; width: 70%; max-width: 34px; background: var(--parc); border-radius: 3px 3px 0 0; }
+.fin .comp-v { font-size: 0.68rem; color: var(--muted); align-self: end; white-space: nowrap; }
+.fin .comp-m { font-size: 0.72rem; color: var(--muted); }
+.fin details.al-outros { margin-top: 8px; font-size: 0.88rem; }
+.fin details.al-outros > summary { cursor: pointer; font-weight: 600; }
+.fin .conf-frases { margin: 0 0 6px; padding-left: 18px; display: grid; gap: 4px; font-size: 0.9rem; }
+
+/* ---------- Carteira conjunta: dados antigos e aviso ---------- */
+.fin-app .cj .velho { display: inline-block; margin-left: 6px; padding: 1px 8px; background: var(--warn-soft); color: var(--warn); font-size: 0.75rem; font-weight: 600; }
+.fin-app .cj .aviso-cj { margin: 10px 0 0; padding: 8px 12px; background: var(--warn-soft); color: var(--warn); font-size: 0.86rem; }
+.fin .desejo-status.info { color: var(--muted); }

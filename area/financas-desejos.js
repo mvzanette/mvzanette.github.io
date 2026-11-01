@@ -83,7 +83,10 @@ export function desenharDesejos({ armazem, perfil, pessoas = [], desejos = [], p
   const outras = pessoas.filter((p) => p.id !== perfil.id);
   const nomePessoa = (id) => (pessoas.find((p) => p.id === id) || {}).nome || "a outra pessoa";
   const previsao = painel && painel.previsao ? painel.previsao(13) : [];
-  const foraDoCartao = painel && painel.mediaForaCartao ? painel.mediaForaCartao() : 0;
+  const infoFora = painel && painel.mediaForaCartaoInfo ? painel.mediaForaCartaoInfo() : { media: painel && painel.mediaForaCartao ? painel.mediaForaCartao() : null, meses: [], parcial: false };
+  const foraDoCartao = infoFora.media || 0;
+  const textoFora = infoFora.media == null ? "Fora do cartão (Pix, débito e dinheiro): nenhum gasto lançado ainda, então a sobra não desconta nada por isso."
+    : `Fora do cartão (Pix, débito e dinheiro, sem os fixos e os investimentos) ${nomeDono ? `${nomeDono} gasta` : "você gasta"} em média ${brl(infoFora.media)} por mês (${infoFora.parcial ? `${infoFora.meses[0]} até agora` : `média de ${infoFora.meses.join(", ")}`}).`;
   const meta = painel ? painel.meta : null;
 
   const ativos = () => lista.filter((d) => d.situacao === "desejo");
@@ -120,7 +123,21 @@ export function desenharDesejos({ armazem, perfil, pessoas = [], desejos = [], p
     const falta = Math.max(0, d.valor - d.guardado);
     const quando = d.quando ? d.quando.slice(0, 7) : null;
     if (falta < 0.005) return { t: "Já está todo guardado: dá para comprar", c: "ok" };
-    if (p.mes == null) return { t: pl[bolsoDe(d)] > 0 ? "Não cabe nos próximos 5 anos com o plano atual" : "Defina quanto guardar por mês para ver quando dá", c: "bad" };
+    // Parcelado: o que importa é se a parcela cabe na fatura (a previsão do cartão em Cadastros)
+    if (d.forma === "parcelado" && d.parcelas > 1) {
+      const parcela = falta / d.parcelas;
+      if (meta == null || !previsao.length) return { t: `${d.parcelas}x de ${brl(parcela)} no cartão. Para ver se cabe, informe a previsão do cartão em Cadastros.`, c: "info" };
+      const livreEm = (m) => (previsao[m] && previsao[m].livre != null ? previsao[m].livre : null);
+      let mes = null;
+      for (let m = 0; m < Math.min(12, previsao.length) && mes == null; m++) {
+        let cabe = true;
+        for (let j = 0; j < d.parcelas && cabe; j++) { const l = livreEm(m + j); cabe = l == null || l >= parcela - 0.005; }
+        if (cabe) mes = m;
+      }
+      return mes == null ? { t: `${d.parcelas}x de ${brl(parcela)}: a parcela não cabe na previsão do cartão nos próximos 12 meses`, c: "warn" }
+        : { t: `${d.parcelas}x de ${brl(parcela)}: a parcela cabe no cartão ${mes === 0 ? "a partir deste mês" : `a partir de ${rotuloMes(somarMeses(inicio, mes))}`}`, c: "ok" };
+    }
+    if (p.mes == null) return pl[bolsoDe(d)] > 0 ? { t: "Não cabe nos próximos 5 anos com o plano atual", c: "bad" } : { t: "Defina quanto guardar por mês (ao lado) para ver quando dá", c: "info" };
     const previsto = somarMeses(inicio, p.mes);
     const parcelado = p.parcela ? ` (${d.parcelas}x de ${brl(p.parcela)})` : "";
     const atraso = quando && previsto > quando;
@@ -146,7 +163,10 @@ export function desenharDesejos({ armazem, perfil, pessoas = [], desejos = [], p
     const total = at.reduce((t, d) => t + d.valor, 0);
     const guardado = at.reduce((t, d) => t + Math.min(d.guardado, d.valor), 0);
     const meses = at.map((d) => (proj.get(d.id) || {}).mes);
-    const fora = meses.filter((m) => m == null).length;
+    // Fora da previsão: sem valor no plano (falta definir quanto guardar) ou com plano e sem caber; o parcelado é pelo cartão
+    const juntar = (d) => !(d.forma === "parcelado" && d.parcelas > 1) && d.valor - d.guardado > 0.005 && (proj.get(d.id) || {}).mes == null;
+    const semPlano = at.filter((d) => juntar(d) && !(pl[bolsoDe(d)] > 0)).length;
+    const fora = at.filter((d) => juntar(d) && pl[bolsoDe(d)] > 0).length;
     const ultimo = meses.filter((m) => m != null).reduce((a, b) => Math.max(a, b), -1);
     const feitos = lista.filter((d) => d.situacao !== "desejo").sort((a, b) => String(b.comprado_em || b.atualizado_em || "").localeCompare(String(a.comprado_em || a.atualizado_em || "")));
     box.innerHTML = `<h2>Desejos por prioridade</h2>
@@ -154,8 +174,9 @@ export function desenharDesejos({ armazem, perfil, pessoas = [], desejos = [], p
           <div><span class="label">Total da lista</span><b class="num">${brl(total)}</b></div>
           <div><span class="label">Já guardado</span><b class="num">${brl(guardado)}</b></div>
         </div>
-        <p class="sub" style="margin:8px 0 12px">${fora ? `${fora === 1 ? "Um desejo não cabe" : `${fora} desejos não cabem`} nos próximos 5 anos com o plano atual.`
-          : ultimo >= 0 ? `Com o plano atual, na ordem de prioridade, a lista inteira fica comprada até ${rotuloMes(somarMeses(inicio, ultimo))}.` : ""}</p>
+        <p class="sub" style="margin:8px 0 12px">${semPlano ? `Defina quanto guardar por mês para ver quando dá para comprar ${semPlano === 1 ? "um desejo" : `${semPlano} desejos`}.` : ""}
+          ${fora ? ` ${fora === 1 ? "Um desejo não cabe" : `${fora} desejos não cabem`} nos próximos 5 anos com o plano atual.`
+          : !semPlano && ultimo >= 0 ? `Com o plano atual, na ordem de prioridade, a lista inteira fica comprada até ${rotuloMes(somarMeses(inicio, ultimo))}.` : ""}</p>
         <div class="desejos">${at.map((d) => linha(d, proj)).join("")}</div>`
         : '<p class="muted" style="margin:0">Nenhum desejo na lista. Use <b>Novo desejo</b> para começar: o site mostra quando dá para comprar, na ordem de prioridade.</p>'}
       ${feitos.length ? `<details class="desejos-feitos"><summary>Comprados e desistências (${feitos.length})</summary>
@@ -204,7 +225,7 @@ export function desenharDesejos({ armazem, perfil, pessoas = [], desejos = [], p
         ${quemOutra.length ? `<label>Para os desejos de ${esc(quemOutra.join(" e "))} (R$)<input name="outra" inputmode="decimal" autocomplete="off" value="${valorCampo(pl.outra)}" placeholder="0,00"></label>` : ""}
         <button type="submit" class="btn">Salvar plano</button>
       </form>
-      ${prox.length ? `<p class="sub" style="margin:12px 0 0">Pela previsão do painel, nos próximos 6 meses sobram em média ${brl(prox.reduce((t, r) => t + r.sobra, 0) / prox.length)} por mês depois do cartão, do investimento e dos gastos fixos. Fora do cartão (Pix, débito e dinheiro) você gasta em média ${brl(foraDoCartao)} por mês.
+      ${prox.length ? `<p class="sub" style="margin:12px 0 0">Pela previsão do painel, nos próximos 6 meses sobram em média ${brl(prox.reduce((t, r) => t + r.sobra, 0) / prox.length)} por mês depois do cartão, do investimento e dos gastos fixos. ${esc(textoFora)}
           ${sugestao > 0 ? `Dá para guardar uns ${brl(sugestao)} por mês com folga (metade do menor valor livre previsto).` : "A previsão não deixa folga para guardar nos próximos meses."}</p>
         ${sugestao > 0 ? `<button type="button" class="btn sec mini" id="usar-sugestao" style="margin-top:8px">Usar ${brl(sugestao)} para os seus desejos</button>` : ""}
         ${reservado > 0 && apertos.length ? `<div class="alert warn" role="status" style="margin-top:12px"><span class="sev"></span><div><b>O plano aperta em ${apertos.map((r) => r.mes).join(", ")}.</b> Você reserva ${brl(reservado)} por mês${pl.conjunto ? ` (com ${Math.round(minha * 100)}% do valor em conjunto)` : ""}, mais do que fica livre nesses meses pela previsão.</div></div>` : ""}`
@@ -243,7 +264,7 @@ export function desenharDesejos({ armazem, perfil, pessoas = [], desejos = [], p
         }).join("")}
       </tbody></table></div>
       <p class="sub" style="margin:10px 0 0">${comPrevisao
-        ? `“Livre” é a sobra prevista do mês menos o gasto médio fora do cartão: o que dá para guardar sem apertar. “Cartão” é quanto ainda cabe na fatura para ficar na sua previsão${meta != null ? ` de ${brl(meta)}` : ""}, já contando as parcelas das compras planejadas.`
+        ? `“Livre” é a sobra prevista do mês menos o gasto médio fora do cartão: o que dá para guardar sem apertar.${meta != null ? ` “Cartão” é quanto ainda cabe na fatura para ficar na sua previsão de ${brl(meta)}, já contando as parcelas das compras planejadas.` : ""}`
         : "Os meses com as compras previstas, guardando o valor do plano."}${algum ? "" : " Nenhuma compra prevista nos próximos 12 meses com o plano atual."}</p>`}`;
   }
 

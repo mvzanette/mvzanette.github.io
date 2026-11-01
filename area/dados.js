@@ -99,6 +99,13 @@ const hojeLocal = () => {
 // ou empresas unidas numa conta só (as duas últimas com o id)
 const contaValida = (v) => (/^(pessoal|casal|engenharia|(empresa|pessoa|grupo):[0-9a-f-]{36})$/.test(String(v || "")) ? v : null);
 
+// Data com ano de verdade: até 5 anos atrás ou 3 à frente (um ano digitado errado, como 2006, vira um mês perdido)
+function exigirDataPlausivel(data, oque) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(data || ""))) throw new Error(`Informe a data ${oque}.`);
+  const ano = Number(String(data).slice(0, 4)), agora = new Date().getFullYear();
+  if (ano < agora - 5 || ano > agora + 3) throw new Error(`Confira o ano da data ${oque} (${String(data).slice(8, 10)}/${String(data).slice(5, 7)}/${ano}).`);
+}
+
 // Gasto lançado pelo site em Finanças pessoais: só as colunas da tabela, com tipos certos
 const FORMAS_GASTO = ["cartao", "pix", "debito", "dinheiro", "outro"];
 function limparGasto(g) {
@@ -106,6 +113,7 @@ function limparGasto(g) {
   const valor = Math.round(Number(g.valor) * 100) / 100;
   if (!(valor > 0)) throw new Error("Informe um valor maior que zero.");
   if (!String(g.descricao || "").trim()) throw new Error("Informe a descrição do gasto.");
+  exigirDataPlausivel(g.data, "do gasto");
   return {
     perfil_id: g.perfil_id,
     data: g.data,
@@ -137,6 +145,7 @@ function limparEntrada(e) {
   const liquido = Math.round(Number(e.liquido) * 100) / 100;
   if (!(liquido > 0)) throw new Error("Informe o valor líquido (maior que zero).");
   if (!String(e.descricao || "").trim()) throw new Error("Informe a descrição da entrada.");
+  exigirDataPlausivel(e.data, "da entrada");
   const salario = e.tipo === "salario";
   const bruto = salario && e.bruto != null && e.bruto !== "" ? Math.round(Number(e.bruto) * 100) / 100 : null;
   if (bruto != null && !(bruto >= 0)) throw new Error("Valor bruto inválido.");

@@ -46,7 +46,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   comMeses = false, somenteCalculo = false, caixa: caixaPrefs = null, aoSalvarSaldo = null, aoMudarRecebimento = null,
   recorrentes: recorrentesSite = [], aoPagarRecorrente = null, aoDesmarcarRecorrente = null, aoEditarRecorrente = null, aoValorRecorrente = null,
   aoMudarPendencias = null, aoEditarGasto = null, aoPagarGasto = null, aoEditarMetas = null,
-  aoEditarEntrada = null, aoReceberEntrada = null }) {
+  aoEditarEntrada = null, aoReceberEntrada = null, outroAporte = null, investimentosCasal = null }) {
   const D = completar(dados);
   let CATS = categorias || lerCategorias(null, dados);
   let AJ = new Map(ajustes.map(a => [a.chave, a]));
@@ -97,12 +97,17 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   const hojeKey = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
   const card = f => /cart/i.test(f || "");
   // Previsões do mês (do projeto Financeiro, alteradas no site em Cadastros): fatura do cartão e investimento mensal
-  let META = null, INV = 0, INV_NOME = "";
+  // Sem previsão de investimento no painel, vale o aporte mensal da pessoa na carteira conjunta do projeto (uma fonte só)
+  let META = null, INV = 0, INV_NOME = "", INV_DA_CARTEIRA = false;
+  const chaveNomeIgual = (obj, nome) => Object.keys(obj || {}).find(k => String(k).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() === String(nome).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase());
+  const aporteDaCarteira = () => { const k = CARTEIRA && TEM_NOME ? chaveNomeIgual(CARTEIRA.aportes_mensais, DONO) : null; return k ? Number(CARTEIRA.aportes_mensais[k]) || 0 : 0; };
   const lerMetas = c => {
     const m = {...(D.metas || {}), ...((c && c.metas) || {})};
     META = m.cartao_mensal != null && m.cartao_mensal !== "" ? Number(m.cartao_mensal) : null;
-    INV = Number(m.investimento_mensal) || 0;
-    INV_NOME = m.investimento_nome || "";
+    const temInv = m.investimento_mensal != null && m.investimento_mensal !== "";
+    INV = temInv ? Number(m.investimento_mensal) || 0 : aporteDaCarteira();
+    INV_DA_CARTEIRA = !temInv && INV > 0;
+    INV_NOME = m.investimento_nome || (INV_DA_CARTEIRA ? "Aporte na carteira conjunta" : "");
   };
   lerMetas(caixaPrefs);
   // Gastos lançados no site ainda a pagar (ids) e fixos do projeto trocados por um recorrente do site ou tirados
@@ -305,8 +310,15 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   // mês, com o valor do mês quando ele foi mudado só naquele mês). Cada um fica pendente no mês até ser marcado como
   // pago, o que lança um gasto com a chave do recorrente e o mês ("chave|AAAA-MM"), mesmo pago no mês seguinte.
   const chaveRec = r => (r.site ? r.id : `p:${String(r.nome || "").slice(0, 100)}`);
+  // Parcela do recorrente no mês: pelo primeiro e o último mês, ou pelo "1/15" do nome (com o primeiro mês). O "1/15"
+  // escrito no nome não avança sozinho; a parcela calculada avança todo mês e o recorrente acaba na última.
+  const NOME_PARCELA = /\s*\(?\b(\d{1,3})\s*\/\s*(\d{1,3})\)?\s*$/;
+  const totalParcelasRec = r => { if (r.inicio && r.fim) return mesesEntre(r.inicio, r.fim) + 1; const x = String(r.nome || "").match(NOME_PARCELA); return x && r.inicio ? Number(x[2]) : null; };
+  const fimRec = r => r.fim || (totalParcelasRec(r) && r.inicio ? somarChave(r.inicio, totalParcelasRec(r) - 1) : null);
+  const parcelaRec = (r, chave) => { const nTot = totalParcelasRec(r); return nTot && r.inicio ? {k: mesesEntre(r.inicio, chave) + 1, n: nTot} : null; };
+  const nomeSemParcela = nome => String(nome || "").replace(NOME_PARCELA, "").trim() || String(nome || "");
   function recorrentesDe(chave) {
-    const site = REC_SITE.filter(r => r && r.id && r.nome && (!r.inicio || r.inicio <= chave) && (!r.fim || r.fim >= chave)).map(r => {
+    const site = REC_SITE.filter(r => r && r.id && r.nome && (!r.inicio || r.inicio <= chave) && (!fimRec(r) || fimRec(r) >= chave)).map(r => {
       const doMes = r.valores && r.valores[chave] != null && Number.isFinite(Number(r.valores[chave]));
       const forma = FORMAS_SITE[r.forma] || FORMAS_SITE.outro;
       return {id: r.id, nome: r.nome, valor: doMes ? Number(r.valores[chave]) : r.valor != null ? Number(r.valor) : null, editado: doMes, dia: Number(r.dia) || null,
@@ -314,7 +326,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
         // No cartão, a cobrança chega pela fatura: o lançamento com o nome dele conta como lançado (o fixo que veio do
         // projeto guarda os nomes que ele procurava)
         busca: Array.isArray(r.busca) && r.busca.length ? r.busca.map(b => String(b).toLowerCase()) : card(forma) ? [String(r.nome).toLowerCase()] : [],
-        variavel: !!r.variavel, site: true};
+        variavel: !!r.variavel, site: true, inicio: r.inicio || null, fim: r.fim || null, parcela: parcelaRec(r, chave)};
     });
     return [...D.recorrentes.filter(r => !OCULTOS.has(chaveRec(r))), ...site];
   }
@@ -508,7 +520,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     if (fatura && fatura.valor > 0) saidas.push({tipo: "fatura", desc: `Fatura ${fatura.rotulo} do cartão`, valor: fatura.valor, data: fatura.venc, st: situacao(fatura.venc), fatura});
     // O que foi lançado na categoria Investimentos (Pix para a corretora, aplicação) sai como investimento, não como gasto
     // O gasto marcado como a pagar fica previsto até ser pago, mesmo com a data já passada
-    for (const l of m ? m.lancamentos : []) if (!card(l.forma)) saidas.push({tipo: ehInvestimento(l) ? "investimento" : "dia", forma: FORMA_CAIXA(l.forma), desc: l.desc, valor: l.valor, data: l.data || null, st: aPagar(l) ? "previsto" : situacao(l.data), aPagar: aPagar(l), l});
+    // O pagamento de um recorrente (aluguel, escola, assinatura) sai como fixo, não como Pix do dia a dia
+    for (const l of m ? m.lancamentos : []) if (!card(l.forma)) saidas.push({tipo: ehInvestimento(l) ? "investimento" : l.recorrente ? "fixo" : "dia", forma: FORMA_CAIXA(l.forma), desc: l.desc, valor: l.valor, data: l.data || null, st: aPagar(l) ? "previsto" : situacao(l.data), aPagar: aPagar(l), l});
     const rec = m ? statusRecorrentes(m) : recorrentesDe(chave).map(r => ({...r, pendente: r.valor || 0}));
     for (const r of rec) if (!card(r.forma) && r.pendente > 0) saidas.push({tipo: "fixo", desc: r.nome, valor: r.pendente, data: r.dia ? diaDe(chave, r.dia) : null, st: passado ? "realizado" : "previsto", r});
     // A previsão de investimento do mês (metas do projeto) só conta no que ainda não foi lançado
@@ -611,10 +624,10 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     for (const l of m ? m.lancamentos : []) {
       if (card(l.forma)) continue;
       if (ehInvestimento(l)) investimentos.push({desc: l.desc, valor: l.valor, data: l.data});
-      else itens.push(...explodir({desc: l.desc, valor: l.valor, grupo: FORMA_CAIXA(l.forma), cat: catDe(l), sub: subDe(l), data: l.data, ref: l, tipo: "gasto"}, l));
+      else itens.push(...explodir({desc: l.desc, valor: l.valor, grupo: l.recorrente ? "Fixos fora do cartão" : FORMA_CAIXA(l.forma), cat: catDe(l), sub: subDe(l), data: l.data, ref: l, tipo: "gasto"}, l));
     }
     // Fixos fora do cartão ainda não pagos (os mesmos do fluxo de caixa)
-    caixa(chave).saidas.filter(x => x.tipo === "fixo").forEach(x => itens.push({desc: x.desc, valor: x.valor, grupo: "Fixos fora do cartão", cat: (x.r && x.r.categoria) || "Fixos", sub: (x.r && x.r.subcategoria) || null, data: x.data, conta: (x.r && x.r.conta) || undefined}));
+    caixa(chave).saidas.filter(x => x.tipo === "fixo" && !x.l).forEach(x => itens.push({desc: x.desc, valor: x.valor, grupo: "Fixos fora do cartão", cat: (x.r && x.r.categoria) || "Fixos", sub: (x.r && x.r.subcategoria) || null, data: x.data, conta: (x.r && x.r.conta) || undefined}));
     const fk = FATURAS.get(rot);
     return {chave, rotulo: rot, fatura, periodo: fk && fk.fechada && fk.periodo && fk.periodo.inicio ? fk.periodo : null, itens, cartao,
       parcelas: cartao.filter(i => i.parcela), semDetalhe: sum(cartao.filter(i => i.semDetalhe), i => i.valor), investimentos,
@@ -958,7 +971,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const porForma = new Map();
     cx.saidas.filter(x => x.tipo === "dia").forEach(s => { const k = `${s.forma}|${s.st}`; const o = porForma.get(k) || {forma: s.forma, st: s.st, v: 0, q: 0, ap: 0}; o.v += s.valor; o.q++; if (s.aPagar) o.ap++; porForma.set(k, o); });
     [...porForma.values()].sort((a, b) => b.v - a.v).forEach(o => saidas.push(linha(esc(o.forma), `${o.q} ${o.q === 1 ? "gasto" : "gastos"}${o.st === "previsto" ? (o.ap === o.q ? " a pagar" : o.ap ? `, ${o.ap} a pagar` : " com data futura") : ""}`, o.v, o.st)));
-    cx.saidas.filter(x => x.tipo === "fixo").forEach(s => saidas.push(linha(esc(s.desc), `${s.r && s.r.site ? "recorrente ainda não pago" : "fixo fora do cartão"}${s.data ? ` · dia ${dBR(s.data)}` : ""}`, s.valor, s.st)));
+    cx.saidas.filter(x => x.tipo === "fixo").forEach(s => saidas.push(linha(esc(s.desc), s.l ? `recorrente ${s.aPagar ? "lançado, a pagar" : "pago"}${s.data ? ` em ${dBR(s.data)}` : ""} · ${esc(s.forma)}` : `${s.r && s.r.site ? "recorrente ainda não pago" : "fixo fora do cartão"}${s.data ? ` · dia ${dBR(s.data)}` : ""}`, s.valor, s.st)));
     const alterar = aoEditarMetas ? ' · <button type="button" class="btn-link" data-editar-metas>alterar</button>' : "";
     const investimentos = cx.saidas.filter(x => x.tipo === "investimento").map(s => linha(esc(s.desc), s.l ? `investimento lançado${s.data ? ` em ${dBR(s.data)}` : ""}` : `${investido(cx) ? "previsão de investimento do mês, menos o já lançado" : "investimento mensal previsto"}${alterar}`, s.valor, s.st, "investimento"));
     const somaSt = (tipos, st) => Math.round(sum(cx.saidas.filter(x => tipos.includes(x.tipo) && x.st === st), x => x.valor) * 100) / 100;
@@ -976,7 +989,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     $id("hero").innerHTML = `
       <div class="label">Balanço de ${esc(m.rotulo)} · o que entra e sai da conta</div>
       <div class="big num ${cx.fim < 0 ? "neg" : ""}">${brl(cx.fim)}</div>
-      <div class="sub">${titulo}${cx.inicial == null ? " (sem o saldo do início do mês)" : ""}${!passado && !futuro ? ` · até hoje entrou ${brl(cx.ent.realizado)} e saiu ${brl(cx.sai.realizado)}` : ""}</div>
+      <div class="sub">${titulo}${cx.inicial == null ? " (sem o saldo do início do mês)" : ""}${!passado && !futuro ? ` · até hoje entrou ${brl(cx.ent.realizado)}, gastou ${brl(somaSt(GASTOS, "realizado"))}${somaSt(["investimento"], "realizado") ? ` e investiu ${brl(somaSt(["investimento"], "realizado"))}` : ""}` : ""}</div>
       <div class="scroll"><table class="calc caixa-tabela" style="margin-top:14px">
         <thead><tr><th>${esc(m.rotulo)}</th><th class="r">Realizado</th><th class="r">Previsto</th></tr></thead>
         <tbody>
@@ -991,7 +1004,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
         </tbody>
       </table></div>
       ${aoLancarEntrada ? '<div class="acoes-lanc" style="margin-top:10px"><button type="button" class="btn sec mini" data-lancar-entrada>Lançar entrada</button></div>' : ""}
-      <p class="sub" style="margin:10px 0 0">O cartão entra no balanço pela fatura paga no mês${cx.fatura ? ` (${esc(cx.fatura.rotulo)})` : ""}, com os lançamentos dela no quadro “Gastos pagos em ${esc(m.rotulo)}”.${prox && prox.valor > 0 ? ` As compras no cartão feitas em ${esc(m.rotulo)} vão para a fatura ${esc(prox.rotulo)}${prox.venc ? `, que vence em ${dataLonga(prox.venc)}` : ""} (${prox.situacao === "fechada" ? "fechada em" : "até agora"} ${brl(prox.valor)}), e entram no balanço de ${esc(mesSeguinte)}.` : ""}</p>
+      <details class="como"><summary>Como o balanço é calculado?</summary><p>O que entra e sai da conta, pela data. Realizado é o que tem data até hoje; o resto é previsto. O cartão entra pela fatura paga no mês${cx.fatura ? ` (${esc(cx.fatura.rotulo)})` : ""}, com os lançamentos dela no quadro “Gastos pagos em ${esc(m.rotulo)}”.${prox && prox.valor > 0 ? ` As compras no cartão feitas em ${esc(m.rotulo)} vão para a fatura ${esc(prox.rotulo)}${prox.venc ? `, que vence em ${dataLonga(prox.venc)}` : ""} (${prox.situacao === "fechada" ? "fechada em" : "até agora"} ${brl(prox.valor)}), e entram no balanço de ${esc(mesSeguinte)}.` : ""} O pagamento de um recorrente conta como fixo; o investimento fica à parte, não é gasto.</p></details>
       ${cx.inicial == null && editavel ? `<div class="note"><b>Informe o saldo da conta em ${dia1}.</b> O Pix do começo do mês sai do que sobrou do mês anterior; com o saldo do início, o caixa mostra quanto há de verdade.</div>` : ""}
       ${entradasRepetidas ? `<p class="sub" style="margin:8px 0 0">${entradasRepetidas === 1 ? "Uma entrada lançada pelo site já estava" : `${entradasRepetidas} entradas lançadas pelo site já estavam`} no projeto Financeiro e não contou de novo.</p>` : ""}
       ${!cx.entradas.length ? `<div class="note"><b>Nenhuma entrada em ${esc(m.rotulo)}.</b> ${aoLancarEntrada ? "Lance o salário ou outro recebimento pelo botão Lançar entrada." : "As receitas entram pelo projeto Financeiro."}</div>` : ""}
@@ -1122,7 +1135,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   };
   const obsDe = i => { const c = i.ref ? ef(i.ref).complemento : null; return c ? `<span class="compl">${esc(c)}</span>` : ""; };
   const itemGasto = i => `<li${i.ref && GM_FOCO && i.ref.chave === GM_FOCO ? ' class="gm-destaque"' : ""}><span>${esc(i.desc)}${i.parte ? ` <span class="chip neutral" title="Lançamento dividido em categorias">parte ${esc(i.parte)}</span>` : ""}<span class="sub"> · ${[i.data && !i.parcela ? dBR(i.data) : "", esc(i.grupo), i.parcela ? `parcela ${esc(i.parcela)}` : ""].filter(Boolean).join(" · ")}</span>${obsDe(i)}</span><span class="gm-valor"><span class="num">${n(i.valor)}</span>${editarItem(i, GM_ITENS, "classificar-gm")}</span></li>`;
-  function categoriaExpansivel(cat, total, itens, pct, maxc) {
+  function categoriaExpansivel(cat, total, itens, pct, maxc, extra = "") {
     const subs = new Map();
     itens.forEach(i => { const k = i.sub || ""; const o = subs.get(k) || {v: 0, itens: []}; o.v += i.valor; o.itens.push(i); subs.set(k, o); });
     const ordem = [...subs.entries()].sort((a, b) => (a[0] === "") - (b[0] === "") || b[1].v - a[1].v);
@@ -1132,7 +1145,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       const chave = `${cat}|${sub}`;
       return `<details class="gm-sub" data-gm="${esc(chave)}"${GM_ABERTAS.has(chave) ? " open" : ""}><summary><span>${esc(sub || "Sem subcategoria")} <span class="muted">(${o.itens.length})</span></span><span class="num">${n(o.v)} <span class="muted">${pct(o.v)}</span></span></summary>${lista(o)}</details>`;
     }).join("");
-    return `<details class="gm-cat" data-gm="${esc(cat)}"${GM_ABERTAS.has(cat) ? " open" : ""}><summary class="cat"><span>${esc(cat)} <span class="muted">(${itens.length})</span></span><span class="num">${brl(total)} <span class="muted">${pct(total)}</span></span><div class="track"><span style="width:${(total / maxc * 100).toFixed(1)}%"></span></div></summary>
+    return `<details class="gm-cat" data-gm="${esc(cat)}"${GM_ABERTAS.has(cat) ? " open" : ""}><summary class="cat"><span>${esc(cat)} <span class="muted">(${itens.length})</span>${extra}</span><span class="num">${brl(total)} <span class="muted">${pct(total)}</span></span><div class="track"><span style="width:${(total / maxc * 100).toFixed(1)}%"></span></div></summary>
       <div class="gm-cat-corpo">${corpo}</div></details>`;
   }
   function renderGastosMes(m) {
@@ -1158,17 +1171,42 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     g.itens.forEach(i => porCat.set(i.cat, (porCat.get(i.cat) || 0) + i.valor));
     const cats = [...porCat.entries()].sort((a, b) => (a[0] === NAO_DETALHADO) - (b[0] === NAO_DETALHADO) || b[1] - a[1]);
     const maxc = Math.max(1, ...cats.map(c => c[1]));
+    // Mês anterior, para comparar cada categoria (só quando ele tem gastos)
+    const chaveAnt = somarChave(m.chave, -1);
+    const anterior = new Map();
+    try { gastosDoMes(chaveAnt).itens.forEach(i => anterior.set(i.cat, (anterior.get(i.cat) || 0) + i.valor)); } catch { /* sem o mês anterior */ }
+    const temAnterior = [...anterior.values()].some(v => v > 0);
+    const rotAnt = rotuloDe(chaveAnt);
+    const compara = (cat, v) => {
+      if (!temAnterior) return "";
+      const a = anterior.get(cat) || 0;
+      if (a < 0.01) return ` <span class="chip neutral" title="não teve em ${esc(rotAnt)}">novo</span>`;
+      const d = (v - a) / a;
+      if (Math.abs(d) < 0.05) return ` <span class="chip neutral" title="${esc(rotAnt)}: ${esc(brl(a))}">igual a ${esc(rotAnt.slice(0, 3))}</span>`;
+      return ` <span class="chip ${d > 0 ? "warn" : "ok-chip"}" title="${esc(rotAnt)}: ${esc(brl(a))}">${d > 0 ? "+" : "−"}${Math.round(Math.abs(d) * 100)}% vs ${esc(rotAnt.slice(0, 3))}</span>`;
+    };
+    const CORES_CAT = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#7b6bb8", "#e87ba4"];
+    const topoCats = cats.filter(([k]) => k !== NAO_DETALHADO).slice(0, 6);
+    const restoCats = g.total - sum(topoCats, c => c[1]);
+    const maiorCat = topoCats[0];
+    const resumoCats = maiorCat && g.total > 0 ? `<div class="cat-resumo">
+        <p class="cat-maior">Maior categoria: <b>${esc(maiorCat[0])}</b>, ${brl(maiorCat[1])} (${pct(maiorCat[1])})${compara(maiorCat[0], maiorCat[1])}</p>
+        <div class="cat-pilha" role="img" aria-label="${esc(topoCats.map(([k, v]) => `${k} ${pct(v)}`).join(", "))}">${topoCats.map(([k, v], i) => `<span style="flex:${v} 1 0;background:${CORES_CAT[i]}" title="${esc(k)}: ${esc(brl(v))}"></span>`).join("")}${restoCats > 0.01 ? `<span style="flex:${restoCats} 1 0;background:var(--line)" title="Outras: ${esc(brl(restoCats))}"></span>` : ""}</div>
+        <div class="legend">${topoCats.map(([k, v], i) => `<span><i style="background:${CORES_CAT[i]}"></i>${esc(k)} <span class="num">${pct(v)}</span></span>`).join("")}${restoCats > 0.01 ? `<span><i style="background:var(--line)"></i>Outras <span class="num">${pct(restoCats)}</span></span>` : ""}</div>
+      </div>` : "";
     const somaParc = sum(g.parcelas, p => p.valor);
     const periodo = g.periodo ? `, com as compras de ${dBR(g.periodo.inicio)} a ${dBR(g.periodo.fim)}` : "";
     $id("gastos-mes").innerHTML = `
       <h2>Gastos pagos em ${esc(m.rotulo)}</h2>
       <div class="tv-big num">${brl(g.total)}</div>
-      <p class="sub" style="margin:2px 0 12px">O que sai da conta em ${esc(m.rotulo)}, sem o investimento (a mesma conta do balanço): ${f ? `a fatura ${esc(f.rotulo)} do cartão${periodo}, com os lançamentos e as categorias da aba Cartão e faturas, ` : ""}mais o Pix, o débito, o dinheiro e os fixos fora do cartão do mês.${m.fatura ? ` As compras no cartão feitas em ${esc(m.rotulo)} vão para a fatura ${esc(m.fatura)}: estão em “Comprado em ${esc(m.rotulo)}”.` : ""}${g.investimentos.length ? ` O que foi lançado em Investimentos (${brl(sum(g.investimentos, i => i.valor))} no mês) não é gasto: aparece como investimento no balanço.` : ""}</p>
+      <p class="sub" style="margin:2px 0 6px">${f ? `Fatura ${esc(f.rotulo)}` : "Sem fatura"} + Pix, débito, dinheiro e fixos fora do cartão. Sem o investimento${g.investimentos.length ? ` (${brl(sum(g.investimentos, i => i.valor))} no mês, à parte)` : ""}.</p>
+      <details class="como" style="margin-bottom:12px"><summary>Como é calculado?</summary><p>A mesma conta do balanço, sem o investimento: ${f ? `a fatura ${esc(f.rotulo)} do cartão${periodo}, com os lançamentos e as categorias da aba Cartão e faturas, ` : ""}mais o Pix, o débito, o dinheiro e os fixos fora do cartão do mês.${m.fatura ? ` As compras no cartão feitas em ${esc(m.rotulo)} vão para a fatura ${esc(m.fatura)}: estão em “Comprado em ${esc(m.rotulo)}”.` : ""} O lançamento dividido em categorias entra com cada parte na dela.</p></details>
       ${g.itens.length ? `<div class="label">Por forma de pagamento</div>
       <div class="scroll"><table><tbody>${linhasForma.map(([k, sub, v]) =>
         `<tr><td>${esc(k)}<div class="sub">${esc(sub)}</div></td><td class="r num">${n(v)}</td><td class="r num muted">${pct(v)}</td></tr>`).join("")}</tbody></table></div>
       <div class="gm-cats-topo"><div class="label">Por categoria</div>${cats.length ? `<button type="button" class="btn-link" data-gm-tudo>${cats.every(([k]) => GM_ABERTAS.has(k)) ? "Recolher tudo" : "Expandir tudo"}</button>` : ""}</div>
-      <div class="gm-cats">${cats.map(([k, v]) => categoriaExpansivel(k, v, g.itens.filter(i => i.cat === k), pct, maxc)).join("")}</div>
+      ${resumoCats}
+      <div class="gm-cats">${cats.map(([k, v]) => categoriaExpansivel(k, v, g.itens.filter(i => i.cat === k), pct, maxc, compara(k, v))).join("")}</div>
       ${g.semDetalhe ? `<div class="note"><b>${brl(g.semDetalhe)} da fatura ${esc(f.rotulo)} sem detalhe.</b> ${f.situacao === "fechada" ? "A fatura fechada tem lançamentos que não vieram no arquivo." : "É o total que o app mostrou para a fatura menos as compras e as parcelas que estão anotadas. Some quando a fatura (ou a prévia do app) for importada com os lançamentos."}</div>` : ""}
       ${g.parcelas.length ? `<details class="gm-parcelas"><summary>Parcelas na fatura ${esc(f.rotulo)}: ${brl(somaParc)} (${g.parcelas.length})</summary>
         <div class="scroll"><table><tbody>${g.parcelas.map(p => `<tr><td>${esc(p.desc)}<div class="sub">${esc(p.cat)}${p.parcela ? ` · parcela ${esc(p.parcela)}` : ""}</div></td><td class="r num">${n(p.valor)}</td></tr>`).join("")}</tbody></table></div></details>` : ""}`
@@ -1187,7 +1225,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     box.innerHTML = `
       <h2>Comprado em ${esc(m.rotulo)}</h2>
       <div class="tv-big num">${brl(c.total)}</div>
-      <p class="sub" style="margin:2px 0 12px">Tudo o que foi comprado no mês, pela data da compra e pelo valor inteiro (a parcelada entra com o total). O que foi no cartão vai para a fatura ${esc(m.fatura || "seguinte")} e entra nos gastos pagos do mês em que ela vence, uma parcela por fatura.</p>
+      <p class="sub" style="margin:2px 0 6px">Pela data da compra e pelo valor inteiro (a parcelada entra com o total).</p>
+      <details class="como" style="margin-bottom:12px"><summary>Como é calculado?</summary><p>O que foi no cartão vai para a fatura ${esc(m.fatura || "seguinte")} e entra nos gastos pagos do mês em que ela vence, uma parcela por fatura. Investimentos não são compras.</p></details>
       ${c.ajuste ? `<div class="note"><b>Inclui ${brl(c.ajuste)} de compras no cartão sem detalhe</b> (ajuste ${esc(c.ajustes.map(a => `“${a}”`).join("; "))}). O projeto Financeiro somou de uma vez as compras que apareciam na fatura aberta do app e não estavam anotadas uma a uma. Some quando a fatura ${esc(m.fatura || "")} for importada com os lançamentos.</div>` : ""}
       <div class="scroll"><table><tbody>
         <tr><td>À vista (Pix, débito, dinheiro e cartão à vista)<div class="sub">${c.itens.length - c.parceladas.length} ${c.itens.length - c.parceladas.length === 1 ? "compra" : "compras"}</div></td><td class="r num">${n(avista)}</td></tr>
@@ -1245,9 +1284,9 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       const valor = r.site && !ok && aoValorRecorrente
         ? `<input class="rec-valor" data-rec-valor="${i}" inputmode="decimal" autocomplete="off" value="${r.valor != null ? n(r.valor) : ""}" aria-label="Valor de ${esc(r.nome)} em ${esc(m.rotulo)}">${r.editado ? '<div class="sub">só neste mês</div>' : ""}`
         : n(valorDe(r));
-      const detalhe = [r.categoria, r.forma, r.dia && !r.st.t.includes("dia") ? `dia ${r.dia}` : "", r.site ? "" : r.origem || "projeto Financeiro"].filter(Boolean).map(esc).join(" · ");
+      const detalhe = [r.parcela ? `parcela ${r.parcela.k} de ${r.parcela.n}${r.parcela.k === r.parcela.n ? " (a última)" : ""}` : "", r.categoria, r.forma, r.dia && !r.st.t.includes("dia") ? `dia ${r.dia}` : "", r.site ? "" : r.origem || "projeto Financeiro"].filter(Boolean).map(esc).join(" · ");
       return `<tr class="${ok ? "rec-ok" : ""}"><td class="rec-check">${check}</td>
-        <td>${esc(r.nome)}${r.site && r.conta && r.conta !== "pessoal" ? ` <span class="chip conta">${esc(nomeDaConta(r.conta))}</span>` : ""}<div class="sub">${detalhe}</div>
+        <td>${esc(r.parcela ? nomeSemParcela(r.nome) : r.nome)}${r.site && r.conta && r.conta !== "pessoal" ? ` <span class="chip conta">${esc(nomeDaConta(r.conta))}</span>` : ""}<div class="sub">${detalhe}</div>
           ${aoEditarRecorrente ? (r.site ? `<button type="button" class="btn-link" data-rec-editar="${esc(r.id)}">Editar</button>` : `<button type="button" class="btn-link" data-rec-editar-p="${i}">Editar</button>`) : ""}</td>
         <td><span class="chip ${r.st.c}">${esc(r.st.t)}</span></td><td class="r num">${valor}</td></tr>`;
     }).join("");
@@ -1264,13 +1303,15 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   // Data sugerida para o pagamento: hoje no mês atual; nos outros meses, o dia do vencimento
   const dataDoPagamento = (r, chave) => (chave === hojeKey ? hojeIso : diaDe(chave, r.dia || (chave < hojeKey ? diasDoMes(chave) : 1)));
   function renderAtalhos(m, c) {
-    const gastos = sum(m.lancamentos, l => l.valor);
+    const semInv = m.lancamentos.filter(l => !ehInvestimento(l));
+    const investido = sum(m.lancamentos.filter(ehInvestimento), l => l.valor);
     const tiles = [];
-    tiles.push({aba: "gastos", t: "Gastos do dia a dia", v: brl(gastos), s: `${m.lancamentos.length} lançamentos em ${esc(m.rotulo)}`});
+    tiles.push({aba: "gastos", t: "Gastos do dia a dia", v: brl(sum(semInv, l => l.valor)), s: `${semInv.length} lançamentos em ${esc(m.rotulo)}${investido ? ` · investimentos de ${brl(investido)} à parte` : ""}`});
     if (AB) tiles.push({aba: "cartao", t: "Cartão e faturas", v: brl(AB.total), s: `Fatura ${AB.fatura} aberta no app em ${dBR(AB.data)}${META != null ? (AB.total > META ? ` · ${brl(AB.total - META)} acima da previsão` : ` · cabem ${brl(META - AB.total)}`) : ""}`});
     else { const ult = D.cartao.faturas.at(-1); if (ult) tiles.push({aba: "cartao", t: "Cartão e faturas", v: brl(ult.total), s: `Última fatura fechada (${ult.mes})`}); }
     const I = D.investimentos;
-    if (I && CARTEIRA) tiles.push({aba: "investimentos", t: TITULARES ? `Investimentos (${TITULARES})` : "Investimentos", v: brl(I.total), s: `Carteira${I.data ? ` em ${dBR(I.data)}` : ""}${I.rentab_ano_pct != null ? ` · ${String(I.rentab_ano_pct).replace(".", ",")}% no ano` : ""}`});
+    if (investimentosCasal && investimentosCasal.total > 0) tiles.push({aba: "investimentos", t: "Carteira conjunta", v: brl(investimentosCasal.total), s: `${investimentosCasal.n} investimentos · saldos de ${rotuloDe(investimentosCasal.mes)}`});
+    else if (I && CARTEIRA) tiles.push({aba: "investimentos", t: TITULARES ? `Investimentos (${TITULARES})` : "Investimentos", v: brl(I.total), s: `Carteira${I.data ? ` em ${dBR(I.data)}` : ""}${I.rentab_ano_pct != null ? ` · ${String(I.rentab_ano_pct).replace(".", ",")}% no ano` : ""}`});
     $id("atalhos").innerHTML = `<h2>Resumo das áreas</h2><div class="tiles">${tiles.map(x =>
       `<button type="button" class="tile" data-ir="${x.aba}"><span class="label">${esc(x.t)}</span><span class="tv">${x.v}</span><span class="sub">${esc(x.s)}</span><span class="go" aria-hidden="true">Abrir →</span></button>`).join("")}</div>`;
     $id("atalhos").querySelectorAll("[data-ir]").forEach(b => b.onclick = () => irPara(b.dataset.ir, true));
@@ -1289,17 +1330,26 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       const tipo = t => sum(cx.saidas.filter(x => x.tipo === t), x => x.valor);
       const pagaFatura = fat ? (fat.situacao === "fechada" || META == null ? fat.valor : Math.max(META, fat.valor)) : META || 0;
       const receita = cx.ent.realizado + cx.ent.previsto;
+      // Sobra = entradas − fatura que vence − investimento (lançado ou previsto) − fixos fora do cartão (pagos ou não),
+      // a mesma conta em todos os meses
+      const inv = tipo("investimento"), fixos = tipo("fixo");
       linhas.push({chave, mes: rotuloDe(chave), fat: fat ? fat.rotulo : rotuloDe(chave), parc: fat ? fat.valor : 0, nota: fat ? fat.situacao : "", receita, cartao: pagaFatura,
-        livre: META != null ? META - (prox ? prox.valor : 0) : null, sobra: receita - tipo("investimento") - pagaFatura - tipo("fixo")});
+        inv, fixos, livre: META != null ? META - (prox ? prox.valor : 0) : null, sobra: Math.round((receita - pagaFatura - inv - fixos) * 100) / 100});
     }
     return linhas;
   }
-  // Gasto médio fora do cartão (Pix, débito, dinheiro) nos meses fechados, para estimar o que sobra de verdade
-  const mediaForaCartao = () => {
-    const fechados = D.meses.filter(m => m.chave < hojeKey);
-    const base = fechados.length ? fechados : D.meses.filter(m => m.chave === hojeKey);
-    return base.length ? sum(base, m => sum(m.lancamentos.filter(l => !card(l.forma) && !ehInvestimento(l)), l => l.valor)) / base.length : 0;
+  // Gasto médio fora do cartão (Pix, débito, dinheiro) por mês, para estimar o que sobra de verdade: os últimos três
+  // meses fechados com algum gasto ou, sem eles, o mês atual até agora. Sem os investimentos e sem os pagamentos de
+  // recorrentes (os fixos já saem da sobra da previsão). null quando não há nenhum gasto fora do cartão lançado.
+  const foraDoCartao = m => sum(m.lancamentos.filter(l => !card(l.forma) && !ehInvestimento(l) && !l.recorrente), l => l.valor);
+  const mediaForaCartaoInfo = () => {
+    const comGasto = D.meses.filter(m => m.chave <= hojeKey && foraDoCartao(m) > 0);
+    const fechados = comGasto.filter(m => m.chave < hojeKey).slice(-3);
+    const base = fechados.length ? fechados : comGasto.filter(m => m.chave === hojeKey);
+    if (!base.length) return {media: null, meses: [], parcial: false};
+    return {media: Math.round(sum(base, foraDoCartao) / base.length * 100) / 100, meses: base.map(m => m.rotulo), parcial: !fechados.length};
   };
+  const mediaForaCartao = () => mediaForaCartaoInfo().media || 0;
 
   function renderPrevisao() {
     const temEntradas = !SO_FATURAS || (ENTRADAS_SITE || []).length > 0;
@@ -1307,12 +1357,21 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     if (!temEntradas) return;
     const linhas = previsaoMeses(7);
     const cel = v => `<td class="r num" style="color:${v < 0 ? "var(--bad)" : "var(--ok)"};font-weight:600">${n(v)}</td>`;
+    // Gráfico de linha da sobra mês a mês (mesma escala, zero marcado)
+    const W = 640, H = 170, ml = 58, mr = 12, mt = 16, mb = 24;
+    const vs = linhas.map(l => l.sobra), lo = Math.min(0, ...vs), hi = Math.max(0, ...vs), tk = marcasFaixa(lo, hi);
+    const x = i => ml + (linhas.length > 1 ? i / (linhas.length - 1) : 0.5) * (W - ml - mr), y = v => mt + (tk.at(-1) - v) / ((tk.at(-1) - tk[0]) || 1) * (H - mt - mb);
+    const grade = tk.map(v => `<line x1="${ml}" x2="${W - mr}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="${v === 0 ? "var(--muted)" : "var(--line)"}"/><text x="${ml - 6}" y="${(y(v) + 4).toFixed(1)}" text-anchor="end">${curtoBRL(v)}</text>`).join("");
+    const caminho = linhas.map((l, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(l.sobra).toFixed(1)}`).join("");
+    const pontos = linhas.map((l, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(l.sobra).toFixed(1)}" r="4" fill="${l.sobra < 0 ? "var(--bad)" : "var(--ok)"}" stroke="var(--surface)" stroke-width="2"><title>${esc(l.mes)}: sobra ${brl(l.sobra)}</title></circle><text x="${x(i).toFixed(1)}" y="${H - 6}" text-anchor="middle">${esc(l.mes)}</text>`).join("");
     $id("previsao").innerHTML = `
       <h2>Previsão dos próximos meses</h2>
-      <p class="muted" style="margin:0 0 8px;font-size:.85rem">Pelo caixa de cada mês: as entradas (as lançadas, as que repetem todo mês ou, sem elas, ${brl(RECEITA_PREVISTA)} como no último mês), menos a fatura que vence no mês${META != null ? ` (a que ainda não fechou conta pelo menos os ${brl(META)} da sua previsão)` : ""}, ${INV ? `o investimento de ${brl(INV)} ` : ""}e os fixos fora do cartão. “Sobra” é o que fica para Pix, débito e dinheiro, sem o saldo do início do mês.${META != null ? " “Livre no cartão” é quanto ainda cabe em compras no mês, que vão para a fatura seguinte." : ""}</p>
-      <div class="scroll"><table><thead><tr><th>Mês</th><th class="r">Fatura que vence</th>${META != null ? '<th class="r">Livre no cartão</th>' : ""}<th class="r">Sobra</th></tr></thead><tbody>
-      ${linhas.map(l => `<tr><td>${esc(l.mes)}<div class="muted" style="font-size:.75rem">entradas ${n(l.receita)}</div></td><td class="r num">${n(l.parc)}<div class="muted" style="font-size:.75rem">${esc(l.fat)}${l.nota ? ` · ${l.nota}` : ""}</div></td>${META != null ? (l.livre == null ? "<td></td>" : cel(l.livre)) : ""}${cel(l.sobra)}</tr>`).join("")}
-      </tbody></table></div>`;
+      <p class="muted" style="margin:0 0 8px;font-size:.85rem">Sobra = entradas − fatura que vence − investimento − fixos fora do cartão. É o que fica para Pix, débito e dinheiro.</p>
+      <svg class="prev-grafico" viewBox="0 0 ${W} ${H}" role="img" aria-label="Sobra prevista: ${esc(linhas.map(l => `${l.mes} ${brl(l.sobra)}`).join(", "))}">${grade}<path d="${caminho}" fill="none" stroke="var(--ok)" stroke-width="2" stroke-linejoin="round"/>${pontos}</svg>
+      <div class="scroll"><table><thead><tr><th>Mês</th><th class="r">Fatura que vence</th><th class="r">Investimento</th><th class="r">Fixos</th>${META != null ? '<th class="r">Livre no cartão</th>' : ""}<th class="r">Sobra</th></tr></thead><tbody>
+      ${linhas.map(l => `<tr><td>${esc(l.mes)}<div class="muted" style="font-size:.75rem">entradas <span class="num">${n(l.receita)}</span></div></td><td class="r num">${n(l.cartao)}<div class="muted" style="font-size:.75rem">${esc(l.fat)}${l.nota ? ` · ${l.nota}` : ""}${l.cartao > l.parc + 0.005 ? `<br>até agora ${n(l.parc)}; conta a previsão` : ""}</div></td><td class="r num">${n(l.inv)}</td><td class="r num">${n(l.fixos)}</td>${META != null ? (l.livre == null ? "<td></td>" : cel(l.livre)) : ""}${cel(l.sobra)}</tr>`).join("")}
+      </tbody></table></div>
+      <details class="como"><summary>Como é calculado?</summary><p>Pelo caixa de cada mês. <b>Entradas:</b> as lançadas, as que repetem todo mês ou, sem elas, ${brl(RECEITA_PREVISTA)} como no último mês. <b>Fatura que vence:</b> a fechada pelo total${META != null ? `; a que ainda não fechou conta pelo menos os ${brl(META)} da sua previsão do cartão` : ""}. <b>Investimento:</b> o lançado no mês ou, sem ele, a previsão de ${INV ? brl(INV) : "investimento"}${INV_DA_CARTEIRA ? " (o seu aporte na carteira conjunta)" : ""}. <b>Fixos fora do cartão:</b> os recorrentes pagos e os ainda a pagar. A sobra não conta o saldo do início do mês.${META != null ? " <b>Livre no cartão:</b> quanto ainda cabe em compras no mês, que vão para a fatura seguinte." : ""}</p></details>`;
   }
 
   // ---------- Gastos do dia a dia ----------
@@ -1446,9 +1505,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     ].map(([k, cls, texto]) => { const q = doMes(k).length; return q ? `<div class="alert ${cls}"><span class="sev"></span><div>${esc(texto(q))} <button type="button" class="btn-link" data-ver-conf="${k}">Ver na lista</button></div></div>` : ""; }).join("");
     box.innerHTML = `<h2>Conferência com o cartão</h2>
       <p class="sub" style="margin:-6px 0 10px">Cada compra das faturas é procurada nos gastos do dia a dia (mesmo valor, até 3 dias de diferença). A que faltava entrou nos gastos, marcada “da fatura”.</p>
-      <div class="scroll"><table><thead><tr><th>Fatura</th><th class="r">Compras</th><th class="r">Já estavam</th><th class="r">Entraram</th></tr></thead><tbody>
-        ${[...CONC.faturas].reverse().slice(0, 4).map(r => `<tr><td>${esc(r.mes)}<div class="sub">${r.fechada ? "fechada" : r.compras ? `prévia até ${dBR(r.previa.ate)}` : "prévia, só parcelas"}</div></td><td class="r num">${r.compras}</td><td class="r num">${r.conferidos}</td><td class="r num">${r.entraram}</td></tr>`).join("")}
-      </tbody></table></div>
+      <ul class="conf-frases">${[...CONC.faturas].reverse().slice(0, 4).map(r => `<li><b>Fatura ${esc(r.mes)}</b> (${r.fechada ? "fechada" : r.compras ? `prévia até ${dBR(r.previa.ate)}` : "prévia, só parcelas"}): ${!r.compras ? "nenhuma compra para conferir."
+        : `${r.compras} ${r.compras === 1 ? "compra" : "compras"}; ${r.conferidos ? `${r.conferidos} já ${r.conferidos === 1 ? "estava" : "estavam"} nos gastos do dia a dia` : "nenhuma estava nos gastos do dia a dia"}${r.entraram ? ` e ${r.entraram} ${r.entraram === 1 ? "foi adicionada" : "foram adicionadas"} aos gastos` : ""}.`}</li>`).join("")}</ul>
       ${avisos ? `<div class="conf-avisos">${avisos}</div>` : `<p class="sub" style="margin:8px 0 0">Em ${esc(m.rotulo)}, os gastos no cartão batem com as faturas.</p>`}
       ${CONC.ajustes ? `<p class="sub" style="margin:8px 0 0">${CONC.ajustes === 1 ? "O ajuste" : `${CONC.ajustes} ajustes`} de gastos no cartão não anotados ${CONC.ajustes === 1 ? "saiu" : "saíram"}: a fatura traz cada compra do período.</p>` : ""}`;
     box.querySelectorAll("[data-ver-conf]").forEach(b => { b.onclick = () => {
@@ -1620,9 +1678,22 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const contas = porConta(doMes);
     const al = C.alertas.filter(a => a.mes === f.mes);
     const prio = {"Alta": "bad", "Média": "warn", "Media": "warn", "Baixa": "neutral", "Info": "info"};
+    // Pontos de atenção: os de prioridade alta e média no topo, com as compras parceladas novas acima do limite; o resto
+    // (parcelamentos pequenos, várias compras no mesmo dia, IOF...) fica recolhido, contado por tipo
+    const LIMITE_PARC = 1000;
+    const parcDe = nome => (C.parcelamentos || []).find(p => semAcento(p.nome).trim() === semAcento(nome).trim());
+    const totalParcelado = a => { const p = parcDe(a.nome || ""); const x = p && String(p.prox || "").match(/(\d+)\s*\/\s*(\d+)/); return x ? Math.round(Number(p.valor) * Number(x[2]) * 100) / 100 : null; };
+    const grande = a => /nova compra parcelada/i.test(a.tipo || "") && (totalParcelado(a) || 0) >= LIMITE_PARC;
+    const ordemPrio = a => ({"Alta": 0, "Média": 1, "Media": 1}[a.prioridade] ?? (grande(a) ? 2 : 3));
+    const principais = al.filter(a => ordemPrio(a) <= 2).sort((a, b) => ordemPrio(a) - ordemPrio(b));
+    const outrosAl = al.filter(a => ordemPrio(a) > 2);
+    const porTipoAl = [...outrosAl.reduce((m, a) => m.set(a.tipo || "Outros", (m.get(a.tipo || "Outros") || 0) + 1), new Map()).entries()];
+    const linhaAl = a => { const tot = grande(a) ? totalParcelado(a) : null; return `<tr><td><span class="chip ${tot ? "warn" : prio[a.prioridade] || "neutral"}">${esc(tot ? "Parcelamento alto" : a.prioridade || "")}</span> ${esc(a.tipo || "")}<div class="sub">${esc(a.nome || "")}${tot ? ` · total de ${brl(tot)}` : ""}${a.detalhe ? ` · ${esc(a.detalhe)}` : ""}</div></td><td class="r num">${a.valor != null ? n(a.valor) : ""}</td></tr>`; };
+    // Tarifas, juros e IOF: a categoria Tarifas e encargos (anuidade, IOF, juros) ou, sem lançamentos, o que a fatura diz
+    const tarifas = sum(doMes.flatMap(partesL).filter(p => /tarifas e encargos/i.test(semAcento(p.categoria))), p => p.valor);
     const top = [...doMes].sort((a, b) => b.valor - a.valor).slice(0, 6);
     const kv = [["Total a pagar", brl(f.total)], ["Vencimento", dataLonga(f.vencimento)],
-      ["À vista (nacional)", brl(f.avista)], ["Parcelas", brl(f.parcelas)], ["Internacional", brl(f.internacional)], ["Encargos e IOF", brl(f.encargos)],
+      ["À vista (nacional)", brl(f.avista)], ["Parcelas", brl(f.parcelas)], ["Internacional", brl(f.internacional)], ["Tarifas, juros e IOF", brl(Math.max(Number(f.encargos) || 0, tarifas))],
       ["Lançamentos", f.n_lanc != null ? esc(f.n_lanc) : "—"], ["Pagamento mínimo", brl(f.minimo)],
       ["Fatura anterior", brl(f.anterior)], ["Limite usado", f.limite ? `${brl(f.limite_usado)} (${Math.round(f.limite_usado / f.limite * 100)}%)` : "—"]];
     box.innerHTML = `
@@ -1638,7 +1709,9 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       ${contas.length ? `<div class="label" style="margin:16px 0 6px">Por conta</div>
         <div class="scroll"><table><tbody>${contas.map(([c, v]) => `<tr><td>${esc(nomeDaConta(c))}</td><td class="r num">${n(v)}</td></tr>`).join("")}</tbody></table></div>` : ""}
       ${al.length ? `<div class="label" style="margin:16px 0 6px">Pontos de atenção</div>
-        <div class="scroll"><table><tbody>${al.map(a => `<tr><td><span class="chip ${prio[a.prioridade] || "neutral"}">${esc(a.prioridade || "")}</span> ${esc(a.tipo || "")}<div class="sub">${esc(a.nome || "")}${a.detalhe ? ` · ${esc(a.detalhe)}` : ""}</div></td><td class="r num">${a.valor != null ? n(a.valor) : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}
+        ${principais.length ? `<div class="scroll"><table><tbody>${principais.map(linhaAl).join("")}</tbody></table></div>` : '<p class="sub" style="margin:0">Nada importante nesta fatura.</p>'}
+        ${outrosAl.length ? `<details class="al-outros"><summary>Ver mais ${outrosAl.length} ${outrosAl.length === 1 ? "aviso" : "avisos"}: ${esc(porTipoAl.map(([t, q]) => `${q} ${t.toLowerCase()}`).join(", "))}</summary>
+          <div class="scroll"><table><tbody>${outrosAl.map(linhaAl).join("")}</tbody></table></div></details>` : ""}` : ""}
       <div class="label" style="margin:16px 0 6px">Maiores lançamentos</div>
       <div class="scroll"><table><tbody>${top.map(l => { const e = ef(l); return `<tr><td>${esc(l.nome)}${e.complemento ? `<div class="compl">${esc(e.complemento)}</div>` : ""}<div class="sub">${e.partes ? `dividido: ${esc(textoPartes(e, l.valor))}` : `${esc(e.categoria)}${e.subcategoria ? ` › ${esc(e.subcategoria)}` : ""}`}${l.parcela ? ` · parcela ${esc(l.parcela)}` : ""}${l.data ? ` · ${dBR(l.data)}` : ""}</div></td><td class="r num">${n(l.valor)}</td></tr>`; }).join("")}</tbody></table></div>
       <p class="sub" style="margin:10px 0 0">Os lançamentos completos estão no fim desta página.</p>`;
@@ -1687,13 +1760,27 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     }).filter(Boolean);
   }
 
+  // Número da próxima parcela: "2 de 12" (o "02/12" parecia data); a fatura (dez/26) fica como está
+  const proxParcela = t => { const x = String(t || "").match(/^(\d+)\s*\/\s*(\d+)$/); return x ? `${Number(x[1])} de ${Number(x[2])}` : t; };
+  // Quanto das próximas faturas já está comprometido com parcelas, mês a mês: mostra quando o cartão alivia
+  function graficoComprometido() {
+    const c = FC().comprometido || {};
+    const meses = Object.keys(c).filter(k => Number.isFinite(ordemFatura(k)) && Number(c[k]) > 0).sort((a, b) => ordemFatura(a) - ordemFatura(b)).slice(0, 12);
+    if (meses.length < 2) return "";
+    const max = Math.max(...meses.map(k => Number(c[k])));
+    return `<div class="comprometido" role="img" aria-label="Parcelas já comprometidas: ${esc(meses.map(k => `${k} ${brl(Number(c[k]))}`).join(", "))}">
+        ${meses.map(k => `<div class="comp-col" title="${esc(k)}: ${esc(brl(Number(c[k])))}"><span class="comp-v num">${curtoBRL(Number(c[k]))}</span><span class="comp-barra" style="height:${Math.max(3, Number(c[k]) / max * 100).toFixed(1)}%"></span><span class="comp-m">${esc(k)}</span></div>`).join("")}
+      </div>
+      <p class="sub" style="margin:4px 0 12px">Já comprometido em parcelas nas próximas faturas: ${brl(meses.reduce((t, k) => t + Number(c[k]), 0))} até ${esc(meses.at(-1))}.</p>`;
+  }
   function renderParcelas() {
     const p = [...FC().parcelamentos, ...parceladasDoSite()];
     if (!p.length) { $id("parcelas").innerHTML = `<h2>Compras parceladas a vencer</h2><p class="muted" style="margin:0">${FC().faturas.length ? "Nenhuma compra parcelada a vencer." : "Aparecem aqui depois da primeira fatura processada."}</p>`; return; }
     $id("parcelas").innerHTML = `
       <h2>Compras parceladas a vencer</h2>
-      <div class="scroll"><table><thead><tr><th>Compra</th><th class="hide-sm">Próx.</th><th class="r">Parcela</th><th class="r">Falta pagar</th><th class="r">Última</th></tr></thead><tbody>
-      ${p.map(x => `<tr><td>${esc(x.nome)}${x.site ? ' <span class="chip info">lançado no site</span>' : ""}</td><td class="num hide-sm">${esc(x.prox)}</td><td class="r num">${n(x.valor)}</td><td class="r num">${n(x.saldo)}</td><td class="r">${esc(x.ultima)}</td></tr>`).join("")}
+      ${graficoComprometido()}
+      <div class="scroll"><table><thead><tr><th>Compra</th><th class="hide-sm">Próxima parcela</th><th class="r">Parcela</th><th class="r">Falta pagar</th><th class="r">Última</th></tr></thead><tbody>
+      ${p.map(x => `<tr><td>${esc(x.nome)}${x.site ? ' <span class="chip info">lançado no site</span>' : ""}</td><td class="num hide-sm">${esc(proxParcela(x.prox))}</td><td class="r num">${n(x.valor)}</td><td class="r num">${n(x.saldo)}</td><td class="r">${esc(x.ultima)}</td></tr>`).join("")}
       <tr class="total"><td>Total</td><td class="hide-sm"></td><td class="r num">${n(sum(p, x => x.valor))}</td><td class="r num">${n(sum(p, x => x.saldo))}</td><td></td></tr>
       </tbody></table></div>
       <p class="muted" style="font-size:.85rem;margin:10px 0 0">${QUEM === "dono" && !SO_FATURAS ? "Posição da última fatura fechada mais as parceladas novas vistas no app." : "Posição da última fatura fechada."}</p>`;
@@ -1759,7 +1846,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   function iniciarAbas() {
     const barra = $id("fin-abas");
     const tabs = [...barra.querySelectorAll("[role=tab]")];
-    const quem = {geral: DONO, gastos: DONO, cartao: OUTRA ? `${DONO} e ${OUTRA.nome}` : DONO, investimentos: comInvestimentos && CARTEIRA ? `${DONO} e carteira conjunta` : TITULARES || DONO, desejos: "Prioridades e projeção", cadastros: "Categorias e contas"};
+    // O seletor do topo (Marcos, Maria, Casal) já diz de quem é o painel: as abas não repetem o nome
+    const quem = {geral: "", gastos: "", cartao: OUTRA ? `com o de ${OUTRA.nome}` : "", investimentos: "", desejos: "Prioridades e projeção", cadastros: "Categorias e contas"};
     tabs.forEach(t => { const s = t.querySelector("small"); if (s) s.textContent = quem[t.dataset.aba]; });
     $id("tab-inv").hidden = !CARTEIRA && !comInvestimentos;
     // Aba Investimentos: os investimentos individuais de quem é o painel e, embaixo, a carteira conjunta do projeto
@@ -1793,6 +1881,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const P = PESSOAS[QUEM];
     const fat = Object.fromEntries(P.cartao.faturas.map(f => [f.mes, f]));
     const rels = [...P.relatorios].reverse();
+    $id("relatorios").hidden = !rels.length; // sem relatório, o quadro não ocupa espaço
+    if (!rels.length) return;
     $id("relatorios").innerHTML = `
       <h2>Relatórios das faturas</h2>
       ${P.cartaoNome ? `<p class="sub" style="margin:-4px 0 10px">Cartão ${esc(P.cartaoNome)}</p>` : ""}
@@ -1802,7 +1892,9 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   }
 
   function rodape() {
-    $id("rodape").textContent = `Dados gerados pelo projeto Financeiro em ${D.gerado_em || "data não informada"}.`;
+    // A data da última atualização fica uma só, no topo da página
+    $id("rodape").textContent = "";
+    $id("rodape").hidden = true;
   }
 
   // Números de um mês, para a visão do casal: as receitas, cada parte do que sai e o saldo, como no cálculo do painel
@@ -1985,7 +2077,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     else if (acao === "metas" && aoEditarMetas) aoEditarMetas();
     else if (acao === "rec-pagar" && aoPagarRecorrente) {
       const r = s.r;
-      aoPagarRecorrente({chave: `${r.chave}|${chave}`, nome: r.nome, valor: r.valor, data: dataDoPagamento(r, chave), forma: r.formaSite || formaDoProjeto(r.forma),
+      aoPagarRecorrente({chave: `${r.chave}|${chave}`, nome: r.parcela ? `${nomeSemParcela(r.nome)} ${r.parcela.k}/${r.parcela.n}` : r.nome, valor: r.valor, data: dataDoPagamento(r, chave), forma: r.formaSite || formaDoProjeto(r.forma),
         categoria: r.categoria || null, subcategoria: r.subcategoria || null, conta: r.conta || null, mes: chave, rotulo: rotuloDe(chave)});
     } else if (acao === "rec-editar" && aoEditarRecorrente) {
       const r = s.r;
@@ -2004,7 +2096,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     if (e.target.matches("[data-rec-pago]")) {
       e.target.checked = !e.target.checked; // a marca muda quando o gasto for lançado ou apagado
       if (r.pago) { if (aoDesmarcarRecorrente) aoDesmarcarRecorrente(r.pago.id, r.nome); }
-      else aoPagarRecorrente({chave: `${r.chave}|${mes}`, nome: r.nome, valor: r.valor, data: dataDoPagamento(r, mes), forma: r.formaSite || formaDoProjeto(r.forma),
+      else aoPagarRecorrente({chave: `${r.chave}|${mes}`, nome: r.parcela ? `${nomeSemParcela(r.nome)} ${r.parcela.k}/${r.parcela.n}` : r.nome, valor: r.valor, data: dataDoPagamento(r, mes), forma: r.formaSite || formaDoProjeto(r.forma),
         categoria: r.categoria || null, subcategoria: r.subcategoria || null, conta: r.conta || null, mes, rotulo: rotuloDe(mes)});
     } else if (e.target.matches("[data-rec-valor]") && aoValorRecorrente) {
       const t = e.target.value.trim(), v = numeroDigitado(t);
@@ -2070,7 +2162,17 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   // ---------- Investimentos ----------
   if (CARTEIRA) {
     try {
-      desenharInvestimentos(CARTEIRA);
+      // Aporte previsto de cada um: a previsão do mês de cada painel (Cadastros); sem ela, o da carteira do projeto
+      const previstos = {...(CARTEIRA.aportes_mensais || {})};
+      const kDono = TEM_NOME ? chaveNomeIgual(previstos, DONO) : null;
+      if (kDono && INV > 0 && !INV_DA_CARTEIRA) previstos[kDono] = INV;
+      const kOutro = outroAporte && outroAporte.nome ? chaveNomeIgual(previstos, outroAporte.nome) : null;
+      if (kOutro && outroAporte.valor != null && outroAporte.valor !== "") previstos[kOutro] = Number(outroAporte.valor) || 0;
+      // Aportes lançados no caixa deste painel (categoria Investimentos) desde o início dos aportes da carteira
+      const desde = CARTEIRA.aporte_inicio || "0000-00";
+      const lancados = D.meses.flatMap(m => m.lancamentos).filter(l => ehInvestimento(l) && String(l.data || "").slice(0, 7) >= desde)
+        .map(l => ({data: l.data, quem: DONO, valor: l.valor, desc: l.desc})).sort((a, b) => String(a.data).localeCompare(String(b.data)));
+      desenharInvestimentos(CARTEIRA, {previstos, lancados, atual: investimentosCasal, dono: DONO, hojeKey});
     } catch (e) {
       console.error(e);
       $id("cj-app").innerHTML = `<p class="muted">A carteira de investimentos não carregou (${esc(e.message)}).</p>`;
@@ -2127,7 +2229,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     },
     // Para a lista de desejos: previsão dos próximos meses (com as receitas do projeto ou as lançadas no site)
     previsao: n => (SO_FATURAS && !(ENTRADAS_SITE || []).length ? [] : previsaoMeses(n)),
-    mediaForaCartao: () => (SO_FATURAS ? 0 : mediaForaCartao()),
+    mediaForaCartao: () => (COM_MESES ? mediaForaCartao() : 0),
+    mediaForaCartaoInfo: () => (COM_MESES ? mediaForaCartaoInfo() : {media: null, meses: [], parcial: false}),
     get meta() { return META; },
     // Previsões do mês em uso (as do projeto ou as alteradas em Cadastros) e os fixos do projeto que continuam valendo
     get metas() { return {investimento_mensal: INV || null, investimento_nome: INV_NOME, cartao_mensal: META}; },
@@ -2137,7 +2240,9 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
 }
 
 // Carteira de investimentos: posição, distribuição, projeção interativa e análise (adaptado do painel da carteira)
-function desenharInvestimentos(D) {
+// extras: previstos (aporte mensal previsto de cada um), lancados (aportes lançados no caixa deste painel), atual (a soma
+// dos investimentos conjuntos cadastrados um a um, a fonte do valor da carteira quando existe) e o nome do dono
+function desenharInvestimentos(D, { previstos = null, lancados = [], atual = null, dono = "", hojeKey = "" } = {}) {
   if (!Array.isArray(D.posicoes) || !D.posicoes.length || !D.projecao) {
     document.getElementById("cj-app").innerHTML = '<p class="note">Os dados da carteira vieram incompletos no arquivo importado.</p>';
     return;
@@ -2162,19 +2267,33 @@ function desenharInvestimentos(D) {
   const fmtBR = (v, dec=0) => v.toLocaleString('pt-BR',{minimumFractionDigits:dec,maximumFractionDigits:2});
   const P = D.posicoes[D.posicoes.length-1];
   const PJ = D.projecao;
+  // Taxa padrão da projeção: conservadora (11% ao ano), mesmo quando o ano corrente rendeu mais
+  const TAXA_PADRAO = Math.min(11, Number(PJ.taxa_anual_padrao) || 11);
   const cores = ['var(--c1)','var(--c2)','var(--c3)','var(--c4)','var(--c5)'];
   const A = D.analise || null;
-  const pessoas = Object.keys(D.aportes_mensais || {});
-  const aporteMes = pessoas.reduce((s,k)=>s+D.aportes_mensais[k],0);
-  const aportes = D.aportes || [];
+  const AP = previstos || D.aportes_mensais || {};
+  const pessoas = Object.keys(AP);
+  const aporteMes = pessoas.reduce((s,k)=>s+(Number(AP[k])||0),0);
+  const aportes = [...(D.aportes || []).map(a => ({...a, origem: 'projeto'})), ...lancados.map(a => ({...a, origem: 'caixa'}))].sort((a,b)=>String(a.data).localeCompare(String(b.data)));
   const totApor = aportes.reduce((s,a)=>s+a.valor,0);
+  // Valor da carteira: a soma dos investimentos conjuntos cadastrados um a um (atualizada todo mês) ou, sem eles, a foto do projeto
+  const usaAtual = !!(atual && atual.total > 0);
+  const TOTAL = usaAtual ? atual.total : P.total;
+  const dataValor = usaAtual ? (atual.data || `${atual.mes}-01`) : P.data;
+  const dias = Math.floor((Date.now() - new Date(dataValor + 'T12:00').getTime()) / 864e5);
+  const somaClasses = P.classes.reduce((s,c)=>s+(Number(c.rend_ano)||0),0);
+  const difRend = Math.round((Number(P.rendimento_ano||0) - somaClasses)*100)/100;
+  const mesAtualK = hojeKey || new Date().toISOString().slice(0,7);
+  const doMesLanc = lancados.filter(a => String(a.data).slice(0,7) === mesAtualK).reduce((s,a)=>s+a.valor,0);
+  const kDono = pessoas.find(k => k.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase() === String(dono).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase());
 
   let h = `
   <header class="hero">
     <span class="eyebrow">${esc(D.instituicao)} · ${esc(D.titulares)}</span>
     <h1>Carteira conjunta</h1>
-    <span class="total">${brl(P.total)}</span>
-    <span class="note">Posição de ${dt(P.data)}</span>
+    <span class="total">${brl(TOTAL)}</span>
+    <span class="note">${usaAtual ? `Soma dos ${atual.n} investimentos conjuntos cadastrados um a um, saldos de ${dt(dataValor)}` : `Posição de ${dt(P.data)}`}${dias > 15 ? ` <span class="velho">atualizado há ${dias} dias</span>` : ''}</span>
+    ${usaAtual && Math.abs(TOTAL - P.total) > 0.005 ? `<span class="note">A foto do projeto Financeiro (${esc(P.fonte || '')}) era de ${brl(P.total)} em ${dt(P.data)}. As classes e a rentabilidade abaixo são dessa foto.</span>` : ''}
   </header>
   <section class="card">
     <div class="kpis">
@@ -2182,6 +2301,7 @@ function desenharInvestimentos(D) {
       <div class="kpi"><span class="eyebrow">Rentabilidade</span><b class="pos">${pct(P.rentab_ano_pct)}</b><span class="note">no ano</span></div>
       <div class="kpi"><span class="eyebrow">% do CDI</span><b>${pct(P.pct_cdi_ano)}</b><span class="note">bruto de IR</span></div>
     </div>
+    ${Math.abs(difRend) > 1 ? `<p class="aviso-cj"><b>Os números não batem:</b> o rendimento do ano é ${brl(P.rendimento_ano)}, mas a soma por classe é ${brl(somaClasses)} (diferença de ${brl(Math.abs(difRend))}). Confira no app do banco; o app às vezes mostra o rendimento de períodos diferentes.</p>` : ''}
   </section>
   <section class="card">
     <h2>Onde está o dinheiro</h2>
@@ -2194,34 +2314,36 @@ function desenharInvestimentos(D) {
   <section class="card" id="cj-projecao">
     <span class="eyebrow">Projeção</span>
     <h2>Quanto a carteira pode virar</h2>
-    <p class="note">Parte de ${brl(P.total)} e repete o rendimento de 2026: ${esc(PJ.taxa_origem)}. Juros sobre juros, aporte no fim de cada mês.</p>
+    <p class="note">Parte de ${brl(TOTAL)}, juros sobre juros, aporte no fim de cada mês. O padrão é conservador: ${fmtBR(TAXA_PADRAO,1)}% ao ano, líquido de IR e em dinheiro de hoje. Em 2026 a carteira rendeu ${esc(PJ.taxa_origem)}, um ano de juros altos.</p>
     <div class="controls">
-      ${pessoas.map(k=>`<div class="field"><label for="cj-ap-${k}">Aporte mensal de ${esc(k)}</label><div class="money"><span>R$</span><input id="cj-ap-${k}" type="text" inputmode="decimal" autocomplete="off" value="${fmtBR(D.aportes_mensais[k])}"></div></div>`).join('')}
+      ${pessoas.map(k=>`<div class="field"><label for="cj-ap-${k}">Aporte mensal de ${esc(k)}</label><div class="money"><span>R$</span><input id="cj-ap-${k}" type="text" inputmode="decimal" autocomplete="off" value="${fmtBR(Number(AP[k])||0)}"></div></div>`).join('')}
       <div class="chips" role="group" aria-label="Aporte igual para os dois">
         ${[1500,1600,1800,2000,2500].map(v=>`<button type="button" class="chip" data-cada="${v}">${v.toLocaleString('pt-BR')} cada</button>`).join('')}
       </div>
-      <div class="field"><label for="cj-taxa">Rendimento ao ano (%)</label><div class="money"><input id="cj-taxa" type="text" inputmode="decimal" autocomplete="off" value="${fmtBR(PJ.taxa_anual_padrao,1)}"><span>% a.a.</span></div></div>
+      <div class="field"><label for="cj-taxa">Rendimento ao ano (%)</label><div class="money"><input id="cj-taxa" type="text" inputmode="decimal" autocomplete="off" value="${fmtBR(TAXA_PADRAO,1)}"><span>% a.a.</span></div></div>
       <div class="field"><label for="cj-infl">Inflação ao ano (%)</label><div class="money"><input id="cj-infl" type="text" inputmode="decimal" autocomplete="off" value="${fmtBR(PJ.inflacao_padrao,1)}"><span>% a.a.</span></div></div>
       <div class="chips" role="group" aria-label="Rendimento ao ano">
-        ${[[PJ.taxa_anual_padrao,'igual a 2026'],[12,''],[10,''],[8,'']].map(([v,l])=>`<button type="button" class="chip" data-taxa="${v}">${fmtBR(v)}%${l?' ('+l+')':''}</button>`).join('')}
+        ${[[8,''],[10,''],[11,'padrão'],[12,''],[PJ.taxa_anual_padrao,'igual a 2026']].map(([v,l])=>`<button type="button" class="chip" data-taxa="${v}">${fmtBR(v)}%${l?' ('+l+')':''}</button>`).join('')}
       </div>
       <div class="toggles">
-        <label><input type="checkbox" id="cj-ir"> Descontar imposto de renda</label>
-        <label><input type="checkbox" id="cj-real"> Mostrar em dinheiro de hoje</label>
+        <label><input type="checkbox" id="cj-ir" checked> Descontar imposto de renda</label>
+        <label><input type="checkbox" id="cj-real" checked> Mostrar em dinheiro de hoje</label>
       </div>
     </div>
     <p class="headline" id="cj-headline" aria-live="polite"></p>
     <div class="legend" id="cj-legend"></div>
     <div class="chartbox"><svg id="cj-chart" role="img" aria-label=""></svg><div class="tip" id="cj-tip" hidden></div></div>
-    <div class="scroll"><table><thead><tr><th>Prazo</th><th>Vocês colocam R$</th><th>Juros R$</th><th>Saldo R$</th></tr></thead><tbody id="cj-tabproj"></tbody></table></div>
+    <div class="scroll"><table><thead><tr><th>Prazo</th><th>Saldo de hoje R$</th><th>Aportes R$</th><th>Juros R$</th><th>Saldo R$</th></tr></thead><tbody id="cj-tabproj"></tbody></table></div>
     <p class="note" id="cj-projnota"></p>
   </section>
 
   <section class="card">
     <h2>Aportes</h2>
-    <p>Previsto: ${pessoas.map(k=>`<b class="num">${brl(D.aportes_mensais[k])}</b> de ${esc(k)}`).join(' e ')} por mês, <b class="num">${brl(aporteMes)}</b> no total.</p>
-    ${aportes.length ? `<div class="scroll"><table><thead><tr><th>Data</th><th>Quem</th><th>Valor</th></tr></thead><tbody>${aportes.map(a=>`<tr><td>${dt(a.data)}</td><td>${esc(a.quem)}</td><td class="num">${brl(a.valor)}</td></tr>`).join('')}<tr><td><b>Total</b></td><td></td><td class="num"><b>${brl(totApor)}</b></td></tr></tbody></table></div>`
-     : `<p class="note">Nenhum aporte registrado ainda no projeto Financeiro.</p>`}
+    <p>Previsto: ${pessoas.map(k=>`<b class="num">${brl(Number(AP[k])||0)}</b> de ${esc(k)}`).join(' e ')} por mês, <b class="num">${brl(aporteMes)}</b> no total. <span class="note">A previsão de cada um vem das Previsões do mês (Cadastros) de cada painel.</span></p>
+    ${kDono ? `<p>Em ${esc(mesAtualK.slice(5,7))}/${esc(mesAtualK.slice(0,4))}, ${esc(kDono)} lançou <b class="num">${brl(doMesLanc)}</b> em investimentos no caixa${Number(AP[kDono]) ? ` (previsto ${brl(Number(AP[kDono]))}${doMesLanc > Number(AP[kDono]) + 0.005 ? `, ${brl(doMesLanc - Number(AP[kDono]))} a mais` : doMesLanc < Number(AP[kDono]) - 0.005 ? `, faltam ${brl(Number(AP[kDono]) - doMesLanc)}` : ''})` : ''}.</p>` : ''}
+    ${aportes.length ? `<div class="scroll"><table><thead><tr><th>Data</th><th>Quem</th><th>Lançamento</th><th>Valor</th></tr></thead><tbody>${aportes.map(a=>`<tr><td>${dt(a.data)}</td><td>${esc(a.quem)}</td><td>${esc(a.desc || (a.origem === 'projeto' ? 'projeto Financeiro' : ''))}</td><td class="num">${brl(a.valor)}</td></tr>`).join('')}<tr><td><b>Total</b></td><td></td><td></td><td class="num"><b>${brl(totApor)}</b></td></tr></tbody></table></div>
+      <p class="note">Aportes lançados no caixa deste painel (categoria Investimentos)${D.aportes && D.aportes.length ? ' e os registrados no projeto Financeiro' : ''}. Os do outro painel aparecem lá e na visão do casal.</p>`
+     : `<p class="note">Nenhum aporte lançado ainda. Lance a transferência para a carteira como gasto na categoria Investimentos: ela sai do caixa como investimento e aparece aqui.</p>`}
   </section>
   ${D.posicoes.length>1?`<section class="card"><h2>Evolução</h2><div class="scroll"><table><thead><tr><th>Data</th><th>Total</th><th>Rend. ano</th><th>% CDI</th></tr></thead><tbody>${D.posicoes.slice().reverse().map(p=>`<tr><td>${dt(p.data)}</td><td class="num">${brl(p.total)}</td><td class="num">${brl(p.rendimento_ano)}</td><td class="num">${pct(p.pct_cdi_ano)}</td></tr>`).join('')}</tbody></table></div></section>`:''}
   ${A ? `<section class="card">
@@ -2278,7 +2400,7 @@ function desenharInvestimentos(D) {
     if(ok) validos[chave] = v;
     return ok ? v : (validos[chave] ?? padrao);
   }
-  const STORE = 'mz-fin-carteira';
+  const STORE = 'mz-fin-carteira-v2'; // v2: padrão conservador (11% ao ano, líquido de IR, em dinheiro de hoje)
   function carregar(){ try{ const s = JSON.parse(localStorage.getItem(STORE)||'null'); if(!s) return;
     pessoas.forEach(k=>{ if(s['ap-'+k]!=null) $('ap-'+k).value = s['ap-'+k]; });
     ['taxa','infl'].forEach(k=>{ if(s[k]!=null) $(k).value = s[k]; });
@@ -2290,12 +2412,12 @@ function desenharInvestimentos(D) {
 
   let estado = null;
   function calcular(){
-    const aportes = pessoas.map(k=>num('ap-'+k, D.aportes_mensais[k]));
+    const aportes = pessoas.map(k=>num('ap-'+k, Number(AP[k])||0));
     const aporte = aportes.reduce((a,b)=>a+b,0);
     const base = PJ.aporte_base_por_pessoa*pessoas.length;
-    const taxa = num('taxa', PJ.taxa_anual_padrao), infl = num('infl', PJ.inflacao_padrao), ir = $('ir').checked, real = $('real').checked;
-    const serie = projetar(P.total, aporte, taxa, infl, ir, real);
-    const serieBase = projetar(P.total, base, taxa, infl, ir, real);
+    const taxa = num('taxa', TAXA_PADRAO), infl = num('infl', PJ.inflacao_padrao), ir = $('ir').checked, real = $('real').checked;
+    const serie = projetar(TOTAL, aporte, taxa, infl, ir, real);
+    const serieBase = projetar(TOTAL, base, taxa, infl, ir, real);
     estado = {aportes, aporte, base, taxa, infl, ir, real, serie, serieBase, difere: Math.abs(aporte-base)>0.005};
     document.querySelectorAll('[data-cada]').forEach(b=>b.setAttribute('aria-pressed', aportes.every(v=>Math.abs(v-+b.dataset.cada)<0.005)));
     document.querySelectorAll('[data-taxa]').forEach(b=>b.setAttribute('aria-pressed', Math.abs(taxa-+b.dataset.taxa)<0.005));
@@ -2323,7 +2445,7 @@ function desenharInvestimentos(D) {
       const r = e.serie[a*12], b = e.serieBase[a*12];
       const dif = r.saldo - b.saldo;
       const sub = e.difere ? `<small>${dif>=0?'+':'−'}${curto(Math.abs(dif))} vs ${PJ.aporte_base_por_pessoa.toLocaleString('pt-BR')} cada</small>` : '';
-      return `<tr><td>${a} ${a===1?'ano':'anos'}</td><td class="num">${semRS(r.colocado)}</td><td class="num ${r.juros<0?'neg':'pos'}">${semRS(r.juros)}</td><td class="num"><b>${semRS(r.saldo)}</b>${sub}</td></tr>`;
+      return `<tr><td>${a} ${a===1?'ano':'anos'}</td><td class="num">${semRS(TOTAL)}</td><td class="num">${semRS(r.colocado - TOTAL)}</td><td class="num ${r.juros<0?'neg':'pos'}">${semRS(r.juros)}</td><td class="num"><b>${semRS(r.saldo)}</b>${sub}</td></tr>`;
     }).join('');
   }
 

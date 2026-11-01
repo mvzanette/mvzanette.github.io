@@ -120,7 +120,8 @@ export async function mostrarCasal({ armazem, pessoas }) {
     $("#casal-meses").innerHTML = chaves.map((c) => `<button type="button" class="pilula" data-mes="${esc(c)}"${c === atual ? ' aria-current="page"' : ""}>${esc(meses.get(c))}${c === hoje ? " · agora" : ""}</button>`).join("");
     const { res, entradas, gastos } = doMes();
     const somaR = (f) => res.reduce((t, r) => t + (r ? f(r) : 0), 0);
-    const cel = (r, f, sub = "") => `<td class="r">${r ? `${brl(f(r))}${sub ? `<small>${esc(sub(r))}</small>` : ""}` : '<span class="sem">—</span>'}</td>`;
+    // Zero aparece como "nada lançado": a tela avisa que falta o dado, em vez de um R$ 0,00 mudo
+    const cel = (r, f, sub = "") => `<td class="r">${r ? (Math.abs(f(r)) < 0.005 ? '<span class="sem">nada lançado</span>' : `${brl(f(r))}${sub ? `<small>${esc(sub(r))}</small>` : ""}`) : '<span class="sem">—</span>'}</td>`;
     const linha = (rotulo, f, sub) => `<tr><th scope="row">${rotulo}</th>${res.map((r) => cel(r, f, sub)).join("")}<td class="r casal-total">${brl(somaR(f))}</td></tr>`;
     const saldo = somaR((r) => r.saldo);
     const saidas = somaR((r) => r.investimento + r.cartao + r.fora + r.fixosFora);
@@ -388,14 +389,15 @@ export async function mostrarCasal({ armazem, pessoas }) {
           <td class="r num">${x.rendeu != null ? n2(x.rendeu) : "—"}</td><td class="r num">${x.rendeu != null && base > 0 ? pct(x.rendeu / base, 2) : "—"}</td></tr>`; }).join("")}</tbody></table></div>`);
     }
     // Previsão (juros compostos com o aporte mensal)
-    const taxa = Number(PJ.taxa_anual_padrao) || 10, infl = Number(PJ.inflacao_padrao) || 4.5;
+    // Padrão conservador: no máximo 11% ao ano, mesmo que o ano corrente tenha rendido mais
+    const taxa = Math.min(11, Number(PJ.taxa_anual_padrao) || 11), infl = Number(PJ.inflacao_padrao) || 4.5;
     const im = (1 + taxa / 100) ** (1 / 12) - 1;
     const futuro = (n) => total * (1 + im) ** n + (im ? aporte * ((1 + im) ** n - 1) / im : aporte * n);
     const horizontes = (Array.isArray(PJ.horizontes_anos) && PJ.horizontes_anos.length ? PJ.horizontes_anos : [1, 5, 10, 20]).slice(0, 5);
     blocos.push(`<h3>Previsão${invVer === "tudo" ? "" : ` · ${esc(nomeDono(invVer))}`}</h3>
-      <p class="sub">Com ${String(taxa).replace(".", ",")}% ao ano${carteiraProjeto && PJ.taxa_anual_padrao ? " (a taxa da carteira no projeto)" : ""}, o valor atual e ${aporte ? `${brl(aporte)} de aporte por mês` : "sem aporte"}. “Hoje” desconta a inflação de ${String(infl).replace(".", ",")}% ao ano. Sem imposto de renda.</p>
-      <div class="tabela-wrap"><table class="tabela casal-unif"><thead><tr><th>Em</th><th class="r">Valor previsto</th><th class="r">Em dinheiro de hoje</th><th class="r">Total aportado</th><th class="r">Rendimentos</th></tr></thead>
-      <tbody>${horizontes.map((a) => { const m = a * 12, v = futuro(m), ap = total + aporte * m; return `<tr><td>${a} ${a === 1 ? "ano" : "anos"}</td><td class="r num">${brl(v)}</td><td class="r num">${brl(v / (1 + infl / 100) ** a)}</td><td class="r num">${brl(ap)}</td><td class="r num">${brl(v - ap)}</td></tr>`; }).join("")}</tbody></table></div>`);
+      <p class="sub">Conservadora: ${String(taxa).replace(".", ",")}% ao ano${Number(PJ.taxa_anual_padrao) > taxa ? ` (a carteira rendeu ${String(PJ.taxa_anual_padrao).replace(".", ",")}% ao ano em 2026, um ano de juros altos)` : ""}, partindo do valor atual com ${aporte ? `${brl(aporte)} de aporte por mês` : "nenhum aporte"}. A primeira coluna desconta a inflação de ${String(infl).replace(".", ",")}% ao ano. Sem imposto de renda.</p>
+      <div class="tabela-wrap"><table class="tabela casal-unif"><thead><tr><th>Em</th><th class="r">Em dinheiro de hoje</th><th class="r">Valor previsto</th><th class="r">Saldo de hoje</th><th class="r">Aportes</th><th class="r">Rendimentos</th></tr></thead>
+      <tbody>${horizontes.map((a) => { const m = a * 12, v = futuro(m), ap = aporte * m; return `<tr><td>${a} ${a === 1 ? "ano" : "anos"}</td><td class="r num casal-total">${brl(v / (1 + infl / 100) ** a)}</td><td class="r num">${brl(v)}</td><td class="r num">${brl(total)}</td><td class="r num">${brl(ap)}</td><td class="r num">${brl(v - total - ap)}</td></tr>`; }).join("")}</tbody></table></div>`);
     // Indicadores
     blocos.push(`<h3>Indicadores para melhorar a carteira${invVer === "tudo" ? "" : ` · ${esc(nomeDono(invVer))}`}</h3><ul class="casal-notas">${indicadores(inv, res).map((t) => `<li>${t}</li>`).join("")}</ul>`);
     // Lista detalhada, separada por dono em Tudo
