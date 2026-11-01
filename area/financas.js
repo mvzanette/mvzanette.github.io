@@ -2466,10 +2466,16 @@ async function iniciar() {
       aoAbrir: (href) => (href === "#gastos" ? $("#tab-gastos").click() : $("#classificar").scrollIntoView({ block: "start", behavior: "smooth" })),
     });
   }
+  // Investimentos conjuntos cadastrados no painel da outra pessoa do casal: aparecem aqui só para ver
+  const outroDoCasal = parceiro ? (dono.id === perfil.id ? parceiro : { id: perfil.id, nome: perfil.nome || perfil.email }) : null;
+  const prefsOutro = outroDoCasal ? await armazem.financas.preferencias(outroDoCasal.id).catch(() => null) : null;
+  const curto = (p) => String((p && (p.nome || p.email)) || "").trim().split(/[\s@]/)[0];
   desenharInvestimentosPessoais({
     raiz: $("#inv-pessoal"),
     lista: Array.isArray(prefs && prefs.investimentos) ? prefs.investimentos : [],
     nomeDono: dono.id !== perfil.id ? `Investimentos de ${dono.nome}` : "Seus investimentos",
+    nomeCurto: curto(dono),
+    doOutro: outroDoCasal ? { nome: curto(outroDoCasal), lista: (Array.isArray(prefsOutro && prefsOutro.investimentos) ? prefsOutro.investimentos : []).filter((i) => i.conta === "casal") } : null,
     contas: () => contas,
     salvar: async (lista) => {
       prefs = await armazem.financas.salvarPreferencias(dono.id, { investimentos: lista });

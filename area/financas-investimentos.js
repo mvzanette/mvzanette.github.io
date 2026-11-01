@@ -188,16 +188,27 @@ export function serieMensal(lista, ate, n = 12) {
 
 // ---------------------------------------------------------------- tela
 // raiz: elemento onde o painel é desenhado; lista: os investimentos salvos; salvar(lista) grava e devolve a lista salva;
-// lancarGasto e lancarEntrada lançam a aplicação ou o resgate no caixa; contas: as contas dos formulários
-export function desenharInvestimentosPessoais({ raiz, lista: inicial = [], nomeDono = "", salvar, lancarGasto = null, lancarEntrada = null, contas = () => [] }) {
+// lancarGasto e lancarEntrada lançam a aplicação ou o resgate no caixa; contas: as contas dos formulários.
+// De quem é cada investimento: só do dono do painel (conta pessoal), conjunto dos dois (conta do casal) ou só da outra
+// pessoa do casal. doOutro: { nome, lista } os conjuntos cadastrados no painel da outra pessoa, que aparecem aqui só
+// para ver (os saldos deles são atualizados no painel dela).
+export function desenharInvestimentosPessoais({ raiz, lista: inicial = [], nomeDono = "", nomeCurto = "", salvar, lancarGasto = null, lancarEntrada = null, contas = () => [], doOutro = null }) {
   let lista = Array.isArray(inicial) ? inicial : [];
+  const outroCurto = (doOutro && doOutro.nome) || "";
+  const deFora = ((doOutro && doOutro.lista) || []).map((inv) => ({ ...inv, somenteLeitura: true }));
+  const todos = () => [...lista, ...deFora];
   const mesAtual = hojeISO().slice(0, 7);
   let editando = null; // id do investimento aberto no formulário
   let movimento = null; // { id, tipo: "aplicar" | "resgatar" }
   let dicaTocada = {}; // campos que a pessoa mudou à mão no formulário (a detecção pelo nome não mexe mais)
   let filtro = "tudo"; // de quem é o dinheiro: tudo, pessoal ou o id da conta (ex.: casal)
   const contaDe = (inv) => inv.conta || "pessoal";
-  const nomeConta = (id) => (id === "pessoal" ? "Pessoais" : id === "casal" ? "Do casal" : (contas().find((c) => c.id === id) || {}).nome || "Outra conta");
+  const nomeConta = (id) => {
+    if (id === "pessoal") return nomeCurto ? `Só de ${nomeCurto}` : "Só seus";
+    if (id === "casal") return "Conjunto (dos dois)";
+    if (String(id).startsWith("pessoa:")) { const c = contas().find((x) => x.id === id); return `Só de ${c ? c.nome.replace(/^Pessoal de\s+/i, "") : outroCurto || "outra pessoa"}`; }
+    return (contas().find((c) => c.id === id) || {}).nome || "Outra conta";
+  };
 
   const novoId = () => `i${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
@@ -248,25 +259,33 @@ export function desenharInvestimentosPessoais({ raiz, lista: inicial = [], nomeD
 
   function desenhar() {
     // Com algum investimento fora da conta pessoal (do casal, por exemplo), o filtro aparece, mesmo sem nenhum pessoal
-    const todas = [...new Set(["pessoal", ...lista.map(contaDe)])].filter((k, _, xs) => xs.length > 1 || k !== "pessoal").sort((a, b) => (a === "pessoal" ? -1 : b === "pessoal" ? 1 : a.localeCompare(b)));
+    const T = todos();
+    const ordemConta = (k) => (k === "pessoal" ? 0 : k === "casal" ? 1 : 2);
+    const todas = [...new Set(["pessoal", ...T.map(contaDe)])].filter((k, _, xs) => xs.length > 1 || k !== "pessoal").sort((a, b) => ordemConta(a) - ordemConta(b) || a.localeCompare(b));
     if (filtro !== "tudo" && !todas.includes(filtro)) filtro = "tudo";
-    const vis = filtro === "tudo" ? lista : lista.filter((inv) => contaDe(inv) === filtro);
-    const mes = ultimoMes(lista, mesAtual) || mesAtual;
+    const vis = filtro === "tudo" ? T : T.filter((inv) => contaDe(inv) === filtro);
+    const mes = ultimoMes(T, mesAtual) || mesAtual;
     const R = resumir(vis, mes);
     const serie = serieMensal(vis, mes);
-    const filtros = todas.length > 1 ? `<div class="inv-filtro" role="group" aria-label="De quem é o dinheiro">${["tudo", ...todas].map((k) => {
-      const tot = resumir(k === "tudo" ? lista : lista.filter((inv) => contaDe(inv) === k), mes).total;
-      return `<button type="button" data-inv-filtro="${esc(k)}" aria-pressed="${filtro === k}">${esc(k === "tudo" ? "Tudo" : nomeConta(k))}<span class="num">${brl(tot)}</span></button>`;
-    }).join("")}</div>` : "";
+    const filtros = todas.length > 1 ? `<div class="label inv-de-quem">De quem é</div><div class="inv-filtro" role="group" aria-label="De quem é o dinheiro">${["tudo", ...todas].map((k) => {
+      const doK = k === "tudo" ? T : T.filter((inv) => contaDe(inv) === k);
+      const tot = resumir(doK, mes).total;
+      const n = doK.filter((inv) => saldoEm(inv, mes) > 0).length;
+      return `<button type="button" data-inv-filtro="${esc(k)}" aria-pressed="${filtro === k}">${esc(k === "tudo" ? `Tudo (${todas.map((x) => (x === "casal" ? "conjunto" : nomeConta(x).replace(/^Só de/, "só de"))).join(" + ")})` : nomeConta(k))}<span class="num">${brl(tot)}</span><span class="inv-filtro-n">${n ? `${n} ${n === 1 ? "investimento" : "investimentos"}` : "nenhum"}</span></button>`;
+    }).join("")}</div>
+      <p class="sub inv-de-quem-dica">${esc([nomeConta("pessoal") + ": no nome só de " + (nomeCurto || "quem é o painel"), "Conjunto: dos dois" + (deFora.length ? `, cadastrados aqui ou no painel de ${outroCurto}` : ""), ...todas.filter((k) => String(k).startsWith("pessoa:")).map((k) => `${nomeConta(k)}: cadastrado aqui, no nome só da outra pessoa`)].join(". "))}. A conta de cada investimento muda em Editar.</p>` : "";
     const vencimentos = vis.filter((inv) => inv.vencimento && inv.vencimento >= hojeISO() && saldoEm(inv, mes) > 0).sort((a, b) => a.vencimento.localeCompare(b.vencimento)).slice(0, 6);
     const kpi = (rotulo, valor, sub) => `<div class="fech-kpi"><span class="label">${rotulo}</span><b>${valor}</b><span class="sub">${sub}</span></div>`;
     const porClasse = R.porClasse.filter((g) => g.saldo > 0);
     const itensPorClasse = CLASSES.map((c) => ({ c, itens: vis.filter((inv) => tipoDe(inv.tipo).classe === c.id).sort((a, b) => saldoEm(b, mes) - saldoEm(a, mes)) })).filter((g) => g.itens.length);
     const linhaInv = (inv) => {
       const t = tipoDe(inv.tipo), s = saldoEm(inv, mes), rd = rendeuNoMes(inv, mes), reg = registroAte(inv, mes);
-      const det = [t.nome, inv.instituicao, filtro === "tudo" && todas.length > 1 ? nomeConta(contaDe(inv)).toLowerCase() : "", inv.taxa || INDEXADORES[inv.indexador], inv.vencimento ? `vence em ${dataBR(inv.vencimento)}` : "", t.isento ? "isento de IR" : ""].filter(Boolean).map(esc).join(" · ");
-      return `<tr class="${s > 0 ? "" : "inv-zerado"}"><td>${esc(inv.nome)}<div class="sub">${det}</div>${reg && reg.mes < mes ? `<div class="sub">saldo de ${rotuloMes(reg.mes)}</div>` : ""}
-          <div class="acoes-lanc inv-acoes"><button type="button" class="btn-link" data-inv-aplicar="${esc(inv.id)}">Aplicar</button>${s > 0 ? `<button type="button" class="btn-link" data-inv-resgatar="${esc(inv.id)}">Resgatar</button>` : ""}<button type="button" class="btn-link" data-inv-editar="${esc(inv.id)}">Editar</button></div></td>
+      const det = [t.nome, inv.instituicao, inv.taxa || INDEXADORES[inv.indexador], inv.vencimento ? `vence em ${dataBR(inv.vencimento)}` : "", t.isento ? "isento de IR" : ""].filter(Boolean).map(esc).join(" · ");
+      const dono = todas.length > 1 ? ` <span class="chip inv-dono inv-dono-${contaDe(inv) === "casal" ? "casal" : contaDe(inv) === "pessoal" ? "eu" : "outro"}">${esc(contaDe(inv) === "casal" ? "Conjunto" : nomeConta(contaDe(inv)))}</span>` : "";
+      const acoes = inv.somenteLeitura ? `<div class="sub">cadastrado no painel de ${esc(outroCurto)}: os saldos são atualizados lá</div>`
+        : `<div class="acoes-lanc inv-acoes"><button type="button" class="btn-link" data-inv-aplicar="${esc(inv.id)}">Aplicar</button>${s > 0 ? `<button type="button" class="btn-link" data-inv-resgatar="${esc(inv.id)}">Resgatar</button>` : ""}<button type="button" class="btn-link" data-inv-editar="${esc(inv.id)}">Editar</button></div>`;
+      return `<tr class="${s > 0 ? "" : "inv-zerado"}"><td>${esc(inv.nome)}${dono}<div class="sub">${det}</div>${reg && reg.mes < mes ? `<div class="sub">saldo de ${rotuloMes(reg.mes)}</div>` : ""}
+          ${acoes}</td>
         <td class="r num">${n2(s)}</td><td class="r num">${rd == null ? '<span class="muted">—</span>' : rendeuTexto(rd)}</td></tr>`;
     };
     raiz.innerHTML = `
@@ -275,9 +294,9 @@ export function desenharInvestimentosPessoais({ raiz, lista: inicial = [], nomeD
         <div class="acoes"><button type="button" class="btn" data-inv-novo>Novo investimento</button>${lista.length ? '<button type="button" class="btn sec" data-inv-saldos>Atualizar saldos</button>' : ""}</div>
       </header>
       ${filtros}
-      ${!vis.length ? `<section class="panel"><p style="margin:0">${lista.length ? "Nenhum investimento nesta conta. Em Novo investimento, escolha a conta (de quem é o dinheiro)." : `Cadastre cada investimento (CDB, LCI, LCA, Tesouro, fundos, previdência, ações, cripto...) com o saldo de hoje. Todo mês, em <b>Atualizar saldos</b>, você informa os saldos novos e o painel mostra quanto rendeu, a parte de cada tipo e os próximos vencimentos.`}</p></section>` : `
+      ${!vis.length ? `<section class="panel"><p style="margin:0">${T.length ? "Nenhum investimento nesta conta. Em Novo investimento, escolha a conta (de quem é o dinheiro)." : `Cadastre cada investimento (CDB, LCI, LCA, Tesouro, fundos, previdência, ações, cripto...) com o saldo de hoje. Todo mês, em <b>Atualizar saldos</b>, você informa os saldos novos e o painel mostra quanto rendeu, a parte de cada tipo e os próximos vencimentos.`}</p></section>` : `
       <div class="fech-kpis inv-kpis">
-        ${kpi("Total investido", brl(R.total), R.data ? `posição de ${dataBR(R.data)}` : rotuloMes(mes))}
+        ${kpi(filtro === "tudo" ? "Total investido" : nomeConta(filtro), brl(R.total), R.data ? `posição de ${dataBR(R.data)}` : rotuloMes(mes))}
         ${kpi(`Rendeu em ${rotuloMes(mes)}`, R.rendeuMes == null ? "—" : rendeuTexto(R.rendeuMes), R.rendeuMes == null ? "aparece na próxima atualização" : R.baseMes > 0 ? `${pct(R.rendeuMes / R.baseMes)} sobre o aplicado` : "")}
         ${kpi(`Rendeu em ${mes.slice(0, 4)}`, R.rendeuAno == null ? "—" : rendeuTexto(R.rendeuAno), "soma dos meses com rendimento")}
         ${kpi("Isento de IR", pct(R.isento), "LCI, LCA, CRI, CRA, poupança e incentivadas")}

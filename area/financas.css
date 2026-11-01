@@ -726,3 +726,27 @@
 .casal .empresas-abas { overflow-x: auto; max-width: 100%; }
 .casal-bloco > *, .casal-dlg > * { min-width: 0; }
 .divisao .opcao-linha small { display: block; font-weight: 400; color: #5f646b; font-size: 0.8rem; margin-top: 2px; }
+
+/* ---------- Investimentos: de quem é cada parte ---------- */
+.casal-donos { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 10px; }
+.casal-dono { display: grid; gap: 3px; align-content: start; text-align: left; font: inherit; color: var(--graphite-900); padding: 12px 14px; background: var(--white); border: 1px solid var(--gray-300); border-top: 4px solid var(--gray-300); cursor: pointer; min-width: 0; }
+.casal-dono b { font: 700 1.25rem/1.2 var(--font-head); }
+.casal-dono small { color: #5f646b; font-size: 0.78rem; overflow-wrap: anywhere; }
+.casal-dono-casal { border-top-color: #2a78d6; }
+.casal-dono-pessoa { border-top-color: #eb6834; }
+.casal-dono-tudo { border-top-color: var(--graphite-900); }
+.casal-dono:hover { box-shadow: 0 6px 18px rgba(17, 18, 20, 0.08); }
+.casal-dono[aria-pressed="true"] { outline: 2px solid var(--graphite-900); outline-offset: -2px; background: #fffdf3; }
+.casal-dono:focus-visible { outline: 2px solid var(--graphite-900); outline-offset: 2px; }
+.casal-mostrando { margin: 0; padding: 8px 12px; background: var(--gray-100); font-size: 0.88rem; }
+.casal-inv-grupo { display: grid; gap: 6px; margin-top: 6px; }
+.casal-inv-grupo-cab { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 6px 10px; border-left: 4px solid #eb6834; background: var(--gray-100); }
+.casal-inv-grupo-casal .casal-inv-grupo-cab { border-left-color: #2a78d6; }
+/* Painel de cada um: de quem é cada investimento */
+.fin .inv-de-quem { margin: 0 0 6px; }
+.fin .inv-de-quem-dica { margin: -8px 0 16px; font-size: 0.82rem; color: var(--muted); }
+.fin .inv-filtro .inv-filtro-n { font-size: 0.72rem; color: var(--muted); }
+.fin .inv-filtro button[aria-pressed="true"] .inv-filtro-n { color: var(--surface); }
+.fin .chip.inv-dono { margin-left: 6px; font-size: 0.68rem; vertical-align: 1px; }
+.fin .chip.inv-dono-casal { background: #e9f1fb; color: #1d4f8f; }
+.fin .chip.inv-dono-eu, .fin .chip.inv-dono-outro { background: #fdeee6; color: #9a3f12; }

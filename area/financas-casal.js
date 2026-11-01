@@ -87,14 +87,32 @@ export async function mostrarCasal({ armazem, pessoas }) {
   }
 
   // ---------------------------------------------------------------- investimentos dos dois
-  function investimentosDoCasal() {
-    const itens = [];
-    lidos.forEach((p) => p.investimentos.forEach((inv) => itens.push({ inv, p, titular: inv.conta === "casal" ? "Conjunta" : p.curto })));
+  // De quem é cada investimento: "casal" (conjunto dos dois, a conta do casal) ou o id da pessoa (a conta pessoal de quem
+  // cadastrou, ou "pessoa:<id>" quando foi cadastrado no painel da outra pessoa)
+  const donoDe = (inv, p) => (inv.conta === "casal" ? "casal" : String(inv.conta || "").startsWith("pessoa:") ? inv.conta.slice(7) : p.id);
+  const donos = () => ["casal", ...lidos.map((p) => p.id)];
+  const curtoDe = (id) => (lidos.find((p) => p.id === id) || {}).curto || "—";
+  const nomeDono = (d) => (d === "casal" ? "Conjunto (dos dois)" : `Só de ${curtoDe(d)}`);
+  const donoNoTexto = (d) => (d === "casal" ? "o conjunto (dos dois)" : `só o que é de ${curtoDe(d)}`);
+  let invVer = "tudo"; // o que a janela dos investimentos mostra: tudo, "casal" ou o id de uma pessoa
+  function investimentosDoCasal(ver = "tudo") {
+    const todos = [];
+    lidos.forEach((p) => p.investimentos.forEach((inv) => todos.push({ inv, p, dono: donoDe(inv, p) })));
+    const mes = ultimoMes(todos.map((x) => x.inv), hoje);
+    const saldoDe = (x) => (mes ? Number((registroAte(x.inv, mes) || {}).saldo) || 0 : 0);
+    const itens = ver === "tudo" ? todos : todos.filter((x) => x.dono === ver);
     const lista = itens.map((x) => x.inv);
-    const mes = ultimoMes(lista, hoje);
     const r = mes ? resumir(lista, mes) : null;
-    const total = r ? r.total : resumoCarteira ? Number(resumoCarteira.total) || 0 : 0;
-    return { itens, lista, mes, r, total, temLista: !!(r && r.itens.length) };
+    const porDono = donos().map((d) => {
+      const xs = todos.filter((x) => x.dono === d);
+      const rr = mes && xs.length ? resumir(xs.map((x) => x.inv), mes) : null;
+      return { dono: d, total: soma(xs, saldoDe), n: xs.filter((x) => saldoDe(x) > 0).length, rendeu: rr ? rr.rendeuMes : null, base: rr ? rr.baseMes : 0,
+        onde: [...new Set(xs.map((x) => x.p.curto))] };
+    });
+    const totalTudo = soma(todos, saldoDe);
+    const temAlgum = totalTudo > 0;
+    const total = temAlgum ? (r ? r.total : 0) : ver === "tudo" && resumoCarteira ? Number(resumoCarteira.total) || 0 : 0;
+    return { ver, todos, itens, lista, mes, r, total, totalTudo, porDono, saldoDe, temAlgum, temLista: !!(r && r.itens.length) };
   }
 
   // ---------------------------------------------------------------- tela
@@ -118,13 +136,12 @@ export async function mostrarCasal({ armazem, pessoas }) {
         <tr class="casal-saldo"><th scope="row">Saldo do mês</th>${res.map((r) => (r ? `<td class="r${r.saldo < 0 ? " neg" : ""}">${brl(r.saldo)}</td>` : '<td class="r"><span class="sem">—</span></td>')).join("")}<td class="r casal-total${saldo < 0 ? " neg" : ""}">${brl(saldo)}</td></tr>
       </tbody>`;
     const inv = investimentosDoCasal();
-    const conjunta = soma(inv.itens.filter((x) => x.titular === "Conjunta"), (x) => (inv.mes ? (registroAte(x.inv, inv.mes) || {}).saldo : 0));
     const kpis = [
       ["entradas", "Entradas do casal", brl(entra), `${meses.get(atual)} · ${lidos.map((p, i) => `${p.curto} ${res[i] ? brl(res[i].receitas) : "—"}`).join(" · ")}`],
       ["saidas", "Saídas do casal", brl(saidas), "faturas que vencem, Pix, fixos e investimento"],
       ["saldo", "Saldo do casal", brl(saldo), saldo < 0 ? "faltam para fechar o mês" : "sobra no mês"],
-      ...(inv.temLista || resumoCarteira ? [["investimentos", "Investimentos", brl(inv.total),
-        inv.temLista ? `${inv.r.itens.length} investimentos em ${rotuloMes(inv.mes)}${conjunta ? ` · conjunta ${brl(conjunta)}` : ""}` : resumoCarteira.data ? `carteira em ${dBR(resumoCarteira.data)}` : "carteira conjunta"]] : []),
+      ...(inv.temAlgum || resumoCarteira ? [["investimentos", "Investimentos", brl(inv.total),
+        inv.temAlgum ? inv.porDono.map((o) => `${o.dono === "casal" ? "Conjunto" : `só de ${curtoDe(o.dono)}`} ${brl(o.total)}`).join(" · ") : resumoCarteira.data ? `carteira em ${dBR(resumoCarteira.data)}` : "carteira conjunta"]] : []),
     ];
     $("#casal-kpis").innerHTML = kpis.map(([k, t, v, s]) => `<button type="button" class="kpi kpi-botao casal-kpi" data-casal-kpi="${k}" aria-haspopup="dialog">
         <span class="kpi-rotulo">${esc(t)}</span><strong class="kpi-valor${k === "saldo" && saldo < 0 ? " neg" : ""}">${v}</strong><small>${esc(s || "")}</small><span class="casal-kpi-ver">ver de onde vem</span></button>`).join("");
@@ -305,73 +322,97 @@ export async function mostrarCasal({ armazem, pessoas }) {
       </ul>`;
   }
 
-  // Investimentos dos dois: valor atual, por titular, por classe e por indexador, evolução dos últimos meses,
-  // previsão, lista detalhada e indicadores
+  // Investimentos dos dois: de quem é cada parte (conjunto, só de um, só do outro), e do que estiver selecionado o valor
+  // atual, rendimento, classe e indexador, evolução dos últimos meses, previsão, indicadores e a lista um a um
   function htmlKpiInvestimentos(res) {
-    const inv = investimentosDoCasal();
+    const tudo = investimentosDoCasal("tudo");
+    if (!tudo.temAlgum && !carteiraProjeto) return '<p class="sem">Nenhum investimento cadastrado ainda. Cadastre na aba Investimentos do painel de cada um.</p>';
+    if (invVer !== "tudo" && !donos().includes(invVer)) invVer = "tudo";
+    const inv = investimentosDoCasal(invVer);
     const PJ = (carteiraProjeto && carteiraProjeto.projecao) || {};
     const pessoasAporte = carteiraProjeto && carteiraProjeto.aportes_mensais ? Object.values(carteiraProjeto.aportes_mensais).reduce((t, v) => t + (Number(v) || 0), 0) : 0;
     const aporteMetas = soma(lidos, (p) => (p.painel && p.painel.metas ? p.painel.metas.investimento_mensal : 0));
-    const aporte = aporteMetas || pessoasAporte || (Number(PJ.aporte_base_por_pessoa) || 0) * lidos.length;
+    const aporteCasal = aporteMetas || pessoasAporte || (Number(PJ.aporte_base_por_pessoa) || 0) * lidos.length;
+    // O aporte mensal previsto (Cadastros e carteira do projeto) é do casal: entra em Tudo e no Conjunto
+    const aporte = invVer === "tudo" || invVer === "casal" ? aporteCasal : 0;
     const investidoMes = soma(res.map((r) => (r ? r.investimento : 0)));
     const blocos = [];
-    if (!inv.temLista && !carteiraProjeto) return '<p class="sem">Nenhum investimento cadastrado ainda. Cadastre na aba Investimentos do painel de cada um.</p>';
     const total = inv.total;
-    // Valor atual, rendimento e aporte
     const r = inv.r;
+    // De quem é cada parte: sempre o casal inteiro, cada quadro escolhe o que a janela mostra
+    if (tudo.temAlgum) {
+      const T = tudo.totalTudo;
+      const quadro = (ver, titulo, valor, linhas) => `<button type="button" class="casal-dono casal-dono-${ver === "tudo" ? "tudo" : ver === "casal" ? "casal" : "pessoa"}" data-inv-ver="${esc(ver)}" aria-pressed="${invVer === ver}">
+          <span class="casal-mini-rot">${esc(titulo)}</span><b class="num">${brl(valor)}</b>${linhas.filter(Boolean).map((l) => `<small>${l}</small>`).join("")}</button>`;
+      const rendeuTxt = (o) => (o.rendeu != null ? `rendeu ${brl(o.rendeu)} no mês${o.base > 0 ? ` (${pct(o.rendeu / o.base, 2)})` : ""}` : "");
+      const conj = tudo.porDono.find((o) => o.dono === "casal");
+      const metade = conj ? conj.total / 2 : 0;
+      blocos.push(`<h3>De quem é cada parte</h3>
+        <div class="casal-donos">
+          ${quadro("tudo", "Tudo, os dois juntos", T, [`${tudo.porDono.reduce((t, o) => t + o.n, 0)} investimentos`, tudo.mes ? `saldos de ${rotuloMes(tudo.mes)}` : ""])}
+          ${tudo.porDono.map((o) => quadro(o.dono, nomeDono(o.dono), o.total, o.n
+            ? [`${pct(T ? o.total / T : 0, 0)} do total · ${o.n} ${o.n === 1 ? "investimento" : "investimentos"}`, o.dono === "casal" ? `dos dois · cadastrados no painel de ${o.onde.join(" e ")}` : `no nome só de ${esc(curtoDe(o.dono))}`, rendeuTxt(o)]
+            : [o.dono === "casal" ? "nenhum investimento conjunto" : `nenhum investimento só no nome de ${esc(curtoDe(o.dono))}`])).join("")}
+        </div>
+        ${conj && conj.total ? `<p class="sub">Parte de cada um no total, contando o conjunto meio a meio: ${lidos.map((p) => { const so = (tudo.porDono.find((o) => o.dono === p.id) || {}).total || 0; return `<b>${esc(p.curto)} ${brl(so + metade)}</b> (só de ${esc(p.curto)} ${brl(so)} + metade do conjunto ${brl(metade)})`; }).join(" · ")}.</p>` : ""}
+        <p class="casal-mostrando">Mostrando abaixo: <b>${esc(invVer === "tudo" ? "tudo, os dois juntos" : donoNoTexto(invVer))}</b>. Toque num quadro para trocar.</p>`);
+    }
+    if (invVer !== "tudo" && !inv.temLista) {
+      blocos.push(`<p class="sem">${invVer === "casal" ? "Nenhum investimento conjunto cadastrado." : `Nenhum investimento só no nome de ${esc(curtoDe(invVer))}. Para cadastrar, use Novo investimento na aba Investimentos do painel de ${esc(curtoDe(invVer))} e deixe a conta "Só de ${esc(curtoDe(invVer))}".`}</p>`);
+      return blocos.join("");
+    }
+    // Valor atual, rendimento e aporte do que está selecionado
     const rendMesPct = r && r.rendeuMes != null && r.baseMes > 0 ? r.rendeuMes / r.baseMes : null;
     const P = carteiraProjeto ? carteiraProjeto.posicoes.at(-1) : null;
     blocos.push(blocoKpis([
       ["Valor atual", brl(total), inv.temLista ? `saldos de ${rotuloMes(inv.mes)}${r.data ? `, atualizados em ${dataBR(r.data)}` : ""}` : P && P.data ? `carteira em ${dataBR(P.data)}` : ""],
       ["Rendeu no último mês", r && r.rendeuMes != null ? brl(r.rendeuMes) : "—", rendMesPct != null ? `${pct(rendMesPct, 2)} sobre o aplicado` : "precisa do saldo de dois meses seguidos"],
-      ["Rendeu no ano", r && r.rendeuAno != null ? brl(r.rendeuAno) : P && P.rendimento_ano != null ? brl(P.rendimento_ano) : "—",
-        P && P.rentab_ano_pct != null ? `carteira: ${String(P.rentab_ano_pct).replace(".", ",")}% no ano${P.pct_cdi_ano != null ? ` · ${String(P.pct_cdi_ano).replace(".", ",")}% do CDI` : ""}` : ""],
-      ["Aporte mensal previsto", aporte ? brl(aporte) : "—", `${investidoMes ? `${brl(investidoMes)} no caixa de ${esc(meses.get(atual) || "")}` : "nada lançado no mês"}`],
+      ["Rendeu no ano", r && r.rendeuAno != null ? brl(r.rendeuAno) : invVer !== "tudo" ? "—" : P && P.rendimento_ano != null ? brl(P.rendimento_ano) : "—",
+        invVer === "tudo" && P && P.rentab_ano_pct != null ? `carteira: ${String(P.rentab_ano_pct).replace(".", ",")}% no ano${P.pct_cdi_ano != null ? ` · ${String(P.pct_cdi_ano).replace(".", ",")}% do CDI` : ""}` : ""],
+      ["Aporte mensal previsto", aporte ? brl(aporte) : "—", invVer === "tudo" || invVer === "casal" ? `${investidoMes ? `${brl(investidoMes)} no caixa de ${esc(meses.get(atual) || "")}` : "nada lançado no mês"}` : "o aporte previsto é do casal (Tudo e Conjunto)"],
     ]));
     if (inv.temLista) {
-      // Por titular, classe e indexador
-      const porTitular = new Map();
-      inv.itens.forEach((x) => { const s = Number((registroAte(x.inv, inv.mes) || {}).saldo) || 0; porTitular.set(x.titular, (porTitular.get(x.titular) || 0) + s); });
       const barras = (lista, nome, cor) => `<div class="casal-barras">${lista.map((o) => `<div class="casal-barra-linha"><span>${esc(nome(o))}</span><span class="casal-barra-trilha"><span style="width:${(o.parte * 100).toFixed(1)}%;background:${cor(o)}"></span></span><span class="num">${brl(o.saldo)}</span><span class="num sem">${pct(o.parte, 0)}</span></div>`).join("")}</div>`;
       blocos.push(`<div class="casal-dlg-grade">
-        <div><h3>Por titular</h3>${barras([...porTitular.entries()].map(([t, s]) => ({ t, saldo: s, parte: total ? s / total : 0 })).sort((a, b) => b.saldo - a.saldo), (o) => (o.t === "Conjunta" ? "Carteira conjunta" : o.t), () => "#2a78d6")}</div>
         <div><h3>Por classe</h3>${barras(r.porClasse, (o) => (CLASSES.find((c) => c.id === o.id) || CLASSES.at(-1)).nome, (o) => (CLASSES.find((c) => c.id === o.id) || CLASSES.at(-1)).cor)}</div>
         <div><h3>Por indexador</h3>${barras(r.porIndexador, (o) => ({ ...INDEXADORES, nao: "Não informado" })[o.id] || o.id, () => "#5f646b")}</div>
       </div>`);
-      // Evolução dos últimos 12 meses
+      // Evolução dos últimos 12 meses (em Tudo, com a parte de cada dono)
       const serie = serieMensal(inv.lista, inv.mes, 12).filter((x) => x.saldo > 0 || x.rendeu != null);
-      const maxS = Math.max(1, ...serie.map((x) => x.saldo));
+      const colunasDono = invVer === "tudo" ? donos().filter((d) => tudo.todos.some((x) => x.dono === d)) : [];
+      const saldoDoDono = (d, mes) => soma(tudo.todos.filter((x) => x.dono === d), (x) => Number((registroAte(x.inv, mes) || {}).saldo) || 0);
       blocos.push(`<h3>Evolução e rentabilidade dos últimos meses</h3>
         ${serie.length > 1 ? "" : '<p class="dica">Por enquanto há saldo de um mês só. A rentabilidade mês a mês aparece conforme os saldos forem atualizados todo mês (aba Investimentos do painel → Atualizar saldos).</p>'}
-        <div class="tabela-wrap"><table class="tabela casal-unif"><thead><tr><th>Mês</th><th>Saldo</th><th class="r">Valor</th><th class="r">Rendeu</th><th class="r">% no mês</th></tr></thead>
-        <tbody>${serie.map((x) => { const base = x.rendeu != null ? x.saldo - x.rendeu : 0; return `<tr><td>${rotuloMes(x.mes)}</td><td><span class="casal-barra-trilha larga"><span style="width:${(x.saldo / maxS * 100).toFixed(1)}%"></span></span></td><td class="r num">${n2(x.saldo)}</td>
+        <div class="tabela-wrap"><table class="tabela casal-unif"><thead><tr><th>Mês</th>${colunasDono.map((d) => `<th class="r">${esc(d === "casal" ? "Conjunto" : `Só de ${curtoDe(d)}`)}</th>`).join("")}<th class="r">${colunasDono.length ? "Total" : "Valor"}</th><th class="r">Rendeu</th><th class="r">% no mês</th></tr></thead>
+        <tbody>${serie.map((x) => { const base = x.rendeu != null ? x.saldo - x.rendeu : 0; return `<tr><td>${rotuloMes(x.mes)}</td>${colunasDono.map((d) => `<td class="r num">${n2(saldoDoDono(d, x.mes))}</td>`).join("")}<td class="r num casal-total">${n2(x.saldo)}</td>
           <td class="r num">${x.rendeu != null ? n2(x.rendeu) : "—"}</td><td class="r num">${x.rendeu != null && base > 0 ? pct(x.rendeu / base, 2) : "—"}</td></tr>`; }).join("")}</tbody></table></div>`);
     }
     // Previsão (juros compostos com o aporte mensal)
     const taxa = Number(PJ.taxa_anual_padrao) || 10, infl = Number(PJ.inflacao_padrao) || 4.5;
     const im = (1 + taxa / 100) ** (1 / 12) - 1;
-    const futuro = (meses) => total * (1 + im) ** meses + (im ? aporte * ((1 + im) ** meses - 1) / im : aporte * meses);
+    const futuro = (n) => total * (1 + im) ** n + (im ? aporte * ((1 + im) ** n - 1) / im : aporte * n);
     const horizontes = (Array.isArray(PJ.horizontes_anos) && PJ.horizontes_anos.length ? PJ.horizontes_anos : [1, 5, 10, 20]).slice(0, 5);
-    blocos.push(`<h3>Previsão</h3>
+    blocos.push(`<h3>Previsão${invVer === "tudo" ? "" : ` · ${esc(nomeDono(invVer))}`}</h3>
       <p class="sub">Com ${String(taxa).replace(".", ",")}% ao ano${carteiraProjeto && PJ.taxa_anual_padrao ? " (a taxa da carteira no projeto)" : ""}, o valor atual e ${aporte ? `${brl(aporte)} de aporte por mês` : "sem aporte"}. “Hoje” desconta a inflação de ${String(infl).replace(".", ",")}% ao ano. Sem imposto de renda.</p>
       <div class="tabela-wrap"><table class="tabela casal-unif"><thead><tr><th>Em</th><th class="r">Valor previsto</th><th class="r">Em dinheiro de hoje</th><th class="r">Total aportado</th><th class="r">Rendimentos</th></tr></thead>
       <tbody>${horizontes.map((a) => { const m = a * 12, v = futuro(m), ap = total + aporte * m; return `<tr><td>${a} ${a === 1 ? "ano" : "anos"}</td><td class="r num">${brl(v)}</td><td class="r num">${brl(v / (1 + infl / 100) ** a)}</td><td class="r num">${brl(ap)}</td><td class="r num">${brl(v - ap)}</td></tr>`; }).join("")}</tbody></table></div>`);
     // Indicadores
-    blocos.push(`<h3>Indicadores para melhorar a carteira</h3><ul class="casal-notas">${indicadores(inv, res).map((t) => `<li>${t}</li>`).join("")}</ul>`);
-    // Lista detalhada
+    blocos.push(`<h3>Indicadores para melhorar a carteira${invVer === "tudo" ? "" : ` · ${esc(nomeDono(invVer))}`}</h3><ul class="casal-notas">${indicadores(inv, res).map((t) => `<li>${t}</li>`).join("")}</ul>`);
+    // Lista detalhada, separada por dono em Tudo
     if (inv.temLista) {
-      const linhas = inv.itens.map((x) => {
-        const reg = registroAte(x.inv, inv.mes);
-        const saldo = Number((reg || {}).saldo) || 0;
-        const rendeu = rendeuNoMes(x.inv, inv.mes);
-        return { ...x, saldo, rendeu, classe: classeDe(x.inv.tipo) };
-      }).filter((x) => x.saldo > 0).sort((a, b) => CLASSES.indexOf(a.classe) - CLASSES.indexOf(b.classe) || b.saldo - a.saldo);
-      blocos.push(`<h3>Os investimentos um a um (${linhas.length})</h3>
-        <div class="tabela-wrap"><table class="tabela casal-unif casal-invs"><thead><tr><th>Investimento</th><th>Tipo e taxa</th><th>Vencimento</th><th>Titular</th><th class="r">Valor atual</th><th class="r">Rendeu no mês</th><th class="r">% da carteira</th></tr></thead>
-        <tbody>${linhas.map((x) => `<tr><td><i class="casal-cor" style="background:${x.classe.cor}"></i>${esc(x.inv.nome || tipoDe(x.inv.tipo).nome)}${x.inv.instituicao ? `<small>${esc(x.inv.instituicao)}</small>` : ""}</td>
+      const linha = (x) => {
+        const saldo = inv.saldoDe(x), rendeu = rendeuNoMes(x.inv, inv.mes), classe = classeDe(x.inv.tipo);
+        return `<tr><td><i class="casal-cor" style="background:${classe.cor}"></i>${esc(x.inv.nome || tipoDe(x.inv.tipo).nome)}${x.inv.instituicao ? `<small>${esc(x.inv.instituicao)}</small>` : ""}</td>
           <td>${esc(tipoDe(x.inv.tipo).nome)}${tipoDe(x.inv.tipo).isento ? ' <span class="etiqueta">isento de IR</span>' : ""}<small>${esc([({ ...INDEXADORES, nao: "" })[x.inv.indexador || tipoDe(x.inv.tipo).indexador || "nao"] || "", x.inv.taxa || ""].filter(Boolean).join(" · "))}</small></td>
-          <td class="num">${x.inv.vencimento ? dataBR(x.inv.vencimento) : "—"}</td><td>${esc(x.titular)}</td><td class="r num">${n2(x.saldo)}</td>
-          <td class="r num">${x.rendeu != null ? `${n2(x.rendeu)}${x.saldo - x.rendeu > 0 ? `<small>${pct(x.rendeu / (x.saldo - x.rendeu), 2)}</small>` : ""}` : "—"}</td><td class="r num">${pct(total ? x.saldo / total : 0, 1)}</td></tr>`).join("")}</tbody></table></div>`);
+          <td class="num">${x.inv.vencimento ? dataBR(x.inv.vencimento) : "—"}</td><td class="r num">${n2(saldo)}</td>
+          <td class="r num">${rendeu != null ? `${n2(rendeu)}${saldo - rendeu > 0 ? `<small>${pct(rendeu / (saldo - rendeu), 2)}</small>` : ""}` : "—"}</td><td class="r num">${pct(total ? saldo / total : 0, 1)}</td></tr>`;
+      };
+      const ordenar = (xs) => xs.filter((x) => inv.saldoDe(x) > 0).sort((a, b) => CLASSES.indexOf(classeDe(a.inv.tipo)) - CLASSES.indexOf(classeDe(b.inv.tipo)) || inv.saldoDe(b) - inv.saldoDe(a));
+      const grupos = (invVer === "tudo" ? donos() : [invVer]).map((d) => ({ d, xs: ordenar(inv.itens.filter((x) => x.dono === d)) })).filter((g) => g.xs.length);
+      const cab = `<thead><tr><th>Investimento</th><th>Tipo e taxa</th><th>Vencimento</th><th class="r">Valor atual</th><th class="r">Rendeu no mês</th><th class="r">% ${invVer === "tudo" ? "do total" : "da parte"}</th></tr></thead>`;
+      blocos.push(`<h3>Os investimentos um a um (${grupos.reduce((t, g) => t + g.xs.length, 0)})</h3>
+        ${grupos.map((g) => `<div class="casal-inv-grupo casal-inv-grupo-${g.d === "casal" ? "casal" : "pessoa"}"><div class="casal-inv-grupo-cab"><span><b>${esc(nomeDono(g.d))}</b> <span class="sem">(${g.xs.length})</span>${g.d === "casal" ? ' <span class="sem">· dos dois</span>' : ""}</span><span class="num">${brl(soma(g.xs, inv.saldoDe))}</span></div>
+          <div class="tabela-wrap"><table class="tabela casal-unif casal-invs">${cab}<tbody>${g.xs.map(linha).join("")}</tbody></table></div></div>`).join("")}`);
     }
     // Análise do projeto Financeiro
     const A = carteiraProjeto && carteiraProjeto.analise;
@@ -405,12 +446,12 @@ export async function mostrarCasal({ armazem, pessoas }) {
     const FGC = new Set(["cdb", "rdb", "lci", "lca", "lc", "lig", "poupanca", "conta"]);
     const porInst = new Map();
     vivos.filter((x) => FGC.has(x.inv.tipo) && x.inv.instituicao).forEach((x) => {
-      const k = `${semAcento(x.inv.instituicao)}|${x.titular}`;
-      const o = porInst.get(k) || { nome: x.inv.instituicao, titular: x.titular, v: 0 };
+      const k = `${semAcento(x.inv.instituicao)}|${x.dono}`;
+      const o = porInst.get(k) || { nome: x.inv.instituicao, dono: x.dono, v: 0 };
       o.v += saldoDe(x); porInst.set(k, o);
     });
-    const acima = [...porInst.values()].filter((o) => o.v > 250000 * (o.titular === "Conjunta" ? 2 : 1));
-    t.push(acima.length ? `<b>Garantia do FGC:</b> ${acima.map((o) => `${esc(o.nome)} (${esc(o.titular === "Conjunta" ? "conjunta" : o.titular)}) tem ${brl(o.v)}`).join("; ")}, acima do limite de R$ 250 mil por CPF por instituição. Vale espalhar entre emissores.`
+    const acima = [...porInst.values()].filter((o) => o.v > 250000 * (o.dono === "casal" ? 2 : 1));
+    t.push(acima.length ? `<b>Garantia do FGC:</b> ${acima.map((o) => `${esc(o.nome)} (${esc(o.dono === "casal" ? "conjunto" : `só de ${curtoDe(o.dono)}`)}) tem ${brl(o.v)}`).join("; ")}, acima do limite de R$ 250 mil por CPF por instituição. Vale espalhar entre emissores.`
       : "<b>Garantia do FGC:</b> nenhuma instituição passa de R$ 250 mil por titular nos investimentos cobertos (CDB, LCI, LCA, LC, poupança).");
     // Isento de IR
     t.push(`<b>Isenção de imposto de renda:</b> ${pct(r.isento, 0)} da carteira está em investimentos isentos (LCI, LCA, CRI, CRA, debêntures incentivadas, poupança).`);
@@ -431,7 +472,7 @@ export async function mostrarCasal({ armazem, pessoas }) {
     // Reserva de emergência: investimentos com liquidez diária (heurística pelo tipo e pelo nome) e os gastos do mês
     const liquido = soma(vivos.filter((x) => ["tesouro_selic", "conta", "poupanca", "fundo_rf"].includes(x.inv.tipo) || /liquidez|\bld\b|diaria/i.test(semAcento(x.inv.nome || ""))), saldoDe);
     const gastosMes = soma(res.map((rr) => (rr ? rr.cartao + rr.fora + rr.fixosFora : 0)));
-    if (gastosMes > 0) t.push(`<b>Reserva de emergência:</b> ${brl(liquido)} com liquidez diária (Tesouro Selic, conta remunerada, fundos DI ou com “liquidez” no nome) cobrem ${(liquido / gastosMes).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} ${liquido / gastosMes >= 0.95 && liquido / gastosMes < 1.05 ? "mês" : "meses"} dos gastos do casal deste mês. O usual é ter de 6 a 12 meses.`);
+    if (gastosMes > 0 && inv.ver === "tudo") t.push(`<b>Reserva de emergência:</b> ${brl(liquido)} com liquidez diária (Tesouro Selic, conta remunerada, fundos DI ou com “liquidez” no nome) cobrem ${(liquido / gastosMes).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} ${liquido / gastosMes >= 0.95 && liquido / gastosMes < 1.05 ? "mês" : "meses"} dos gastos do casal deste mês. O usual é ter de 6 a 12 meses.`);
     // Rendimento do mês
     if (r.rendeuMes != null && r.baseMes > 0) t.push(`<b>Rendimento:</b> no último mês a carteira rendeu ${pct(r.rendeuMes / r.baseMes, 2)}. Para comparar, o CDI tem rendido perto de 1% ao mês; abaixo disso, vale olhar quais investimentos puxaram para baixo na lista.`);
     else t.push("<b>Rendimento:</b> com o saldo de cada investimento todo mês, o painel calcula quanto cada um rendeu e compara a carteira mês a mês.");
@@ -484,6 +525,17 @@ export async function mostrarCasal({ armazem, pessoas }) {
   $("#casal-gastos").addEventListener("change", aoFiltrar);
   $("#casal-gastos").addEventListener("input", (e) => { if (e.target.matches("[data-filtro=busca]")) aoFiltrar(e); });
   const dlg = $("#dlg-casal");
-  if (dlg) dlg.addEventListener("close", () => { delete dlg.dataset.kpi; });
+  if (dlg) {
+    dlg.addEventListener("close", () => { delete dlg.dataset.kpi; });
+    // Investimentos: cada quadro de "De quem é cada parte" escolhe o que a janela mostra
+    dlg.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-inv-ver]");
+      if (!b) return;
+      invVer = b.dataset.invVer;
+      abrirKpi("investimentos");
+      const nb = dlg.querySelector(`[data-inv-ver="${CSS.escape(invVer)}"]`);
+      if (nb) nb.focus();
+    });
+  }
   desenhar();
 }
