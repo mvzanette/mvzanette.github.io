@@ -11,9 +11,9 @@
   <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@500;600;700;800&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../styles.css?v=69f81afa">
   <link rel="stylesheet" href="area.css?v=ec6c0301">
-  <link rel="stylesheet" href="financas.css?v=d9f33c80">
-  <script type="importmap" data-versoes>{"imports": {"./art.js": "./art.js?v=c36b7b16", "./caixa-documentos.js": "./caixa-documentos.js?v=7c2bf156", "./caixa.js": "./caixa.js?v=d61657d1", "./config-area.js": "./config-area.js?v=c77553f2", "./conta.js": "./conta.js?v=fdce23ea", "./dados.js": "./dados.js?v=e6e65a91", "./demandas.js": "./demandas.js?v=bf374ec7", "./financas-casal.js": "./financas-casal.js?v=ffbaa15a", "./financas-classificacao.js": "./financas-classificacao.js?v=0f7a2cce", "./financas-desejos.js": "./financas-desejos.js?v=516eb5fd", "./financas-extrato.js": "./financas-extrato.js?v=6a8ecce9", "./financas-faturas.js": "./financas-faturas.js?v=07623b15", "./financas-importar.js": "./financas-importar.js?v=71dfaaa4", "./financas-investimentos.js": "./financas-investimentos.js?v=24dfd0b1", "./financas-painel.js": "./financas-painel.js?v=42ff9f9d", "./financas-plano.js": "./financas-plano.js?v=cc5c0c68", "./financas-previa.js": "./financas-previa.js?v=bfb16e3d", "./financas.js": "./financas.js?v=bbe42c56", "./financeiro.js": "./financeiro.js?v=3d080ed0", "./inicio.js": "./inicio.js?v=c228470e", "./leitores.js": "./leitores.js?v=7eec42d0", "./login.js": "./login.js?v=f434d5fc", "./modulos.js": "./modulos.js?v=c4e201e1", "./painel.js": "./painel.js?v=0fe885d9", "./pdf-texto.js": "./pdf-texto.js?v=b5de895d", "./planilha.js": "./planilha.js?v=ce3e0414", "./regras-gestao.js": "./regras-gestao.js?v=8fcde8ed", "./regras.js": "./regras.js?v=d828568d", "./sessao.js": "./sessao.js?v=ff1b532e", "./tarefas.js": "./tarefas.js?v=d7065fe4", "./ui.js": "./ui.js?v=efb69f88", "./usuarios.js": "./usuarios.js?v=43715674", "./vendor/pdf.min.mjs": "./vendor/pdf.min.mjs?v=f548e26b", "./vendor/pdf.worker.min.mjs": "./vendor/pdf.worker.min.mjs?v=8860b503"}}</script>
-  <script type="module" src="financas.js?v=bbe42c56"></script>
+  <link rel="stylesheet" href="financas.css?v=d48ec094">
+  <script type="importmap" data-versoes>{"imports": {"./art.js": "./art.js?v=c36b7b16", "./caixa-documentos.js": "./caixa-documentos.js?v=7c2bf156", "./caixa.js": "./caixa.js?v=d61657d1", "./config-area.js": "./config-area.js?v=c77553f2", "./conta.js": "./conta.js?v=fdce23ea", "./dados.js": "./dados.js?v=5057488e", "./demandas.js": "./demandas.js?v=bf374ec7", "./financas-caixinhas.js": "./financas-caixinhas.js?v=f60536af", "./financas-casal.js": "./financas-casal.js?v=e9b8906b", "./financas-classificacao.js": "./financas-classificacao.js?v=0f7a2cce", "./financas-desejos.js": "./financas-desejos.js?v=81b3e8e1", "./financas-extrato.js": "./financas-extrato.js?v=6a8ecce9", "./financas-faturas.js": "./financas-faturas.js?v=07623b15", "./financas-importar.js": "./financas-importar.js?v=71dfaaa4", "./financas-investimentos.js": "./financas-investimentos.js?v=24dfd0b1", "./financas-painel.js": "./financas-painel.js?v=1a7d894a", "./financas-plano.js": "./financas-plano.js?v=cc5c0c68", "./financas-previa.js": "./financas-previa.js?v=bfb16e3d", "./financas.js": "./financas.js?v=688688ab", "./financeiro.js": "./financeiro.js?v=3d080ed0", "./inicio.js": "./inicio.js?v=c228470e", "./leitores.js": "./leitores.js?v=7eec42d0", "./login.js": "./login.js?v=f434d5fc", "./modulos.js": "./modulos.js?v=6ba48297", "./painel.js": "./painel.js?v=0fe885d9", "./pdf-texto.js": "./pdf-texto.js?v=b5de895d", "./planilha.js": "./planilha.js?v=ce3e0414", "./regras-gestao.js": "./regras-gestao.js?v=8fcde8ed", "./regras.js": "./regras.js?v=d828568d", "./sessao.js": "./sessao.js?v=ff1b532e", "./tarefas.js": "./tarefas.js?v=a0219209", "./ui.js": "./ui.js?v=efb69f88", "./usuarios.js": "./usuarios.js?v=43715674", "./vendor/pdf.min.mjs": "./vendor/pdf.min.mjs?v=f548e26b", "./vendor/pdf.worker.min.mjs": "./vendor/pdf.worker.min.mjs?v=8860b503"}}</script>
+  <script type="module" src="financas.js?v=688688ab"></script>
 </head>
 <body class="area">
 
@@ -75,6 +75,7 @@
       <div class="kpis casal-kpis" id="casal-kpis"></div>
       <div class="tabela-wrap"><table class="tabela casal-tabela" id="casal-tabela"></table></div>
       <p class="casal-aportes" id="casal-aportes" hidden></p>
+      <section class="cartao casal-bloco" id="casal-caixinhas" aria-label="Caixinhas do casal" hidden></section>
       <section class="cartao casal-bloco" id="casal-entradas" aria-label="Entradas do casal"></section>
       <section class="cartao casal-bloco" id="casal-gastos" aria-label="Gastos pagos do casal"></section>
       <div class="casal-links" id="casal-links"></div>
@@ -101,6 +102,7 @@
         <button type="button" role="tab" id="tab-gastos" data-aba="gastos" aria-controls="view-gastos" aria-selected="false" tabindex="-1">Gastos do dia a dia<small></small></button>
         <button type="button" role="tab" id="tab-cartao" data-aba="cartao" aria-controls="view-cartao" aria-selected="false" tabindex="-1">Cartão e faturas<small></small></button>
         <button type="button" role="tab" id="tab-inv" data-aba="investimentos" aria-controls="view-inv" aria-selected="false" tabindex="-1">Investimentos<small></small></button>
+        <button type="button" role="tab" id="tab-caixinhas" data-aba="caixinhas" aria-controls="view-caixinhas" aria-selected="false" tabindex="-1" hidden>Caixinhas<small></small></button>
         <button type="button" role="tab" id="tab-desejos" data-aba="desejos" aria-controls="view-desejos" aria-selected="false" tabindex="-1" hidden>Lista de desejos<small></small></button>
         <button type="button" role="tab" id="tab-cadastros" data-aba="cadastros" aria-controls="view-cadastros" aria-selected="false" tabindex="-1" hidden>Cadastros<small></small></button>
       </div>
@@ -204,6 +206,20 @@
             </div>
             <div id="f-itens"></div>
           </section>
+        </section>
+
+        <section class="view" id="view-caixinhas" role="tabpanel" aria-labelledby="tab-caixinhas" hidden>
+          <header class="top">
+            <div>
+              <div class="label">Caixinhas</div>
+              <h1>Dinheiro guardado para gastos futuros</h1>
+            </div>
+            <button type="button" class="btn" id="btn-nova-caixinha">Nova caixinha</button>
+          </header>
+          <div id="cx-alertas" class="cx-alertas"></div>
+          <section class="panel" id="cx-resumo"></section>
+          <section class="panel" id="cx-movimentos" hidden></section>
+          <section class="panel" id="cx-arquivadas" hidden></section>
         </section>
 
         <section class="view" id="view-desejos" role="tabpanel" aria-labelledby="tab-desejos" hidden>
@@ -535,6 +551,9 @@
           <label class="campo-parcelas" id="campo-parcelas">Parcelas no cartão
             <select name="parcelas"></select>
           </label>
+          <label class="campo-parcelas" id="campo-caixinha" hidden>Pago com
+            <select name="caixinha_id"></select>
+          </label>
           <p class="dica" id="dica-forma">No cartão, o gasto entra na fatura do mês; se for parcelado, cada parcela cai numa fatura.</p>
         </fieldset>
         <fieldset class="bloco" id="campo-pago">
@@ -619,6 +638,96 @@
         <button class="btn btn-perigo esquerda" type="button" id="btn-apagar-recorrente" hidden>Apagar</button>
         <button class="btn btn-claro" type="button" data-fechar>Cancelar</button>
         <button class="btn btn-primary" type="submit">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ============ CAIXINHAS ============ -->
+  <dialog class="dialogo dialogo-gasto" id="dlg-caixinha" aria-labelledby="titulo-caixinha">
+    <form id="form-caixinha" novalidate>
+      <div class="dlg-cab">
+        <h2 id="titulo-caixinha">Nova caixinha</h2>
+        <button class="btn-link" type="button" data-fechar>Fechar</button>
+      </div>
+      <div class="dlg-corpo">
+        <div class="campos">
+          <label class="c4">Nome<input name="nome" maxlength="80" autocomplete="off" placeholder="ex.: IPTU 2027" required></label>
+          <label class="c2">Meta (R$)<input name="meta" inputmode="decimal" autocomplete="off" placeholder="3.200,00" required></label>
+          <label class="c3">Data alvo<input name="data_alvo" type="date" required></label>
+        </div>
+        <fieldset class="bloco">
+          <legend>Tipo</legend>
+          <div class="opcoes">
+            <label><input type="radio" name="tipo" value="recorrente" checked> Recorrente (repete todo ano: IPTU, IPVA, seguro)</label>
+            <label><input type="radio" name="tipo" value="meta"> Meta única (viagem, casa, um objetivo)</label>
+          </div>
+        </fieldset>
+        <fieldset class="bloco" data-cx-dono>
+          <legend>De quem é</legend>
+          <div class="opcoes">
+            <label><input type="radio" name="dono" value="casal" checked> Do casal</label>
+            <label><input type="radio" name="dono" value="pessoal"> Só minha</label>
+          </div>
+          <div class="campos" data-cx-divisao>
+            <label class="c3">Divisão entre os dois<select name="divisao"><option value="renda">Pela renda do mês de cada um</option><option value="50/50">Metade de cada um (50/50)</option><option value="fixo">Percentual fixo</option></select></label>
+            <label class="c3" data-cx-parte><span id="cx-parte-rotulo">Parte de quem cadastrou (%)</span><input name="parte" inputmode="decimal" autocomplete="off" placeholder="50"></label>
+          </div>
+        </fieldset>
+        <div class="campos" data-cx-saldo-inicial>
+          <label class="c3">Saldo de hoje (R$)<input name="saldo" inputmode="decimal" autocomplete="off" placeholder="0,00"></label>
+          <label class="c3">Data do saldo<input name="saldo_em" type="date"></label>
+        </div>
+        <p class="dica">O site calcula quanto guardar por mês até a data alvo e a parte de cada um. Depois, atualize o saldo de tempos em tempos (como os saldos dos investimentos).</p>
+        <p class="erro" id="erro-caixinha" role="alert" hidden></p>
+      </div>
+      <div class="dlg-rodape">
+        <button class="btn btn-perigo esquerda" type="button" id="btn-arquivar-caixinha" hidden>Arquivar</button>
+        <button class="btn btn-claro" type="button" data-fechar>Cancelar</button>
+        <button class="btn btn-primary" type="submit">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="dialogo dialogo-gasto" id="dlg-cx-saldo" aria-labelledby="titulo-cx-saldo">
+    <form id="form-cx-saldo" novalidate>
+      <div class="dlg-cab">
+        <h2 id="titulo-cx-saldo">Atualizar saldo</h2>
+        <button class="btn-link" type="button" data-fechar>Fechar</button>
+      </div>
+      <div class="dlg-corpo">
+        <p class="dica" id="cx-saldo-calc"></p>
+        <div class="campos">
+          <label class="c3">Saldo no app do banco (R$)<input name="saldo" inputmode="decimal" autocomplete="off" required></label>
+          <label class="c3">Data<input name="saldo_em" type="date" required></label>
+        </div>
+        <p class="erro" id="erro-cx-saldo" role="alert" hidden></p>
+      </div>
+      <div class="dlg-rodape">
+        <button class="btn btn-claro" type="button" data-fechar>Cancelar</button>
+        <button class="btn btn-primary" type="submit">Salvar saldo</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="dialogo dialogo-gasto" id="dlg-cx-guardar" aria-labelledby="titulo-cx-guardar">
+    <form id="form-cx-guardar" novalidate>
+      <div class="dlg-cab">
+        <h2 id="titulo-cx-guardar">Guardar na caixinha</h2>
+        <button class="btn-link" type="button" data-fechar>Fechar</button>
+      </div>
+      <div class="dlg-corpo">
+        <p class="dica" id="cx-guardar-dica"></p>
+        <div class="campos">
+          <label class="c2">Valor (R$)<input name="valor" inputmode="decimal" autocomplete="off" required></label>
+          <label class="c2">Data<input name="data" type="date" required></label>
+          <label class="c2">Como saiu da conta<select name="forma"><option value="pix">Pix ou transferência</option><option value="debito">Débito</option><option value="outro">Outro</option></select></label>
+        </div>
+        <p class="dica">Sai do caixa do mês na linha “(−) Caixinhas” (não é gasto) e soma no saldo da caixinha.</p>
+        <p class="erro" id="erro-cx-guardar" role="alert" hidden></p>
+      </div>
+      <div class="dlg-rodape">
+        <button class="btn btn-claro" type="button" data-fechar>Cancelar</button>
+        <button class="btn btn-primary" type="submit">Guardar</button>
       </div>
     </form>
   </dialog>
@@ -795,6 +904,7 @@
           </select></label>
           <label class="c2">Quero comprar até<input name="quando" type="month"></label>
           <label class="c2">Já guardado (R$)<input name="guardado" inputmode="decimal" autocomplete="off" placeholder="0,00"></label>
+          <label class="c4" id="campo-caixinha-desejo" hidden>Caixinha (o já guardado vem do saldo dela)<select name="caixinha_id"></select></label>
         </div>
         <fieldset class="bloco">
           <legend>Quem compra</legend>

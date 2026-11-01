@@ -73,9 +73,13 @@ export function projetar(itens, plano, horizonte = HORIZONTE) {
 }
 
 // nomeDono: no painel de outra pessoa (finanças em casal), os textos falam dela em vez de "você"
-export function desenharDesejos({ armazem, perfil, pessoas = [], desejos = [], plano = {}, painel = null, categorias, salvarPlano, nomeDono = "" }) {
+export function desenharDesejos({ armazem, perfil, pessoas = [], desejos = [], plano = {}, painel = null, categorias, salvarPlano, nomeDono = "", caixinhas = null }) {
   const VOCE = nomeDono || "Você";
-  const normal = (d) => ({ ...d, valor: Number(d.valor), guardado: Number(d.guardado || 0), parte: Number(d.parte ?? 50), parcelas: Number(d.parcelas || 1) });
+  // Desejo ligado a uma caixinha: o "já guardado" é o saldo dela (o digitado fica guardado para quando desligar)
+  const daCaixinha = (d) => (caixinhas && d.caixinha_id ? caixinhas().find((c) => c.id === d.caixinha_id) || null : null);
+  const normal = (d) => { const cx = daCaixinha(d);
+    return { ...d, valor: Number(d.valor), guardadoProprio: Number(d.guardado || 0), guardado: cx ? Math.max(0, Number(cx.saldo) || 0) : Number(d.guardado || 0), caixinha: cx ? cx.nome : null,
+      parte: Number(d.parte ?? 50), parcelas: Number(d.parcelas || 1) }; };
   let lista = desejos.map(normal);
   let pl = { eu: Number(plano.eu) || 0, conjunto: Number(plano.conjunto) || 0, outra: Number(plano.outra) || 0 };
   let editando = null;
@@ -199,7 +203,7 @@ export function desenharDesejos({ armazem, perfil, pessoas = [], desejos = [], p
         </div>
         <div class="sub">${esc(rotuloQuem(d))} · ${d.forma === "parcelado" && d.parcelas > 1 ? `parcelado em ${d.parcelas}x` : "à vista"}${d.categoria ? ` · ${esc(d.categoria)}` : ""}${d.quando ? ` · quer comprar até ${rotuloMes(d.quando.slice(0, 7))}` : ""}</div>
         <div class="track" role="img" aria-label="${Math.round(pct)}% guardado"><span style="width:${pct.toFixed(1)}%"></span></div>
-        <div class="sub">${brl(d.guardado)} guardados · faltam ${brl(falta)}</div>
+        <div class="sub">${brl(d.guardado)} guardados${d.caixinha ? ` na caixinha ${esc(d.caixinha)}` : ""} · faltam ${brl(falta)}</div>
         <div class="desejo-status ${st.c}">${esc(st.t)}</div>
         ${meta ? `<div class="sub">${esc(meta)}</div>` : ""}
         ${d.observacao ? `<div class="compl">${esc(d.observacao)}</div>` : ""}
@@ -275,6 +279,12 @@ export function desenharDesejos({ armazem, perfil, pessoas = [], desejos = [], p
     $("#erro-desejo").hidden = !texto;
   }
 
+  // Com caixinha, o "já guardado" vem do saldo dela
+  function atualizarCaixinhaDesejo() {
+    const cx = caixinhas && form.elements.caixinha_id.value ? caixinhas().find((c) => c.id === form.elements.caixinha_id.value) : null;
+    form.elements.guardado.disabled = !!cx;
+    if (cx) form.elements.guardado.value = valorCampo(cx.saldo);
+  }
   function atualizarFormaDesejo() {
     $("#campo-parcelas-desejo").hidden = form.elements.forma.value !== "parcelado";
   }
@@ -306,7 +316,12 @@ export function desenharDesejos({ armazem, perfil, pessoas = [], desejos = [], p
     form.elements.valor.value = d ? valorCampo(d.valor) : "";
     form.elements.prioridade.value = String(d ? d.prioridade : 3);
     form.elements.quando.value = d && d.quando ? d.quando.slice(0, 7) : "";
-    form.elements.guardado.value = d ? valorCampo(d.guardado) : "";
+    form.elements.guardado.value = d ? valorCampo(d.caixinha ? d.guardadoProprio : d.guardado) : "";
+    const cxs = caixinhas ? caixinhas() : [];
+    $("#campo-caixinha-desejo").hidden = !cxs.length;
+    form.elements.caixinha_id.innerHTML = '<option value="">Nenhuma (digito o já guardado)</option>' + cxs.map((c) => `<option value="${esc(c.id)}">${esc(c.nome)} (tem ${brl(c.saldo)})</option>`).join("");
+    form.elements.caixinha_id.value = d && d.caixinha_id && cxs.some((c) => c.id === d.caixinha_id) ? d.caixinha_id : "";
+    atualizarCaixinhaDesejo();
     form.elements.forma.value = d ? d.forma : "avista";
     form.elements.parcelas.innerHTML = opcoes(Array.from({ length: 23 }, (_, i) => [String(i + 2), `${i + 2}x`]), String(d && d.parcelas > 1 ? d.parcelas : 10));
     const nomes = categorias().lista.map((c) => c.nome);
@@ -353,7 +368,8 @@ export function desenharDesejos({ armazem, perfil, pessoas = [], desejos = [], p
         forma: f.forma.value,
         parcelas: f.parcelas.value,
         quando: f.quando.value || null,
-        guardado: numeroDigitado(f.guardado.value) || 0,
+        guardado: f.caixinha_id.value ? (editando ? editando.guardadoProprio : 0) : numeroDigitado(f.guardado.value) || 0,
+        ...(caixinhas ? { caixinha_id: f.caixinha_id.value || null } : {}),
         categoria: f.categoria.value || null,
         link: f.link.value,
         observacao: f.observacao.value,
@@ -409,6 +425,7 @@ export function desenharDesejos({ armazem, perfil, pessoas = [], desejos = [], p
   $("#btn-novo-desejo").addEventListener("click", () => abrirDesejo(null));
   form.addEventListener("submit", salvar);
   $("#formas-desejo").addEventListener("change", atualizarFormaDesejo);
+  form.elements.caixinha_id.addEventListener("change", atualizarCaixinhaDesejo);
   $("#opcoes-quem").addEventListener("change", atualizarQuem);
   $("#btn-apagar-desejo").addEventListener("click", apagar);
   $("#d-lista").addEventListener("click", (e) => {

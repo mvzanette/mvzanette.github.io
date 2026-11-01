@@ -36,7 +36,7 @@ const ROTULO_ESS = (v) => (v === true ? "Essencial" : v === false ? "Não essenc
 // O painel de uma pessoa só para os cálculos (sem desenhar nada), com as preferências e a classificação dela:
 // recorrentes do site, gastos a pagar, fixos trocados, previsões do mês, plano de aportes, categorias (e as juntadas),
 // ajustes e lançamentos divididos. Usado na visão do casal e, no painel de uma pessoa, para os números da outra.
-export async function lerPainelSoCalculo(armazem, p, { planoAporte = null } = {}) {
+export async function lerPainelSoCalculo(armazem, p, { planoAporte = null, caixinhas = null } = {}) {
   const registro = await armazem.financas.ler(p.id);
   if (!registro) return null;
   const [gastos, entradas, prefs, ajustes] = await Promise.all([
@@ -47,21 +47,28 @@ export async function lerPainelSoCalculo(armazem, p, { planoAporte = null } = {}
   ]);
   const painel = desenharFinancas({ dados: registro.dados, modo: registro.modo, nome: p.nome, gastosSite: gastos, entradasSite: entradas,
     recorrentes: Array.isArray(prefs && prefs.recorrentes) ? prefs.recorrentes : [], caixa: (prefs && prefs.caixa) || {},
-    categorias: lerCategorias(prefs, registro.dados), ajustes, comMeses: true, somenteCalculo: true, planoAporte });
-  return { registro, prefs, painel };
+    categorias: lerCategorias(prefs, registro.dados), ajustes, comMeses: true, somenteCalculo: true, planoAporte,
+    caixinhas: caixinhas ? { lista: caixinhas.filter((c) => c.dono === "casal" || c.perfil_id === p.id), perfilId: p.id } : null });
+  return { registro, prefs, painel, gastos };
 }
 
 // pessoas: [{ id, nome, link }], na ordem das colunas
 export async function mostrarCasal({ armazem, pessoas }) {
   // Plano de aportes dos dois (sem a tabela no banco, cada painel segue a previsão do mês)
   const planos = await armazem.financas.planosAporte(pessoas.map((p) => p.id)).catch(() => []);
+  const caixinhas = await armazem.financas.caixinhas(pessoas.map((p) => p.id)).catch(() => null);
   const lidos = await Promise.all(pessoas.map(async (p) => {
-    const base = { ...p, curto: primeiro(p), painel: null, investimentos: [], carteira: null };
-    const lido = await lerPainelSoCalculo(armazem, p, { planoAporte: planos.filter((d) => d.perfil_id === p.id) });
+    const base = { ...p, curto: primeiro(p), painel: null, investimentos: [], carteira: null, gastos: [] };
+    const lido = await lerPainelSoCalculo(armazem, p, { planoAporte: planos.filter((d) => d.perfil_id === p.id), caixinhas });
     if (!lido) return base;
-    const { registro, prefs, painel } = lido;
-    return { ...base, painel, investimentos: Array.isArray(prefs && prefs.investimentos) ? prefs.investimentos : [], carteira: registro.investimentos || null };
+    const { registro, prefs, painel, gastos } = lido;
+    return { ...base, painel, gastos, investimentos: Array.isArray(prefs && prefs.investimentos) ? prefs.investimentos : [], carteira: registro.investimentos || null };
   }));
+  // Cada painel conhece o outro: a renda do mês (divisão das caixinhas do casal) e os depósitos dele nas caixinhas
+  lidos.forEach((p) => {
+    const o = lidos.find((x) => x !== p && x.painel);
+    if (p.painel && o) p.painel.definirParceiro({ id: o.id, nome: o.curto, receitas: o.painel.receitasDoMes, gastos: o.gastos, aporte: o.painel.aporteDoMes });
+  });
   const comPainel = lidos.filter((p) => p.painel);
   const meses = new Map();
   comPainel.forEach((p) => p.painel.meses().forEach((m) => meses.set(m.chave, m.rotulo)));
@@ -135,7 +142,8 @@ export async function mostrarCasal({ armazem, pessoas }) {
     const cel = (r, f, sub = "") => `<td class="r">${r ? (Math.abs(f(r)) < 0.005 ? '<span class="sem">nada lançado</span>' : `${brl(f(r))}${sub ? `<small>${esc(sub(r))}</small>` : ""}`) : '<span class="sem">—</span>'}</td>`;
     const linha = (rotulo, f, sub) => `<tr><th scope="row">${rotulo}</th>${res.map((r) => cel(r, f, sub)).join("")}<td class="r casal-total">${brl(somaR(f))}</td></tr>`;
     const saldo = somaR((r) => r.saldo);
-    const saidas = somaR((r) => r.investimento + r.cartao + r.fora + r.fixosFora);
+    const saidas = somaR((r) => r.investimento + r.cartao + r.fora + r.fixosFora + (r.caixinhas || 0));
+    const comCx = somaR((r) => r.caixinhas || 0) > 0.004;
     const entra = somaR((r) => r.receitas);
     $("#casal-tabela").innerHTML = `
       <thead><tr><th scope="col">${esc(meses.get(atual) || "")}</th>${lidos.map((p) => `<th scope="col" class="r">${esc(p.curto)}</th>`).join("")}<th scope="col" class="r">Casal</th></tr></thead>
@@ -145,6 +153,7 @@ export async function mostrarCasal({ armazem, pessoas }) {
         ${linha("(−) Fatura do cartão que vence no mês", (r) => r.cartao, (r) => `fatura ${r.fatura}`)}
         ${linha("(−) Gastos fora do cartão (Pix, débito, dinheiro)", (r) => r.fora)}
         ${linha("(−) Fixos fora do cartão", (r) => r.fixosFora)}
+        ${comCx ? linha("(−) Caixinhas", (r) => r.caixinhas || 0) : ""}
         <tr class="casal-saldo"><th scope="row">Saldo do mês</th>${res.map((r) => (r ? `<td class="r${r.saldo < 0 ? " neg" : ""}">${brl(r.saldo)}</td>` : '<td class="r"><span class="sem">—</span></td>')).join("")}<td class="r casal-total${saldo < 0 ? " neg" : ""}">${brl(saldo)}</td></tr>
       </tbody>`;
     // Previsto × feito dos aportes no mês (plano de aportes ou previsão do mês de cada painel); só do mês atual em diante
@@ -157,18 +166,38 @@ export async function mostrarCasal({ armazem, pessoas }) {
     const inv = investimentosDoCasal();
     const kpis = [
       ["entradas", "Entradas do casal", brl(entra), `${meses.get(atual)} · ${lidos.map((p, i) => `${p.curto} ${res[i] ? brl(res[i].receitas) : "—"}`).join(" · ")}`],
-      ["saidas", "Saídas do casal", brl(saidas), "faturas que vencem, Pix, fixos e investimento"],
+      ["saidas", "Saídas do casal", brl(saidas), `faturas que vencem, Pix, fixos e investimento${comCx ? " e caixinhas" : ""}`],
       ["saldo", "Saldo do casal", brl(saldo), saldo < 0 ? "faltam para fechar o mês" : "sobra no mês"],
       ...(inv.temAlgum || resumoCarteira ? [["investimentos", "Investimentos", brl(inv.total),
         inv.temAlgum ? inv.porDono.map((o) => `${o.dono === "casal" ? "Conjunto" : `só de ${curtoDe(o.dono)}`} ${brl(o.total)}`).join(" · ") : resumoCarteira.data ? `carteira em ${dBR(resumoCarteira.data)}` : "carteira conjunta"]] : []),
     ];
     $("#casal-kpis").innerHTML = kpis.map(([k, t, v, s]) => `<button type="button" class="kpi kpi-botao casal-kpi" data-casal-kpi="${k}" aria-haspopup="dialog">
         <span class="kpi-rotulo">${esc(t)}</span><strong class="kpi-valor${k === "saldo" && saldo < 0 ? " neg" : ""}">${v}</strong><small>${esc(s || "")}</small><span class="casal-kpi-ver">ver de onde vem</span></button>`).join("");
+    desenharCaixinhas();
     desenharEntradas(entradas);
     desenharGastos(gastos);
     $("#casal-links").innerHTML = lidos.map((p) => `<a class="btn btn-claro" href="${esc(p.link)}">Abrir o painel de ${esc(p.curto)}</a>`).join("");
     const dlg = $("#dlg-casal");
     if (dlg && dlg.open && dlg.dataset.kpi) abrirKpi(dlg.dataset.kpi);
+  }
+
+  // Caixinhas do casal: quanto está guardado, quanto guardar por mês e quanto cabe a cada um no mês atual
+  function desenharCaixinhas() {
+    const box = $("#casal-caixinhas");
+    const ref = lidos.find((p) => p.painel);
+    if (!box || !caixinhas || !ref) { if (box) box.hidden = true; return; }
+    const linhas = ref.painel.estadoCaixinhas().linhas.filter((x) => x.cx.dono === "casal");
+    box.hidden = !linhas.length;
+    if (!linhas.length) return;
+    const tot = (f) => soma(linhas, f);
+    const atrasadas = linhas.filter((x) => x.conta.alerta);
+    box.innerHTML = `<div class="casal-bloco-topo"><h2>Caixinhas do casal</h2><span class="num">${brl(tot((x) => x.conta.saldo))} guardados · ${brl(tot((x) => x.conta.porMes))} por mês</span></div>
+      <p class="sub">Em ${esc(rotuloMes(hoje))}, cada um guarda: ${lidos.map((p) => { const deve = tot((x) => x.porPessoa[p.id] || 0), fez = tot((x) => x.feitoPessoa[p.id] || 0);
+        return `<b>${esc(p.curto)}</b> ${brl(deve)}${fez > 0 ? ` (guardou ${brl(fez)}${deve - fez > 0.004 ? `, faltam ${brl(deve - fez)}` : " ✓"})` : ""}`; }).join(" · ")}.</p>
+      <ul class="casal-cx">${linhas.map((x) => `<li><span>${esc(x.cx.nome)}<small>${brl(x.conta.saldo)} de ${brl(x.cx.meta)} · até ${dataBR(x.cx.data_alvo)}${x.conta.situacao === "atrasada" ? " · atrasada" : x.conta.situacao === "completa" ? " · completa" : ""}</small></span>
+        <span class="casal-cx-barra" role="img" aria-label="${Math.round(x.conta.progresso * 100)}% da meta"><i style="width:${(x.conta.progresso * 100).toFixed(1)}%"></i></span><span class="num">${brl(x.conta.porMes)}/mês</span></li>`).join("")}</ul>
+      ${atrasadas.length ? `<p class="casal-cx-alerta"><b>Atenção:</b> ${atrasadas.map((x) => `${esc(x.cx.nome)} está atrasada e faltam ${x.conta.mesesAte <= 0 ? "menos de um mês" : `${x.conta.mesesAte} ${x.conta.mesesAte === 1 ? "mês" : "meses"}`} para a data`).join("; ")}.</p>` : ""}
+      <p class="dica">Para guardar, atualizar o saldo ou criar uma caixinha, abra a aba Caixinhas no painel de cada um.</p>`;
   }
 
   // Entradas dos dois numa lista só
@@ -305,7 +334,7 @@ export async function mostrarCasal({ armazem, pessoas }) {
   }
 
   function htmlKpiSaidas(det, gastos) {
-    const tipos = [["fatura", "Fatura do cartão que vence no mês"], ["dia", "Pix, débito e dinheiro"], ["fixo", "Fixos fora do cartão"], ["investimento", "Investimento"]];
+    const tipos = [["fatura", "Fatura do cartão que vence no mês"], ["dia", "Pix, débito e dinheiro"], ["fixo", "Fixos fora do cartão"], ["investimento", "Investimento"], ["caixinha", "Caixinhas"]];
     const todas = det.flatMap((d, i) => (d ? d.saidas.map((s) => ({ ...s, p: lidos[i] })) : []));
     const total = soma(todas, (s) => s.valor);
     const topCats = [...gastos.reduce((m, g) => m.set(g.cat, (m.get(g.cat) || 0) + g.valor), new Map()).entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);

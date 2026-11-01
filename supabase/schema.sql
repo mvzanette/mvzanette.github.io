@@ -178,7 +178,7 @@ alter table public.perfis add constraint perfis_modulos_check
 alter table public.perfis add column if not exists tarefas text[];
 alter table public.perfis drop constraint if exists perfis_tarefas_check;
 alter table public.perfis add constraint perfis_tarefas_check
-  check (tarefas is null or tarefas <@ array['classificar', 'apagar', 'arts', 'demandas', 'caixa']::text[]);
+  check (tarefas is null or tarefas <@ array['classificar', 'apagar', 'arts', 'demandas', 'caixa', 'caixinhas']::text[]);
 
 -- Histórico de acessos: página aberta, data e hora e tipo de aparelho (guarda 180 dias)
 create table if not exists public.acessos (
@@ -1345,6 +1345,8 @@ create table if not exists public.caixinhas (
   criado_por    uuid default auth.uid() references auth.users (id) on delete set null
 );
 create index if not exists caixinhas_perfil_idx on public.caixinhas (perfil_id);
+-- Momento em que o saldo foi informado: um depósito ou gasto do mesmo dia lançado depois dele soma (ou tira) do saldo
+alter table public.caixinhas add column if not exists saldo_atualizado timestamptz;
 
 drop trigger if exists caixinhas_atualizado_em on public.caixinhas;
 create trigger caixinhas_atualizado_em before update on public.caixinhas

@@ -63,7 +63,7 @@ const numeros = (nome, obj) => {
 
 // Cadastro de usuários: o que o administrador grava (o resto o banco preenche a cada acesso)
 const COLUNAS_PERFIL = ["email", "nome", "papel", "modulos", "situacao", "link_financas", "observacao", "casal_com", "tarefas"];
-const TAREFAS_VALIDAS = ["classificar", "apagar", "arts", "demandas", "caixa"];
+const TAREFAS_VALIDAS = ["classificar", "apagar", "arts", "demandas", "caixa", "caixinhas"];
 const SEM_ADM = "É preciso manter pelo menos um administrador ativo.";
 export const BANCO_DESATUALIZADO =
   "O banco de dados precisa ser atualizado: rode de novo o arquivo supabase/schema.sql no SQL Editor do Supabase.";
@@ -180,6 +180,7 @@ function limparCaixinha(c) {
     divisao,
     parte: dono === "casal" ? parte : null,
     ativa: c.ativa !== false,
+    saldo_atualizado: /^\d{4}-\d{2}-\d{2}T/.test(String(c.saldo_atualizado || "")) ? c.saldo_atualizado : null,
   };
 }
 const numerosCaixinha = (c) => ({ ...c, meta: Number(c.meta), saldo: Number(c.saldo), parte: c.parte == null ? null : Number(c.parte) });

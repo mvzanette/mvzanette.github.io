@@ -41,6 +41,12 @@ export const tarefaAPagar = (n, total, href = "financas.html#gastos") => ({
   texto: `${plural(n, "gasto lançado como “a pagar” está", "gastos lançados como “a pagar” estão")} com a data de hoje ou já passada (${Number(total || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}). Se já pagou, clique em Pagar na lista dos gastos.`,
 });
 
+export const tarefaCaixinhas = (lista, href = "financas.html#caixinhas") => ({
+  id: "caixinhas", n: lista.length, href, botao: "Ver as caixinhas", resumo: plural(lista.length, "caixinha atrasada", "caixinhas atrasadas"),
+  titulo: lista.length === 1 ? "Caixinha atrasada" : "Caixinhas atrasadas",
+  texto: `${lista.map((x) => `${x.nome} (faltam ${Number(x.falta || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} até ${x.ate})`).join("; ")}. Faltam 3 meses ou menos para a data e o saldo está abaixo do esperado.`,
+});
+
 // Pendências do painel de finanças da pessoa, com o mesmo cálculo do painel: lançamentos a classificar e gastos
 // lançados como a pagar com a data já chegada
 export async function contarPendenciasFinancas(armazem, perfilId) {

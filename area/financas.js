@@ -15,13 +15,14 @@ import { desenharDesejos } from "./financas-desejos.js";
 import { desenharInvestimentosPessoais, resumir, ultimoMes } from "./financas-investimentos.js";
 import { lerPainelSoCalculo, mostrarCasal } from "./financas-casal.js";
 import { prepararPlanoAporte } from "./financas-plano.js";
+import { CATEGORIA as CAT_CAIXINHA, prepararCaixinhas } from "./financas-caixinhas.js";
 import { categoriaDe, categoriasEscolhiveis, chavesFatura, chavesGastos, contasDisponiveis, juntarCategorias, lerCategorias, lerContas, normalizarCategoria, partesDe, semClassificacao } from "./financas-classificacao.js";
 import { aplicarFatura, herdarClassificacao, historicoDeCategorias, lerFaturaPdf, manterFaturasDoSite, montarFatura } from "./financas-faturas.js";
 import { decodificarExtrato, lerExtrato, MOTIVOS, saidasDoExtrato } from "./financas-extrato.js";
 import { aplicarPrevia, bancoDoCartao, faturaProvavel, lerFaturaParcial, montarPrevia, ordemFatura, rotuloFatura } from "./financas-previa.js";
 import { extrairLinhas } from "./pdf-texto.js";
 import { $, esc, avisar, opcoes, numeroDigitado, prepararDialogos, conferirPdf } from "./ui.js";
-import { mostrarTarefas, tarefaAPagar, tarefaClassificar } from "./tarefas.js";
+import { mostrarTarefas, tarefaAPagar, tarefaCaixinhas, tarefaClassificar } from "./tarefas.js";
 
 let armazem;
 let perfil; // quem está usando a página
@@ -44,6 +45,7 @@ let empresas = []; // empresas cadastradas (os nomes vêm do banco)
 let faturaPdf = null; // fatura em PDF sendo processada: { caminho, nome, leitura, quem, montada, destino }
 let extrato = null; // extrato da conta sendo importado: { leitura, saidas, entradas }
 let recorrentes = []; // pagamentos recorrentes cadastrados no site (preferências do painel)
+let caixinhasUI = null; // aba Caixinhas (redesenha depois de lançar ou apagar um gasto)
 
 const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
 const brl = (v) => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -332,6 +334,7 @@ function abrirLancamento(recorrente = null, gasto = null, { pagar = false } = {}
   montarDivisao(form, { total: () => numeroDigitado(form.elements.valor.value), partes: g ? g.partes : null,
     categoria: g ? g.categoria || "" : pagamento ? pagamento.categoria || "" : "", subcategoria: g ? g.subcategoria || "" : "", conta: (g && g.conta) || "pessoal" });
   $("#erro-gasto").hidden = true;
+  preencherPagoCom(g ? g.caixinha_id || "" : "");
   atualizarForma();
   $("#dlg-gasto").showModal();
   form.elements.valor.focus();
@@ -385,10 +388,20 @@ function repetePelaData() {
   sincronizarTermino(form, TERMINO_GASTO, "rep_inicio");
 }
 
+// "Pago com": a conta (entra nos gastos do mês) ou uma caixinha (não entra nos gastos nem no caixa; só tira do saldo
+// dela). Nunca no cartão: a compra iria para a fatura e contaria em dobro.
+function preencherPagoCom(atual = "") {
+  const sel = $("#form-gasto").elements.caixinha_id;
+  const linhas = painel && painel.estadoCaixinhas ? painel.estadoCaixinhas().linhas : [];
+  sel.innerHTML = `<option value="">Conta (entra nos gastos do mês)</option>` + linhas.map((x) => `<option value="${esc(x.cx.id)}">Caixinha ${esc(x.cx.nome)} (tem ${brl(x.conta.saldo)}; não entra nos gastos)</option>`).join("");
+  sel.value = linhas.some((x) => x.cx.id === atual) ? atual : "";
+  sel.dataset.tem = linhas.length ? "1" : "";
+}
 function atualizarForma() {
   const form = $("#form-gasto");
   const cartao = form.elements.forma.value === "cartao";
   $("#campo-parcelas").hidden = !cartao;
+  $("#campo-caixinha").hidden = cartao || !form.elements.caixinha_id.dataset.tem;
   atualizarRepete();
   // No cartão, o pagamento é o da fatura: o gasto não fica a pagar
   $("#campo-pago").hidden = cartao;
@@ -452,6 +465,7 @@ async function lancarGasto(e) {
     observacao: form.elements.observacao.value,
     recorrente: pagamento ? pagamento.chave : novoRec ? `${novoRec.id}|${mes}` : antigo ? antigo.recorrente || null : null,
     partes: div.partes,
+    caixinha_id: forma === "cartao" ? null : form.elements.caixinha_id.value || null,
   };
   const botao = form.querySelector("[type=submit]");
   botao.disabled = true;
@@ -477,13 +491,16 @@ async function lancarGasto(e) {
     }
     painel.atualizarGastos(gastos);
     painel.atualizarClassificacao({ categorias: cats });
+    if (caixinhasUI) caixinhasUI.desenhar();
     $("#dlg-gasto").close();
     const parcelado = salvo.forma === "cartao" && salvo.parcelas > 1 ? ` em ${salvo.parcelas}x` : "";
     const outroMes = salvo.forma !== "cartao" && salvo.data.slice(0, 7) !== mesAtual() ? ` em ${rotuloMes(salvo.data.slice(0, 7))}` : "";
     const qtdRec = rec && rec.fim ? mesesEntre(rec.inicio, rec.fim) + 1 : null;
     const textoRec = rec ? `. Virou um pagamento recorrente ${qtdRec ? `até ${rotuloMes(rec.fim)} (${qtdRec} ${qtdRec === 1 ? "parcela" : "parcelas"})` : "sem data para terminar"} (aba Cadastros)` : "";
     const sufixo = (aPagar ? `, a pagar em ${dataBR(salvo.data)}` : "") + textoRec;
-    avisar(pagamento ? `${pagamento.nome} marcado como ${aPagar ? "lançado (a pagar)" : "pago"} em ${pagamento.rotulo}.`
+    const comCaixinha = salvo.caixinha_id && !/^caixinha/i.test(semAcento(salvo.categoria || ""));
+    if (comCaixinha) avisar(`Gasto pago com a caixinha: não entra nos gastos nem no caixa do mês; saiu do saldo dela.`);
+    else avisar(pagamento ? `${pagamento.nome} marcado como ${aPagar ? "lançado (a pagar)" : "pago"} em ${pagamento.rotulo}.`
       : eraAPagar && !aPagar ? `Pagamento de “${salvo.descricao}” confirmado em ${dataBR(salvo.data)}.` : antigo ? `Gasto salvo${sufixo}.`
       : salvo.forma === "cartao" ? `Gasto lançado no cartão${parcelado}${textoRec}.` : `Gasto lançado${outroMes}${sufixo}.`);
     pagamento = null;
@@ -504,6 +521,7 @@ async function apagarGasto(idGasto, pergunta = null, aviso = "Gasto apagado.") {
     const ids = idsAPagar();
     if (ids.delete(idGasto)) await salvarPrefs({ caixa: { aPagar: [...ids] } }).catch(() => {});
     painel.atualizarGastos(gastos);
+    if (caixinhasUI) caixinhasUI.desenhar();
     avisar(aviso);
     return true;
   } catch (err) {
@@ -2457,6 +2475,9 @@ async function iniciar() {
   const idsPlano = pessoasPlano.map((p) => p.id);
   let planos = await armazem.financas.planosAporte(idsPlano).catch(() => null);
   const planoDoDono = (lista) => (lista || []).filter((d) => d.perfil_id === dono.id);
+  // Caixinhas: as de quem é o painel e as do casal (sem a tabela no banco, a aba fica escondida)
+  let caixinhas = await armazem.financas.caixinhas(idsPlano).catch(() => null);
+  const caixinhasDoDono = (lista) => (lista || []).filter((c) => c.dono === "casal" || c.perfil_id === dono.id);
   painel = desenharFinancas({
     dados: registro.dados,
     carteira: registro.investimentos,
@@ -2495,7 +2516,31 @@ async function iniciar() {
     comInvestimentos: true,
     planoAporte: planos ? planoDoDono(planos) : null,
     planoCasal: planos ? { degraus: planos, pessoas: pessoasPlano } : null,
+    caixinhas: caixinhas ? { lista: caixinhasDoDono(caixinhas), perfilId: dono.id } : null,
   });
+  if (caixinhas) {
+    caixinhasUI = prepararCaixinhas({
+      painel,
+      pessoas: pessoasPlano,
+      dono: dono.id,
+      salvar: async (c) => {
+        await armazem.financas.salvarCaixinha(c);
+        caixinhas = await armazem.financas.caixinhas(idsPlano);
+        painel.atualizarCaixinhas(caixinhasDoDono(caixinhas));
+        return caixinhas;
+      },
+      // Depósito: gasto na categoria Caixinhas ligado à caixinha (sai do caixa como caixinha, não como gasto)
+      guardar: async ({ caixinha, valor, data, forma }) => {
+        const salvo = await armazem.financas.salvarGasto({ perfil_id: dono.id, data, descricao: `Caixinha ${caixinha.nome}`.slice(0, 120), valor, forma: forma || "pix",
+          parcelas: 1, categoria: CAT_CAIXINHA, caixinha_id: caixinha.id });
+        gastos = [...gastos, salvo];
+        await guardarNaLista(CAT_CAIXINHA, null).catch(() => {});
+        painel.atualizarGastos(gastos);
+        painel.atualizarClassificacao({ categorias: cats });
+      },
+      editarGasto: abrirEdicaoGasto,
+    });
+  }
   if (planos) {
     $("#cad-plano").hidden = false;
     const recarregar = async () => (planos = await armazem.financas.planosAporte(idsPlano));
@@ -2507,22 +2552,30 @@ async function iniciar() {
       aoMudar: (lista) => painel.atualizarPlano(planoDoDono(lista), { degraus: lista, pessoas: pessoasPlano }),
     });
   }
-  // O painel da outra pessoa do casal, só para os cálculos: o "feito" do mês dela no previsto × feito dos aportes
+  // Vindo das tarefas pendentes (financas.html#classificar): direto para a lista; senão, a janela de tarefas avisa
+  // (uma vez por sessão) quando há lançamentos a classificar, gastos a pagar vencidos ou caixinhas atrasadas perto da data
+  const avisarTarefas = () => {
+    if (location.hash === "#classificar") { $("#classificar").scrollIntoView({ block: "start" }); return; }
+    if (dono.id !== perfil.id) return;
+    const vencidos = painel.aPagarVencidos();
+    const atrasadas = caixinhas ? painel.estadoCaixinhas().linhas.filter((x) => x.conta.alerta).map((x) => ({ nome: x.cx.nome, falta: x.conta.falta, ate: dataBR(x.cx.data_alvo) })) : [];
+    mostrarTarefas([tarefaClassificar(pendencias.length, "#classificar"), tarefaAPagar(vencidos.length, vencidos.reduce((t, l) => t + Number(l.valor || 0), 0), "#gastos"), tarefaCaixinhas(atrasadas, "#caixinhas")], {
+      perfil, automatico: true,
+      aoAbrir: (href) => (href === "#gastos" ? $("#tab-gastos").click() : href === "#caixinhas" ? $("#tab-caixinhas").click() : $("#classificar").scrollIntoView({ block: "start", behavior: "smooth" })),
+    });
+  };
+  // O painel da outra pessoa do casal, só para os cálculos: o "feito" do mês dela no previsto × feito dos aportes, a
+  // renda do mês (divisão das caixinhas do casal) e os depósitos e gastos dela ligados às caixinhas
   if (outroDoCasal) {
     lerPainelSoCalculo(armazem, outroDoCasal, { planoAporte: (planos || []).filter((d) => d.perfil_id === outroDoCasal.id) })
-      .then((lido) => { if (lido) painel.definirParceiro({ id: outroDoCasal.id, nome: curto(outroDoCasal), aporte: lido.painel.aporteDoMes, resumo: lido.painel.resumo }); })
-      .catch((e) => console.warn("Painel da outra pessoa do casal:", e.message));
-  }
-  // Vindo das tarefas pendentes (financas.html#classificar): direto para a lista; senão, a janela de tarefas avisa
-  // (uma vez por sessão) quando há lançamentos a classificar no próprio painel
-  if (location.hash === "#classificar") $("#classificar").scrollIntoView({ block: "start" });
-  else if (dono.id === perfil.id) {
-    const vencidos = painel.aPagarVencidos();
-    mostrarTarefas([tarefaClassificar(pendencias.length, "#classificar"), tarefaAPagar(vencidos.length, vencidos.reduce((t, l) => t + Number(l.valor || 0), 0), "#gastos")], {
-      perfil, automatico: true,
-      aoAbrir: (href) => (href === "#gastos" ? $("#tab-gastos").click() : $("#classificar").scrollIntoView({ block: "start", behavior: "smooth" })),
-    });
-  }
+      .then((lido) => {
+        if (lido) painel.definirParceiro({ id: outroDoCasal.id, nome: curto(outroDoCasal), aporte: lido.painel.aporteDoMes, resumo: lido.painel.resumo,
+          receitas: lido.painel.receitasDoMes, gastos: lido.gastos });
+        if (caixinhasUI) caixinhasUI.desenhar();
+      })
+      .catch((e) => console.warn("Painel da outra pessoa do casal:", e.message))
+      .finally(avisarTarefas);
+  } else avisarTarefas();
   desenharInvestimentosPessoais({
     raiz: $("#inv-pessoal"),
     lista: Array.isArray(prefs && prefs.investimentos) ? prefs.investimentos : [],
@@ -2553,6 +2606,7 @@ async function iniciar() {
       plano: (prefs && prefs.plano) || {},
       painel,
       categorias: () => cats,
+      caixinhas: caixinhas ? () => painel.estadoCaixinhas().linhas.map((x) => ({ id: x.cx.id, nome: x.cx.nome, saldo: x.conta.saldo, meta: x.cx.meta })) : null,
       salvarPlano: async (plano) => {
         prefs = await armazem.financas.salvarPreferencias(dono.id, { plano });
       },

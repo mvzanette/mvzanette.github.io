@@ -150,6 +150,7 @@ export const linkFinancas = (perfil) =>
 export const TIPOS_TAREFA = [
   { id: "classificar", titulo: "Lançamentos a classificar", detalhe: "das faturas e gastos do próprio painel", modulo: "financas" },
   { id: "apagar", titulo: "Gastos a pagar vencidos", detalhe: "do próprio painel de finanças", modulo: "financas" },
+  { id: "caixinhas", titulo: "Caixinhas atrasadas perto da data", detalhe: "faltam 3 meses ou menos e o saldo está abaixo do esperado", modulo: "financas" },
   { id: "arts", titulo: "ARTs que precisam de baixa ou ação", detalhe: "Controle de ART", modulo: "art" },
   { id: "demandas", titulo: "Demandas em andamento", detalhe: "Controle de demandas", modulo: "demandas" },
   { id: "caixa", titulo: "Documentos do caixa a aprovar", detalhe: "caixa das empresas", modulo: "empresas" },

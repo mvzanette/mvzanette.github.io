@@ -309,6 +309,19 @@ Em **Cadastros → Plano de aportes**, cada pessoa do casal tem degraus: destino
 
 Fica na tabela `planos_aporte` (perfil_id de quem aporta, destino, valor, vigente_desde no dia 1).
 
+### Caixinhas de provisão
+
+A aba **Caixinhas** guarda dinheiro para gastos futuros (IPTU, IPVA, seguro, viagem, casa). Cada caixinha tem nome, de quem é (só de quem cadastrou ou do casal), tipo (recorrente, que repete todo ano, ou meta única), meta, data alvo e saldo (informado de tempos em tempos em **Atualizar saldo**, como os saldos dos investimentos). Nas do casal, a divisão é 50/50, pela renda do mês de cada um (as entradas do mês nos dois painéis) ou um percentual fixo.
+
+- **Tabela:** Caixinha | Tem / Meta (com barra e a marca do esperado) | Falta | Até | Por mês | a parte de cada um, com a linha de total. **Por mês** = (meta − saldo no começo do mês) ÷ meses até a data alvo. **Situação:** em dia, atrasada (saldo abaixo do esperado pelo tempo desde o início) ou completa.
+- **Botões:** Nova caixinha, Guardar (lança o depósito), Atualizar saldo, Paguei (recorrente: zera o saldo e leva a data alvo um ano à frente), Editar e Arquivar (as arquivadas podem ser reativadas).
+- **Sem contar em dobro:** o depósito é um gasto na categoria Caixinhas ligado à caixinha e sai do caixa na linha **(−) Caixinhas** do balanço, como o investimento, fora dos gastos. O gasto pago com o dinheiro da caixinha (**Pago com: caixinha X** no Lançar gasto ou Pix; nunca no cartão) não entra nos gastos nem no caixa do mês: só tira do saldo dela. O saldo mostrado é o informado mais os depósitos e menos os gastos pagos com ela lançados depois da data do saldo.
+- **Previsão dos próximos meses e lista de desejos:** cada mês desconta a parte da pessoa no que guardar em cada caixinha (depois da data alvo, a recorrente segue com o ciclo seguinte, meta ÷ 12), e a sobra usada pela lista de desejos já vem sem isso. Um desejo pode ser ligado a uma caixinha: o "já guardado" vem do saldo dela.
+- **Casal:** card "Caixinhas do casal: R$ X guardados · R$ Y por mês" com quanto cada um guarda no mês, e a linha (−) Caixinhas na tabela do mês.
+- **Alerta:** caixinha atrasada com 3 meses ou menos até a data aparece na aba, no balanço, no casal e na janela de tarefas (tipo "Caixinhas atrasadas perto da data", configurável em Usuários e permissões).
+
+Fica na tabela `caixinhas` (perfil_id de quem cadastrou, dono pessoal ou casal, divisão e `parte` = % de quem cadastrou), com a mesma regra de acesso das finanças; o depósito e o gasto pago com ela têm `financas_gastos.caixinha_id`, e o desejo ligado, `financas_desejos.caixinha_id`.
+
 ### Lançamento dividido em mais de uma categoria
 
 No **Classificar** de qualquer lançamento (fatura, gastos do dia a dia) e no **Lançar gasto / Editar gasto**, a opção **Dividir em mais de uma categoria** divide o valor em duas a oito partes, cada uma com valor, categoria, subcategoria e conta (ex.: uma compra no Mercado Livre com um item da casa e um pessoal). A primeira parte fica com o que falta para o total, e o site só salva quando a soma bate. Nas somas por categoria, por essencial e por conta (gastos pagos, gastos do dia a dia, análise da fatura, casal e páginas das empresas e da engenharia), cada parte entra na dela; a parcela de uma compra dividida segue a mesma proporção. As listas mostram o lançamento com a marca "dividido" e as partes. Fica em `financas_ajustes.partes` (lançamentos do projeto e das faturas) e em `financas_gastos.partes` (gastos lançados pelo site).

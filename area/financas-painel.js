@@ -7,6 +7,7 @@ import { outrasPessoas } from "./financas-importar.js";
 import { chavesFatura, chavesGastos, efetivo, lerCategorias, nomeConta, partesDe, textoPartes } from "./financas-classificacao.js";
 import { ordemFatura } from "./financas-previa.js";
 import { mudancas, primeiroMes, rotuloMes as rotuloPlano, textoPrevistoFeito, vigenteNoMes } from "./financas-plano.js";
+import { calcular as calcularCaixinha, ehDeposito, movimentosDe, parteDe, valorNoMes } from "./financas-caixinhas.js";
 
 const MESES_PADRAO = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 const VAZIO = {arquivo: "", faturas: [], parcelamentos: [], comprometido: {}, categorias: {}, postos: {}, lancamentos: [], alertas: []};
@@ -48,7 +49,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   recorrentes: recorrentesSite = [], aoPagarRecorrente = null, aoDesmarcarRecorrente = null, aoEditarRecorrente = null, aoValorRecorrente = null,
   aoMudarPendencias = null, aoEditarGasto = null, aoPagarGasto = null, aoEditarMetas = null,
   aoEditarEntrada = null, aoReceberEntrada = null, outroAporte = null, investimentosCasal = null,
-  planoAporte = null, planoCasal = null }) {
+  planoAporte = null, planoCasal = null, caixinhas = null }) {
   const D = completar(dados);
   let CATS = categorias || lerCategorias(null, dados);
   let AJ = new Map(ajustes.map(a => [a.chave, a]));
@@ -124,6 +125,14 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const itens = vigenteNoMes(PLANO, chave).itens;
     return itens.length === 1 ? `Aporte: ${itens[0].destino}` : "Aportes do plano";
   };
+  // Caixinhas de provisão (aba Caixinhas): as de quem é o painel e as do casal. O depósito (categoria Caixinhas) sai do
+  // caixa como caixinha, não como gasto; o gasto pago com o dinheiro da caixinha não entra nos gastos nem no caixa
+  let CXS = caixinhas && Array.isArray(caixinhas.lista) ? caixinhas.lista : [];
+  const COM_CAIXINHAS = !!caixinhas;
+  const PERFIL_ID = caixinhas ? caixinhas.perfilId : null;
+  let MOV_OUTRO = []; // movimentos das caixinhas lançados no painel da outra pessoa do casal
+  let memoCx = null;
+  let PAGOS_CX = []; // gastos do site pagos com uma caixinha (fora dos gastos do mês)
   // Gastos lançados no site ainda a pagar (ids) e fixos do projeto trocados por um recorrente do site ou tirados
   let APAGAR = new Set((caixaPrefs && caixaPrefs.aPagar) || []);
   let OCULTOS = new Set((caixaPrefs && caixaPrefs.fixosOcultos) || []);
@@ -263,7 +272,9 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     entradasRepetidas = 0;
     parcelasSite = [];
     memoCaixa.clear();
+    memoCx = null;
     PAGOS = new Map((GASTOS_SITE || []).filter(g => g.recorrente).map(g => [g.recorrente, {id: g.id, valor: Number(g.valor) || 0, data: g.data}]));
+    PAGOS_CX = (GASTOS_SITE || []).filter(g => g.caixinha_id && !ehDeposito(g.categoria) && g.forma !== "cartao");
     // O mês atual e o seguinte (a previsão do caixa) sempre aparecem, mesmo sem nada lançado
     if (COM_MESES) { mesDe(hojeKey); mesDe(somarChave(hojeKey, 1)); }
     // Entradas lançadas pelo site: o salário lançado substitui o do projeto no mesmo mês (que pode ser só uma
@@ -284,6 +295,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
         recebimento: e.recebimento || null, referencia: e.referencia || null, repete: !!e.repete});
     }
     for (const g of GASTOS_SITE || []) {
+      if (PAGOS_CX.includes(g)) continue; // pago com o dinheiro de uma caixinha: só tira do saldo dela
       const m = mesDe(String(g.data).slice(0, 7));
       const parcelas = g.forma === "cartao" ? Math.max(1, g.parcelas || 1) : 1;
       const valor = Math.round(g.valor / parcelas * 100) / 100;
@@ -293,7 +305,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
         parcelas: parcelas > 1 ? `1/${parcelas}` : null, obs: g.observacao || "",
         essencial: g.essencial === true ? "Essencial" : g.essencial === false ? "Não essencial" : null, origem: "site", id: g.id,
         sub: g.subcategoria || null, conta: g.conta || null, recorrente: g.recorrente || null, total: parcelas > 1 ? Number(g.valor) : null,
-        partes: g.partes || null});
+        partes: g.partes || null, caixinha_id: g.caixinha_id || null});
       // Parcelado no cartão: as próximas parcelas entram nas faturas seguintes, a não ser que a compra já
       // apareça numa fatura processada pelo projeto (aí as parcelas já estão contadas)
       if (parcelas > 1 && !D.cartao.lancamentos.some(l => l.data === g.data && Math.abs(l.valor - valor) < 0.01)) {
@@ -516,8 +528,11 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   }
 
   const ehInvestimento = l => /^investiment/.test(semAcento(ef(l).categoria));
-  function caixa(chave) {
-    if (memoCaixa.has(chave)) return memoCaixa.get(chave);
+  // Depósito numa caixinha (categoria Caixinhas): sai do caixa como caixinha, à parte dos gastos (como o investimento)
+  const ehCaixinha = l => ehDeposito(ef(l).categoria);
+  const ehReserva = l => ehInvestimento(l) || ehCaixinha(l);
+  // Entradas do mês pelo caixa (sem as saídas). Também é a renda do mês que divide as caixinhas do casal.
+  function entradasDoMes(chave) {
     const m = D.meses.find(x => x.chave === chave) || null;
     const passado = chave < hojeKey, futuro = chave > hojeKey;
     const situacao = data => (data ? (data <= hojeIso ? "realizado" : "previsto") : passado ? "realizado" : "previsto");
@@ -529,19 +544,50 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     }
     for (const r of entradasPrevistas(chave)) entradas.push({desc: r.desc, valor: r.liquido, data: r.data, st: "previsto", ref: r.referencia, r, prevista: true});
     if (!m && !entradas.length && RECEITA_PREVISTA > 0) entradas.push({desc: "Receitas previstas (como no último mês)", valor: RECEITA_PREVISTA, data: null, st: "previsto", r: null});
+    return entradas;
+  }
+  const receitasDoMes = chave => Math.round(sum(entradasDoMes(chave), e => e.valor) * 100) / 100;
+  // Contas de cada caixinha hoje (com os movimentos dos dois painéis) e o que cada caixinha pede no mês para esta pessoa
+  const movimentosCx = () => [...movimentosDe(GASTOS_SITE, PERFIL_ID), ...MOV_OUTRO];
+  function contasCx() {
+    if (!memoCx) { const movs = movimentosCx(); memoCx = new Map(CXS.map(cx => [cx.id, calcularCaixinha(cx, movs, hojeIso)])); }
+    return memoCx;
+  }
+  const rendaOutro = chave => (PARCEIRO && PARCEIRO.receitas ? PARCEIRO.receitas(chave) : null);
+  function caixinhasDoMes(chave) {
+    if (!CXS.length) return [];
+    const contas = contasCx(), movs = movimentosCx();
+    const rEu = receitasDoMes(chave), rOutro = rendaOutro(chave);
+    return CXS.filter(cx => cx.ativa !== false).map(cx => {
+      const conta = contas.get(cx.id);
+      const total = valorNoMes(cx, chave, conta, hojeKey);
+      const parte = parteDe(cx, PERFIL_ID, rEu, rOutro);
+      const minha = Math.round(total * parte * 100) / 100;
+      const feito = Math.round(sum(movs.filter(x => x.caixinha_id === cx.id && x.deposito && x.perfil_id === PERFIL_ID && x.data.slice(0, 7) === chave), x => x.valor) * 100) / 100;
+      return {cx, conta, total, parte, minha, feito, falta: Math.max(0, Math.round((minha - feito) * 100) / 100)};
+    });
+  }
+  function caixa(chave) {
+    if (memoCaixa.has(chave)) return memoCaixa.get(chave);
+    const m = D.meses.find(x => x.chave === chave) || null;
+    const passado = chave < hojeKey;
+    const situacao = data => (data ? (data <= hojeIso ? "realizado" : "previsto") : passado ? "realizado" : "previsto");
+    const entradas = entradasDoMes(chave);
     const saidas = [];
     const fatura = faturaDoCartao(rotuloDe(chave));
     if (fatura && fatura.valor > 0) saidas.push({tipo: "fatura", desc: `Fatura ${fatura.rotulo} do cartão`, valor: fatura.valor, data: fatura.venc, st: situacao(fatura.venc), fatura});
     // O que foi lançado na categoria Investimentos (Pix para a corretora, aplicação) sai como investimento, não como gasto
     // O gasto marcado como a pagar fica previsto até ser pago, mesmo com a data já passada
     // O pagamento de um recorrente (aluguel, escola, assinatura) sai como fixo, não como Pix do dia a dia
-    for (const l of m ? m.lancamentos : []) if (!card(l.forma)) saidas.push({tipo: ehInvestimento(l) ? "investimento" : l.recorrente ? "fixo" : "dia", forma: FORMA_CAIXA(l.forma), desc: l.desc, valor: l.valor, data: l.data || null, st: aPagar(l) ? "previsto" : situacao(l.data), aPagar: aPagar(l), l});
+    for (const l of m ? m.lancamentos : []) if (!card(l.forma)) saidas.push({tipo: ehInvestimento(l) ? "investimento" : ehCaixinha(l) ? "caixinha" : l.recorrente ? "fixo" : "dia", forma: FORMA_CAIXA(l.forma), desc: l.desc, valor: l.valor, data: l.data || null, st: aPagar(l) ? "previsto" : situacao(l.data), aPagar: aPagar(l), l});
     const rec = m ? statusRecorrentes(m) : recorrentesDe(chave).map(r => ({...r, pendente: r.valor || 0}));
     for (const r of rec) if (!card(r.forma) && r.pendente > 0) saidas.push({tipo: "fixo", desc: r.nome, valor: r.pendente, data: r.dia ? diaDe(chave, r.dia) : null, st: passado ? "realizado" : "previsto", r});
     // A previsão de investimento do mês (plano de aportes ou previsão do mês) só conta no que ainda não foi lançado
     const investido = sum(saidas.filter(x => x.tipo === "investimento"), x => x.valor);
     const invMes = invDoMes(chave);
     if (invMes && invMes - investido > 0.005) saidas.push({tipo: "investimento", desc: nomeInvDoMes(chave), valor: Math.round((invMes - investido) * 100) / 100, data: null, st: passado ? "realizado" : "previsto", meta: true, plano: comPlano(chave)});
+    // Caixinhas: a parte desta pessoa no que guardar em cada uma no mês, menos o que ela já depositou (do mês atual em diante)
+    if (!passado) for (const x of caixinhasDoMes(chave)) if (x.falta > 0.005) saidas.push({tipo: "caixinha", desc: `Guardar na caixinha ${x.cx.nome}`, valor: x.falta, data: null, st: "previsto", meta: true, cx: x.cx, parte: x.parte});
     const total = (lista, st) => Math.round(sum(lista.filter(x => x.st === st), x => x.valor) * 100) / 100;
     const ent = {realizado: total(entradas, "realizado"), previsto: total(entradas, "previsto")};
     const sai = {realizado: total(saidas, "realizado"), previsto: total(saidas, "previsto")};
@@ -639,6 +685,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     for (const l of m ? m.lancamentos : []) {
       if (card(l.forma)) continue;
       if (ehInvestimento(l)) investimentos.push({desc: l.desc, valor: l.valor, data: l.data});
+      else if (ehCaixinha(l)) continue; // depósito em caixinha: à parte, não é gasto
       else itens.push(...explodir({desc: l.desc, valor: l.valor, grupo: l.recorrente ? "Fixos fora do cartão" : FORMA_CAIXA(l.forma), cat: catDe(l), sub: subDe(l), data: l.data, ref: l, tipo: "gasto"}, l));
     }
     // Fixos fora do cartão ainda não pagos (os mesmos do fluxo de caixa)
@@ -650,7 +697,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   }
 
   // Compras lançadas no mês pela data (o que no cartão vai para a fatura seguinte), sem os investimentos
-  const comprasLancadas = m => sum(m.lancamentos.filter(l => !ehInvestimento(l)), l => l.valor);
+  const comprasLancadas = m => sum(m.lancamentos.filter(l => !ehReserva(l)), l => l.valor);
 
   // Compras feitas no mês, pelo valor inteiro: a parcelada no cartão entra com o total da compra (10x de 100 = 1.000)
   // no mês em que foi comprada. Investimentos não são compras.
@@ -658,7 +705,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const m = D.meses.find(x => x.chave === chave);
     const itens = [];
     for (const l of m ? m.lancamentos : []) {
-      if (ehInvestimento(l)) continue;
+      if (ehReserva(l)) continue;
       const p = compraParcelada(l) ? parcelaTexto(l.parcelas) : null;
       if (p && p.k > 1) continue; // parcela de compra antiga anotada no mês
       const total = p ? (l.total != null ? l.total : Math.round(l.valor * p.n * 100) / 100) : l.valor;
@@ -997,6 +1044,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       : `${s.plano ? (investido(cx) ? "previsto no plano de aportes, menos o já lançado" : "previsto no plano de aportes") : investido(cx) ? "previsão de investimento do mês, menos o já lançado" : "investimento mensal previsto"}${alterar}`, s.valor, s.st, "investimento"));
     // Previsto × feito do mês (plano de aportes): quanto já foi lançado contra o previsto
     const aporteMes = aporteDoMes(m.chave);
+    const caixinhasLinhas = cx.saidas.filter(x => x.tipo === "caixinha").map(s => linha(esc(s.desc), s.l ? `depósito lançado${s.data ? ` em ${dBR(s.data)}` : ""} · ${esc(s.forma || "")}`
+      : `sua parte do que guardar no mês${s.cx && s.cx.dono === "casal" ? ` (${Math.round((s.parte || 0) * 100)}%)` : ""}, menos o já guardado`, s.valor, s.st, "caixinha"));
     if (investimentos.length && comPlano(m.chave) && !passado) investimentos.unshift(`<tr class="cx-aporte"><td colspan="3">Aporte de ${esc(m.rotulo)}: ${esc(textoPrevistoFeito(aporteMes.feito, aporteMes.previsto))}</td></tr>`);
     const somaSt = (tipos, st) => Math.round(sum(cx.saidas.filter(x => tipos.includes(x.tipo) && x.st === st), x => x.valor) * 100) / 100;
     const GASTOS = ["fatura", "dia", "fixo"];
@@ -1013,7 +1062,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     $id("hero").innerHTML = `
       <div class="label">Balanço de ${esc(m.rotulo)} · o que entra e sai da conta</div>
       <div class="big num ${cx.fim < 0 ? "neg" : ""}">${brl(cx.fim)}</div>
-      <div class="sub">${titulo}${cx.inicial == null ? " (sem o saldo do início do mês)" : ""}${!passado && !futuro ? ` · até hoje entrou ${brl(cx.ent.realizado)}, gastou ${brl(somaSt(GASTOS, "realizado"))}${somaSt(["investimento"], "realizado") ? ` e investiu ${brl(somaSt(["investimento"], "realizado"))}` : ""}` : ""}</div>
+      <div class="sub">${titulo}${cx.inicial == null ? " (sem o saldo do início do mês)" : ""}${!passado && !futuro ? ` · até hoje entrou ${brl(cx.ent.realizado)}, gastou ${brl(somaSt(GASTOS, "realizado"))}${somaSt(["investimento"], "realizado") ? `${somaSt(["caixinha"], "realizado") ? "," : " e"} investiu ${brl(somaSt(["investimento"], "realizado"))}` : ""}${somaSt(["caixinha"], "realizado") ? ` e guardou ${brl(somaSt(["caixinha"], "realizado"))} nas caixinhas` : ""}` : ""}</div>
       <div class="scroll"><table class="calc caixa-tabela" style="margin-top:14px">
         <thead><tr><th>${esc(m.rotulo)}</th><th class="r">Realizado</th><th class="r">Previsto</th></tr></thead>
         <tbody>
@@ -1023,12 +1072,14 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
           ${grupo("(−) Gastos pagos no mês", somaSt(GASTOS, "realizado"), somaSt(GASTOS, "previsto"), "saidas")}
           ${saidas.join("") || `<tr><td class="muted" colspan="3">Nenhum gasto pago no mês.</td></tr>`}
           ${investimentos.length ? `${grupo("(−) Investimento", somaSt(["investimento"], "realizado"), somaSt(["investimento"], "previsto"), "investimento")}${investimentos.join("")}` : ""}
+          ${caixinhasLinhas.length ? `${grupo("(−) Caixinhas", somaSt(["caixinha"], "realizado"), somaSt(["caixinha"], "previsto"), "caixinha")}${caixinhasLinhas.join("")}` : ""}
           <tr class="total"><td>(=) Saldo do mês</td><td class="r num">${brl(cx.ent.realizado - cx.sai.realizado)}</td><td class="r num prev">${brl(cx.ent.previsto - cx.sai.previsto)}</td></tr>
           <tr class="total cx-fim"><td>${titulo}</td><td class="r num${cx.fim < 0 ? " neg" : ""}" colspan="2">${brl(cx.fim)}</td></tr>
         </tbody>
       </table></div>
       ${aoLancarEntrada ? '<div class="acoes-lanc" style="margin-top:10px"><button type="button" class="btn sec mini" data-lancar-entrada>Lançar entrada</button></div>' : ""}
-      <details class="como"><summary>Como o balanço é calculado?</summary><p>O que entra e sai da conta, pela data. Realizado é o que tem data até hoje; o resto é previsto. O cartão entra pela fatura paga no mês${cx.fatura ? ` (${esc(cx.fatura.rotulo)})` : ""}, com os lançamentos dela no quadro “Gastos pagos em ${esc(m.rotulo)}”.${prox && prox.valor > 0 ? ` As compras no cartão feitas em ${esc(m.rotulo)} vão para a fatura ${esc(prox.rotulo)}${prox.venc ? `, que vence em ${dataLonga(prox.venc)}` : ""} (${prox.situacao === "fechada" ? "fechada em" : "até agora"} ${brl(prox.valor)}), e entram no balanço de ${esc(mesSeguinte)}.` : ""} O pagamento de um recorrente conta como fixo; o investimento fica à parte, não é gasto.</p></details>
+      <details class="como"><summary>Como o balanço é calculado?</summary><p>O que entra e sai da conta, pela data. Realizado é o que tem data até hoje; o resto é previsto. O cartão entra pela fatura paga no mês${cx.fatura ? ` (${esc(cx.fatura.rotulo)})` : ""}, com os lançamentos dela no quadro “Gastos pagos em ${esc(m.rotulo)}”.${prox && prox.valor > 0 ? ` As compras no cartão feitas em ${esc(m.rotulo)} vão para a fatura ${esc(prox.rotulo)}${prox.venc ? `, que vence em ${dataLonga(prox.venc)}` : ""} (${prox.situacao === "fechada" ? "fechada em" : "até agora"} ${brl(prox.valor)}), e entram no balanço de ${esc(mesSeguinte)}.` : ""} O pagamento de um recorrente conta como fixo; o investimento e o depósito nas caixinhas ficam à parte, não são gastos. O gasto pago com o dinheiro de uma caixinha não entra aqui: só tira do saldo dela.</p></details>
+      ${!passado ? caixinhasDoMes(m.chave).filter(x => x.conta.alerta).map(x => `<div class="note"><b>Caixinha ${esc(x.cx.nome)} atrasada.</b> Faltam ${x.conta.mesesAte <= 0 ? "menos de um mês" : `${x.conta.mesesAte} ${x.conta.mesesAte === 1 ? "mês" : "meses"}`} para ${dataLonga(x.cx.data_alvo)} e ela tem ${brl(x.conta.saldo)} de ${brl(x.cx.meta)} (pelo tempo, deveria ter ${brl(x.conta.esperado)}). <button type="button" class="btn-link" data-ir-caixinhas>Abrir Caixinhas</button></div>`).join("") : ""}
       ${cx.inicial == null && editavel ? `<div class="note"><b>Informe o saldo da conta em ${dia1}.</b> O Pix do começo do mês sai do que sobrou do mês anterior; com o saldo do início, o caixa mostra quanto há de verdade.</div>` : ""}
       ${entradasRepetidas ? `<p class="sub" style="margin:8px 0 0">${entradasRepetidas === 1 ? "Uma entrada lançada pelo site já estava" : `${entradasRepetidas} entradas lançadas pelo site já estavam`} no projeto Financeiro e não contou de novo.</p>` : ""}
       ${!cx.entradas.length ? `<div class="note"><b>Nenhuma entrada em ${esc(m.rotulo)}.</b> ${aoLancarEntrada ? "Lance o salário ou outro recebimento pelo botão Lançar entrada." : "As receitas entram pelo projeto Financeiro."}</div>` : ""}
@@ -1096,8 +1147,10 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       if (aoPagarRecorrente && !r.variavel && r.valor != null) acoes.push(botaoMov("rec-pagar", i, "Marcar pago", "btn mini"));
       if (aoEditarRecorrente) acoes.push(botaoMov("rec-editar", i, "Editar"));
     } else if (s.tipo === "investimento") {
-      sub = s.meta ? "previsão de investimento do mês (Cadastros)" : "";
+      sub = s.meta ? (s.plano ? "previsto no plano de aportes (Cadastros)" : "previsão de investimento do mês (Cadastros)") : "";
       if (s.meta && aoEditarMetas) acoes.push(botaoMov("metas", i, "Alterar a previsão"));
+    } else if (s.tipo === "caixinha") {
+      sub = `sua parte do que guardar no mês${s.cx && s.cx.dono === "casal" ? ` (${Math.round((s.parte || 0) * 100)}%)` : ""} · aba Caixinhas`;
     }
     return `<tr class="${s.st === "previsto" || s.aPagar ? "mov-prev" : ""}"><td class="num">${s.data ? dBR(s.data) : "—"}</td>
       <td>${esc(s.desc)}${l && ef(l).complemento ? `<div class="compl">${esc(ef(l).complemento)}</div>` : ""}<div class="sub">${sub}</div></td>
@@ -1120,7 +1173,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       corpo = lista.length ? `<div class="scroll"><table class="mov-tabela">${cab}<tbody>${lista.map(e => linhaMovEntrada(e, m)).join("")}</tbody></table></div>`
         : `<p class="muted">${cx.entradas.length ? "Nenhuma entrada com esse filtro." : `Nenhuma entrada em ${esc(m.rotulo)}.`}</p>`;
     } else {
-      const secoes = [["fatura", "Fatura do cartão"], ["dia", "Pix, débito e dinheiro"], ["fixo", "Fixos fora do cartão"], ["investimento", "Investimento"]];
+      const secoes = [["fatura", "Fatura do cartão"], ["dia", "Pix, débito e dinheiro"], ["fixo", "Fixos fora do cartão"], ["investimento", "Investimento"], ["caixinha", "Caixinhas"]];
       corpo = secoes.map(([t, nome]) => {
         const doTipo = cx.saidas.filter(x => x.tipo === t);
         const lista = doTipo.filter(passa).sort((a, b) => String(a.data || "9").localeCompare(String(b.data || "9")));
@@ -1327,10 +1380,11 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   // Data sugerida para o pagamento: hoje no mês atual; nos outros meses, o dia do vencimento
   const dataDoPagamento = (r, chave) => (chave === hojeKey ? hojeIso : diaDe(chave, r.dia || (chave < hojeKey ? diasDoMes(chave) : 1)));
   function renderAtalhos(m, c) {
-    const semInv = m.lancamentos.filter(l => !ehInvestimento(l));
+    const semInv = m.lancamentos.filter(l => !ehReserva(l));
     const investido = sum(m.lancamentos.filter(ehInvestimento), l => l.valor);
+    const guardado = sum(m.lancamentos.filter(ehCaixinha), l => l.valor);
     const tiles = [];
-    tiles.push({aba: "gastos", t: "Gastos do dia a dia", v: brl(sum(semInv, l => l.valor)), s: `${semInv.length} lançamentos em ${esc(m.rotulo)}${investido ? ` · investimentos de ${brl(investido)} à parte` : ""}`});
+    tiles.push({aba: "gastos", t: "Gastos do dia a dia", v: brl(sum(semInv, l => l.valor)), s: `${semInv.length} lançamentos em ${esc(m.rotulo)}${investido ? ` · investimentos de ${brl(investido)} à parte` : ""}${guardado ? ` · ${brl(guardado)} nas caixinhas, à parte` : ""}`});
     if (AB) tiles.push({aba: "cartao", t: "Cartão e faturas", v: brl(AB.total), s: `Fatura ${AB.fatura} aberta no app em ${dBR(AB.data)}${META != null ? (AB.total > META ? ` · ${brl(AB.total - META)} acima da previsão` : ` · cabem ${brl(META - AB.total)}`) : ""}`});
     else { const ult = D.cartao.faturas.at(-1); if (ult) tiles.push({aba: "cartao", t: "Cartão e faturas", v: brl(ult.total), s: `Última fatura fechada (${ult.mes})`}); }
     const I = D.investimentos;
@@ -1356,16 +1410,16 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       const receita = cx.ent.realizado + cx.ent.previsto;
       // Sobra = entradas − fatura que vence − investimento (lançado ou previsto) − fixos fora do cartão (pagos ou não),
       // a mesma conta em todos os meses
-      const inv = tipo("investimento"), fixos = tipo("fixo");
+      const inv = tipo("investimento"), fixos = tipo("fixo"), caixinhas = tipo("caixinha");
       linhas.push({chave, mes: rotuloDe(chave), fat: fat ? fat.rotulo : rotuloDe(chave), parc: fat ? fat.valor : 0, nota: fat ? fat.situacao : "", receita, cartao: pagaFatura,
-        inv, fixos, livre: META != null ? META - (prox ? prox.valor : 0) : null, sobra: Math.round((receita - pagaFatura - inv - fixos) * 100) / 100});
+        inv, fixos, caixinhas, livre: META != null ? META - (prox ? prox.valor : 0) : null, sobra: Math.round((receita - pagaFatura - inv - caixinhas - fixos) * 100) / 100});
     }
     return linhas;
   }
   // Gasto médio fora do cartão (Pix, débito, dinheiro) por mês, para estimar o que sobra de verdade: os últimos três
   // meses fechados com algum gasto ou, sem eles, o mês atual até agora. Sem os investimentos e sem os pagamentos de
   // recorrentes (os fixos já saem da sobra da previsão). null quando não há nenhum gasto fora do cartão lançado.
-  const foraDoCartao = m => sum(m.lancamentos.filter(l => !card(l.forma) && !ehInvestimento(l) && !l.recorrente), l => l.valor);
+  const foraDoCartao = m => sum(m.lancamentos.filter(l => !card(l.forma) && !ehReserva(l) && !l.recorrente), l => l.valor);
   const mediaForaCartaoInfo = () => {
     const comGasto = D.meses.filter(m => m.chave <= hojeKey && foraDoCartao(m) > 0);
     const fechados = comGasto.filter(m => m.chave < hojeKey).slice(-3);
@@ -1380,6 +1434,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     $id("previsao").hidden = !temEntradas;
     if (!temEntradas) return;
     const linhas = previsaoMeses(7);
+    const comCx = linhas.some(l => l.caixinhas > 0.004);
     const cel = v => `<td class="r num" style="color:${v < 0 ? "var(--bad)" : "var(--ok)"};font-weight:600">${n(v)}</td>`;
     // Gráfico de linha da sobra mês a mês (mesma escala, zero marcado)
     const W = 640, H = 170, ml = 58, mr = 12, mt = 16, mb = 24;
@@ -1390,12 +1445,12 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const pontos = linhas.map((l, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(l.sobra).toFixed(1)}" r="4" fill="${l.sobra < 0 ? "var(--bad)" : "var(--ok)"}" stroke="var(--surface)" stroke-width="2"><title>${esc(l.mes)}: sobra ${brl(l.sobra)}</title></circle><text x="${x(i).toFixed(1)}" y="${H - 6}" text-anchor="middle">${esc(l.mes)}</text>`).join("");
     $id("previsao").innerHTML = `
       <h2>Previsão dos próximos meses</h2>
-      <p class="muted" style="margin:0 0 8px;font-size:.85rem">Sobra = entradas − fatura que vence − investimento − fixos fora do cartão. É o que fica para Pix, débito e dinheiro.</p>
+      <p class="muted" style="margin:0 0 8px;font-size:.85rem">Sobra = entradas − fatura que vence − investimento${comCx ? " − caixinhas" : ""} − fixos fora do cartão. É o que fica para Pix, débito e dinheiro.</p>
       <svg class="prev-grafico" viewBox="0 0 ${W} ${H}" role="img" aria-label="Sobra prevista: ${esc(linhas.map(l => `${l.mes} ${brl(l.sobra)}`).join(", "))}">${grade}<path d="${caminho}" fill="none" stroke="var(--ok)" stroke-width="2" stroke-linejoin="round"/>${pontos}</svg>
-      <div class="scroll"><table><thead><tr><th>Mês</th><th class="r">Fatura que vence</th><th class="r">Investimento</th><th class="r">Fixos</th>${META != null ? '<th class="r">Livre no cartão</th>' : ""}<th class="r">Sobra</th></tr></thead><tbody>
-      ${linhas.map(l => `<tr><td>${esc(l.mes)}<div class="muted" style="font-size:.75rem">entradas <span class="num">${n(l.receita)}</span></div></td><td class="r num">${n(l.cartao)}<div class="muted" style="font-size:.75rem">${esc(l.fat)}${l.nota ? ` · ${l.nota}` : ""}${l.cartao > l.parc + 0.005 ? `<br>até agora ${n(l.parc)}; conta a previsão` : ""}</div></td><td class="r num">${n(l.inv)}</td><td class="r num">${n(l.fixos)}</td>${META != null ? (l.livre == null ? "<td></td>" : cel(l.livre)) : ""}${cel(l.sobra)}</tr>`).join("")}
+      <div class="scroll"><table><thead><tr><th>Mês</th><th class="r">Fatura que vence</th><th class="r">Investimento</th>${comCx ? '<th class="r">Caixinhas</th>' : ""}<th class="r">Fixos</th>${META != null ? '<th class="r">Livre no cartão</th>' : ""}<th class="r">Sobra</th></tr></thead><tbody>
+      ${linhas.map(l => `<tr><td>${esc(l.mes)}<div class="muted" style="font-size:.75rem">entradas <span class="num">${n(l.receita)}</span></div></td><td class="r num">${n(l.cartao)}<div class="muted" style="font-size:.75rem">${esc(l.fat)}${l.nota ? ` · ${l.nota}` : ""}${l.cartao > l.parc + 0.005 ? `<br>até agora ${n(l.parc)}; conta a previsão` : ""}</div></td><td class="r num">${n(l.inv)}</td>${comCx ? `<td class="r num">${n(l.caixinhas)}</td>` : ""}<td class="r num">${n(l.fixos)}</td>${META != null ? (l.livre == null ? "<td></td>" : cel(l.livre)) : ""}${cel(l.sobra)}</tr>`).join("")}
       </tbody></table></div>
-      <details class="como"><summary>Como é calculado?</summary><p>Pelo caixa de cada mês. <b>Entradas:</b> as lançadas, as que repetem todo mês ou, sem elas, ${brl(RECEITA_PREVISTA)} como no último mês. <b>Fatura que vence:</b> a fechada pelo total${META != null ? `; a que ainda não fechou conta pelo menos os ${brl(META)} da sua previsão do cartão` : ""}. <b>Investimento:</b> o lançado no mês ou, sem ele, a previsão de ${INV ? brl(INV) : "investimento"}${INV_DA_CARTEIRA ? " (o seu aporte na carteira conjunta)" : ""}. <b>Fixos fora do cartão:</b> os recorrentes pagos e os ainda a pagar. A sobra não conta o saldo do início do mês.${META != null ? " <b>Livre no cartão:</b> quanto ainda cabe em compras no mês, que vão para a fatura seguinte." : ""}</p></details>`;
+      <details class="como"><summary>Como é calculado?</summary><p>Pelo caixa de cada mês. <b>Entradas:</b> as lançadas, as que repetem todo mês ou, sem elas, ${brl(RECEITA_PREVISTA)} como no último mês. <b>Fatura que vence:</b> a fechada pelo total${META != null ? `; a que ainda não fechou conta pelo menos os ${brl(META)} da sua previsão do cartão` : ""}. <b>Investimento:</b> o lançado no mês ou, sem ele, a previsão de ${INV ? brl(INV) : "investimento"}${INV_DA_CARTEIRA ? " (o seu aporte na carteira conjunta)" : ""}. ${comCx ? "<b>Caixinhas:</b> a sua parte do que guardar em cada caixinha no mês (o depositado e o que falta). " : ""}<b>Fixos fora do cartão:</b> os recorrentes pagos e os ainda a pagar. A sobra não conta o saldo do início do mês.${META != null ? " <b>Livre no cartão:</b> quanto ainda cabe em compras no mês, que vão para a fatura seguinte." : ""}</p></details>`;
   }
 
   // ---------- Gastos do dia a dia ----------
@@ -1846,16 +1901,17 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   }
 
   // ---------- Abas: visão geral, gastos do dia a dia, cartão e faturas, investimentos, lista de desejos ----------
-  const ABAS = ["geral", "gastos", "cartao", "investimentos", "desejos", "cadastros"];
+  const ABAS = ["geral", "gastos", "cartao", "investimentos", "caixinhas", "desejos", "cadastros"];
   function irPara(aba, rolar) {
     if (!COM_MESES && !["investimentos", "desejos", "cadastros"].includes(aba)) aba = "cartao";
-    if (!ABAS.includes(aba) || (aba === "investimentos" && !CARTEIRA && !comInvestimentos) || (aba === "desejos" && !comDesejos) || (aba === "cadastros" && !aoEditarCategorias)) aba = COM_MESES ? "geral" : "cartao";
+    if (!ABAS.includes(aba) || (aba === "investimentos" && !CARTEIRA && !comInvestimentos) || (aba === "desejos" && !comDesejos) || (aba === "cadastros" && !aoEditarCategorias)
+      || (aba === "caixinhas" && !COM_CAIXINHAS)) aba = COM_MESES ? "geral" : "cartao";
     document.querySelectorAll("#fin-abas [role=tab]").forEach(t => {
       const sel = t.dataset.aba === aba;
       t.setAttribute("aria-selected", String(sel));
       t.tabIndex = sel ? 0 : -1;
     });
-    ["geral", "gastos", "cartao", "desejos", "cadastros"].forEach(k => { $id("view-" + k).hidden = k !== aba; });
+    ["geral", "gastos", "cartao", "caixinhas", "desejos", "cadastros"].forEach(k => { const v = $id("view-" + k); if (v) v.hidden = k !== aba; });
     $id("fin-root").hidden = aba === "investimentos";
     $id("view-inv").hidden = aba !== "investimentos";
     if (COM_MESES || CARTEIRA || comInvestimentos || comDesejos || aoEditarCategorias) {
@@ -1871,13 +1927,14 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const barra = $id("fin-abas");
     const tabs = [...barra.querySelectorAll("[role=tab]")];
     // O seletor do topo (Marcos, Maria, Casal) já diz de quem é o painel: as abas não repetem o nome
-    const quem = {geral: "", gastos: "", cartao: OUTRA ? `com o de ${OUTRA.nome}` : "", investimentos: "", desejos: "Prioridades e projeção", cadastros: "Categorias e contas"};
+    const quem = {geral: "", gastos: "", cartao: OUTRA ? `com o de ${OUTRA.nome}` : "", investimentos: "", caixinhas: "", desejos: "Prioridades e projeção", cadastros: "Categorias e contas"};
     tabs.forEach(t => { const s = t.querySelector("small"); if (s) s.textContent = quem[t.dataset.aba]; });
     $id("tab-inv").hidden = !CARTEIRA && !comInvestimentos;
     // Aba Investimentos: os investimentos individuais de quem é o painel e, embaixo, a carteira conjunta do projeto
     $id("inv-pessoal-raiz").hidden = !comInvestimentos;
     $id("cj-raiz").hidden = !CARTEIRA;
     $id("tab-desejos").hidden = !comDesejos;
+    if ($id("tab-caixinhas")) $id("tab-caixinhas").hidden = !COM_CAIXINHAS || !COM_MESES;
     $id("tab-cadastros").hidden = !aoEditarCategorias;
     document.querySelectorAll("[data-dono]").forEach(el => { el.textContent = DONO; });
     if (!COM_MESES) {
@@ -1928,7 +1985,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const tipo = t => sum(cx.saidas.filter(x => x.tipo === t), x => x.valor);
     return {receitas: cx.ent.realizado + cx.ent.previsto, entradas: cx.entradas.map(e => ({desc: e.desc, liquido: e.valor, site: !!(e.r && e.r.origem === "site"), previsto: e.st === "previsto"})),
       investimento: tipo("investimento"), investimentoNome: nomeInvDoMes(chave), cartao: tipo("fatura"), fatura: rotuloDe(chave),
-      fora: tipo("dia"), fixosFora: tipo("fixo"), saldo: cx.saldoMes, aporte: aporteDoMes(chave)};
+      fora: tipo("dia"), fixosFora: tipo("fixo"), caixinhas: tipo("caixinha"), saldo: cx.saldoMes, aporte: aporteDoMes(chave)};
   }
   // Detalhe do mês para a visão do casal: cada entrada, cada gasto pago no mês (uma linha por parte do lançamento
   // dividido, com a categoria, a subcategoria, o essencial e a conta) e cada saída do caixa
@@ -1947,11 +2004,38 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       ent: {...cx.ent}, sai: {...cx.sai}, inicial: cx.inicial, fim: cx.fim, totalGastos: g.total,
     };
   }
+  // Caixinhas no mês atual: a conta de cada uma, quanto cabe a cada pessoa no "por mês" e quanto cada uma já guardou
+  function estadoCaixinhas() {
+    const contas = contasCx(), movs = movimentosCx();
+    const outroId = PARCEIRO && PARCEIRO.id ? PARCEIRO.id : null;
+    const ids = [PERFIL_ID, ...(outroId ? [outroId] : [])];
+    const renda = {[PERFIL_ID]: receitasDoMes(hojeKey), ...(outroId ? {[outroId]: rendaOutro(hojeKey)} : {})};
+    const ativas = CXS.filter(cx => cx.ativa !== false).sort((a, b) => String(a.data_alvo).localeCompare(String(b.data_alvo)));
+    const linhas = ativas.map(cx => {
+      const conta = contas.get(cx.id);
+      const porPessoa = {}, feitoPessoa = {};
+      for (const id of ids) {
+        const outro = ids.find(x => x !== id);
+        porPessoa[id] = Math.round(conta.porMes * parteDe(cx, id, renda[id], outro ? renda[outro] : null) * 100) / 100;
+        feitoPessoa[id] = Math.round(sum(movs.filter(x => x.caixinha_id === cx.id && x.deposito && x.perfil_id === id && x.data.slice(0, 7) === hojeKey), x => x.valor) * 100) / 100;
+      }
+      return {cx, conta, porPessoa, feitoPessoa};
+    });
+    return {linhas, arquivadas: CXS.filter(cx => cx.ativa === false), mes: hojeKey, pagos: PAGOS_CX};
+  }
   // Só os números, sem desenhar nada na página (visão do casal)
   // Gastos lançados no site marcados como a pagar com a data até hoje (vencidos ou para hoje)
   const aPagarVencidos = () => D.meses.flatMap(m => m.lancamentos).filter(l => aPagar(l) && l.data && l.data <= hojeIso);
+  // A outra pessoa do casal (o painel dela só para cálculo): renda do mês (divisão das caixinhas), gastos ligados às
+  // caixinhas e o aporte do mês (previsto × feito)
+  function definirParceiroBase(p) {
+    PARCEIRO = p;
+    MOV_OUTRO = p && p.gastos ? movimentosDe(p.gastos, p.id) : [];
+    memoCx = null;
+    memoCaixa.clear();
+  }
   if (somenteCalculo) return {meses: () => D.meses.map(m => ({chave: m.chave, rotulo: m.rotulo})), resumo, detalhe, investimentos: D.investimentos || null, pendentes, aPagarVencidos,
-    aporteDoMes, metas: {investimento_mensal: INV || 0, investimento_nome: INV_NOME || "", cartao_mensal: META}};
+    aporteDoMes, receitasDoMes, estadoCaixinhas, definirParceiro: definirParceiroBase, metas: {investimento_mensal: INV || 0, investimento_nome: INV_NOME || "", cartao_mensal: META}};
 
   iniciarAbas();
 
@@ -2033,6 +2117,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     if (apagar && aoApagarEntrada) aoApagarEntrada(apagar.dataset.apagarEntrada);
     if (e.target.closest("[data-lancar-entrada]") && aoLancarEntrada) aoLancarEntrada();
     if (e.target.closest("[data-editar-metas]") && aoEditarMetas) aoEditarMetas();
+    if (e.target.closest("[data-ir-caixinhas]")) irPara("caixinhas", true);
     const tirar = e.target.closest("[data-apagar-saldo]");
     if (tirar && aoSalvarSaldo) { const f = tirar.closest("[data-saldo-form]"); salvarSaldo(f.dataset.saldoForm, null, f); }
   });
@@ -2283,9 +2368,19 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     },
     // O painel da outra pessoa do casal carregou (só cálculo): o "feito" do mês dela entra no previsto × feito
     definirParceiro(p) {
-      PARCEIRO = p;
+      definirParceiroBase(p);
+      if (COM_MESES) seguro(null, render);
       desenharCarteira();
     },
+    // Depois de criar, mudar, arquivar ou atualizar o saldo de uma caixinha
+    atualizarCaixinhas(lista) {
+      CXS = Array.isArray(lista) ? lista : [];
+      memoCx = null;
+      memoCaixa.clear();
+      if (COM_MESES) seguro(null, render);
+    },
+    estadoCaixinhas,
+    receitasDoMes,
     aporteDoMes,
     // Para a lista de desejos: previsão dos próximos meses (com as receitas do projeto ou as lançadas no site)
     previsao: n => (SO_FATURAS && !(ENTRADAS_SITE || []).length ? [] : previsaoMeses(n)),

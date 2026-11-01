@@ -816,3 +816,35 @@
 .fin-app .cj .cj-feito li.ok { border-left-color: #2e7d32; background: #e8f3ea; }
 .casal-aportes { margin: 10px 0 0; font-size: 0.9rem; color: var(--graphite-900); }
 .casal-aportes .ok { color: #2e7d32; }
+
+/* ---------- Caixinhas (aba, balanço e casal) ---------- */
+.fin .cx-alertas { display: grid; gap: 10px; margin-bottom: 14px; }
+.fin .cx-alertas:empty { display: none; }
+.fin #view-caixinhas > section.panel + section.panel { margin-top: 18px; }
+.fin .cx-tabela { width: 100%; border-collapse: collapse; font-size: 0.9rem; min-width: 760px; }
+.fin .cx-tabela th, .fin .cx-tabela td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.fin .cx-tabela thead th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+.fin .cx-tabela .r { text-align: right; }
+.fin .cx-tabela tfoot th, .fin .cx-tabela tfoot td { font-weight: 700; border-bottom: 0; border-top: 2px solid var(--ink); }
+.fin .cx-tabela tr.cx-alerta td:first-child { box-shadow: inset 4px 0 0 var(--bad); }
+.fin .cx-barra { position: relative; height: 8px; margin: 8px 0 6px; background: var(--line); max-width: 260px; }
+.fin .cx-barra span { display: block; height: 100%; background: var(--ok); }
+.fin .cx-barra i { position: absolute; top: -3px; width: 2px; height: 14px; background: var(--ink); }
+.fin .cx-acoes { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin-top: 4px; }
+.fin .cx-mov { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.fin .cx-mov th, .fin .cx-mov td { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: left; }
+.fin .cx-mov th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+.fin .cx-mov .r { text-align: right; }
+.fin .cx-mov .pos { color: var(--ok); }
+.fin .cx-mov .neg { color: var(--bad); }
+.fin .cx-arq { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.casal-caixinhas, #casal-caixinhas { margin-top: 14px; }
+.casal-cx { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 8px; }
+.casal-cx li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(80px, 160px) auto; gap: 4px 12px; align-items: center; }
+.casal-cx li small { display: block; color: #5f646b; font-size: 0.8rem; }
+.casal-cx-barra { height: 8px; background: var(--gray-200); }
+.casal-cx-barra i { display: block; height: 100%; background: #2e7d32; }
+.casal-cx-alerta { margin: 6px 0 0; padding: 8px 12px; background: #fbe5e3; color: #8a1c1c; font-size: 0.88rem; }
+@media (max-width: 520px) { .casal-cx li { grid-template-columns: minmax(0, 1fr) auto; } .casal-cx-barra { grid-column: 1 / -1; } }
+/* O rótulo escondido (sr-only) é absoluto: a tabela vira a referência, para ele não alargar a página no celular */
+.fin .cx-tabela, .fin .cx-mov, .plano-tabela { position: relative; }
