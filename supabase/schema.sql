@@ -173,6 +173,13 @@ alter table public.perfis drop constraint if exists perfis_modulos_check;
 alter table public.perfis add constraint perfis_modulos_check
   check (modulos <@ array['art', 'financeiro', 'demandas', 'financas', 'empresas']::text[]);
 
+-- Tarefas pendentes que a pessoa recebe (janela ao entrar e avisos que abrem sozinhos nas páginas), escolhidas em
+-- Usuários e permissões → Tarefas pendentes. Vazio (null): todas as dos módulos liberados.
+alter table public.perfis add column if not exists tarefas text[];
+alter table public.perfis drop constraint if exists perfis_tarefas_check;
+alter table public.perfis add constraint perfis_tarefas_check
+  check (tarefas is null or tarefas <@ array['classificar', 'apagar', 'arts', 'demandas', 'caixa']::text[]);
+
 -- Histórico de acessos: página aberta, data e hora e tipo de aparelho (guarda 180 dias)
 create table if not exists public.acessos (
   id          bigint generated always as identity primary key,

@@ -1,5 +1,6 @@
 // Área restrita – Controle de demandas: solicitações, propostas, prazos e andamento dos serviços.
 import { abrirPagina } from "./sessao.js";
+import { recebeTarefa } from "./modulos.js";
 import { dataBR, diasAte, hojeISO } from "./regras.js";
 import * as G from "./regras-gestao.js";
 import { $, esc, moeda, avisar, baixarCsv, opcoes, prepararDialogos, numeroDigitado } from "./ui.js";
@@ -406,8 +407,10 @@ async function iniciar() {
   $("#filtro-origem").innerHTML = `<option value="">Todas as origens</option>${opcoes(G.ORIGENS)}`;
   prepararEventos();
   await recarregar();
-  // Ao entrar, sempre que houver demanda em andamento (e por demandas.html#acompanhamento, mesmo sem nenhuma)
-  abrirAcompanhamento(location.hash !== "#acompanhamento");
+  // Ao entrar, sempre que houver demanda em andamento, para quem recebe a tarefa das demandas (e por
+  // demandas.html#acompanhamento, mesmo sem nenhuma)
+  if (location.hash === "#acompanhamento") abrirAcompanhamento(false);
+  else if (recebeTarefa(sessao.perfil, "demandas")) abrirAcompanhamento(true);
   window.addEventListener("hashchange", () => {
     if (location.hash === "#acompanhamento") abrirAcompanhamento(false);
   });

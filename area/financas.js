@@ -212,7 +212,7 @@ function abrirLancamento(recorrente = null, gasto = null, { pagar = false } = {}
   form.querySelector("[type=submit]").textContent = pagamento ? "Marcar como pago" : g && pagar ? "Confirmar pagamento" : g ? "Salvar" : "Lançar";
   $("#dica-pagamento").hidden = !pagamento;
   // Repete todo mês: só para o gasto que ainda não está ligado a um pagamento recorrente
-  $("#campo-repete").hidden = !!pagamento || !!ligado;
+  repetePossivel = !pagamento && !ligado;
   $("#dica-recorrente").hidden = !ligado;
   if (ligado) $("#dica-recorrente").textContent = `Este gasto é o pagamento de “${ligado.nome}”${ligado.mes ? ` em ${rotuloMes(ligado.mes)}` : ""}. Para mudar o valor de todo mês, edite o recorrente na aba Cadastros.`;
   $("#btn-apagar-gasto").hidden = !g;
@@ -235,10 +235,48 @@ const pagarGasto = (id) => {
   if (g) abrirLancamento(null, g, { pagar: true });
 };
 
+// Fim de um pagamento recorrente: o último mês ou o número de parcelas (contando o primeiro mês). Preencher um
+// calcula o outro; os dois em branco: sem data para terminar.
+const mesesEntre = (de, ate) => { const [a1, m1] = de.split("-").map(Number); const [a2, m2] = ate.split("-").map(Number); return (a2 - a1) * 12 + m2 - m1; };
+function sincronizarTermino(form, { inicio, fim, parcelas, dica, valor }, origem) {
+  const ini = form.elements[inicio].value || mesAtual();
+  const n = parseInt(form.elements[parcelas].value, 10);
+  if (origem === parcelas || (origem === inicio && n > 0)) form.elements[fim].value = n > 0 ? somarMes(ini, n - 1) : "";
+  else if (origem === fim) form.elements[parcelas].value = form.elements[fim].value && form.elements[fim].value >= ini ? mesesEntre(ini, form.elements[fim].value) + 1 : "";
+  const f = form.elements[fim].value;
+  const qtd = f && f >= ini ? mesesEntre(ini, f) + 1 : null;
+  const v = valor ? numeroDigitado(form.elements[valor].value) : null;
+  $(dica).textContent = !f ? "Sem data para terminar: fica pendente todo mês até você pôr o último mês ou o nº de parcelas."
+    : f < ini ? "O último mês vem depois do primeiro."
+    : `De ${rotuloMes(ini)} a ${rotuloMes(f)}: ${qtd} ${qtd === 1 ? "parcela" : "parcelas"}${v > 0 ? ` de ${brl(v)} (total ${brl(v * qtd)})` : ""}.`;
+}
+const TERMINO_GASTO = { inicio: "rep_inicio", fim: "rep_fim", parcelas: "rep_parcelas", dica: "#dica-repete", valor: "valor" };
+const TERMINO_REC = { inicio: "inicio", fim: "fim", parcelas: "parcelas", dica: "#dica-rec-termino", valor: "valor" };
+
+// Pagamento recorrente no lançamento do gasto: só para o gasto que ainda não paga um recorrente, e nunca no parcelado
+// do cartão (as parcelas já caem uma em cada fatura)
+let repetePossivel = true;
+function atualizarRepete() {
+  const form = $("#form-gasto");
+  const parcelado = form.elements.forma.value === "cartao" && Number(form.elements.parcelas.value) > 1;
+  $("#campo-repete").hidden = !repetePossivel || parcelado;
+  $("#repete-detalhes").hidden = !form.elements.repete.checked;
+  if (form.elements.repete.checked) sincronizarTermino(form, TERMINO_GASTO, null);
+}
+// Ao marcar (ou mudar a data do gasto), o dia e o primeiro mês vêm do gasto
+function repetePelaData() {
+  const form = $("#form-gasto");
+  const data = form.elements.data.value || hojeISO();
+  form.elements.rep_dia.value = String(Number(data.slice(8, 10)));
+  form.elements.rep_inicio.value = data.slice(0, 7);
+  sincronizarTermino(form, TERMINO_GASTO, "rep_inicio");
+}
+
 function atualizarForma() {
   const form = $("#form-gasto");
   const cartao = form.elements.forma.value === "cartao";
   $("#campo-parcelas").hidden = !cartao;
+  atualizarRepete();
   // No cartão, o pagamento é o da fatura: o gasto não fica a pagar
   $("#campo-pago").hidden = cartao;
   $("#dica-forma").textContent = cartao
@@ -274,8 +312,16 @@ async function lancarGasto(e) {
   const antigo = editandoGasto;
   const eraAPagar = !!antigo && idsAPagar().has(antigo.id);
   // Repete todo mês: vira um pagamento recorrente, e este gasto fica como o pagamento do mês
-  const novoRec = !pagamento && !(antigo && antigo.recorrente) && form.elements.repete.checked ? { id: novoId() } : null;
   const mes = form.elements.data.value.slice(0, 7);
+  const parceladoCartao = forma === "cartao" && Number(form.elements.parcelas.value) > 1;
+  const novoRec = !pagamento && !(antigo && antigo.recorrente) && !parceladoCartao && form.elements.repete.checked ? { id: novoId() } : null;
+  if (novoRec) {
+    novoRec.inicio = form.elements.rep_inicio.value || mes;
+    novoRec.fim = form.elements.rep_fim.value || null;
+    novoRec.dia = parseInt(form.elements.rep_dia.value, 10) || Number(form.elements.data.value.slice(8, 10));
+    if (novoRec.inicio > mes) return falha("O primeiro mês do recorrente é o deste gasto ou antes: este gasto fica como o pagamento do mês.");
+    if (novoRec.fim && novoRec.fim < mes) return falha("O último mês do recorrente é o deste gasto ou depois.");
+  }
   const campos = {
     perfil_id: antigo ? antigo.perfil_id : dono.id,
     data: form.elements.data.value,
@@ -307,8 +353,8 @@ async function lancarGasto(e) {
     if (aPagar) ids.add(salvo.id);
     else ids.delete(salvo.id);
     const existentes = new Set(gastos.map((x) => x.id));
-    const rec = novoRec ? { id: novoRec.id, nome: salvo.descricao.slice(0, 100), valor: salvo.valor, dia: Number(salvo.data.slice(8, 10)), forma: salvo.forma,
-      categoria, subcategoria, conta: salvo.conta || null, inicio: mes, fim: null } : null;
+    const rec = novoRec ? { id: novoRec.id, nome: salvo.descricao.slice(0, 100), valor: salvo.valor, dia: novoRec.dia, forma: salvo.forma,
+      categoria, subcategoria, conta: salvo.conta || null, inicio: novoRec.inicio, fim: novoRec.fim } : null;
     if (mudouAPagar || rec) {
       await salvarPrefs({ ...(rec ? { recorrentes: [...recorrentes, rec] } : {}), ...(mudouAPagar ? { caixa: { aPagar: [...ids].filter((x) => existentes.has(x)) } } : {}) });
     }
@@ -317,10 +363,12 @@ async function lancarGasto(e) {
     $("#dlg-gasto").close();
     const parcelado = salvo.forma === "cartao" && salvo.parcelas > 1 ? ` em ${salvo.parcelas}x` : "";
     const outroMes = salvo.forma !== "cartao" && salvo.data.slice(0, 7) !== mesAtual() ? ` em ${rotuloMes(salvo.data.slice(0, 7))}` : "";
-    const sufixo = (aPagar ? `, a pagar em ${dataBR(salvo.data)}` : "") + (rec ? ". Virou um pagamento recorrente (aba Cadastros)" : "");
+    const qtdRec = rec && rec.fim ? mesesEntre(rec.inicio, rec.fim) + 1 : null;
+    const textoRec = rec ? `. Virou um pagamento recorrente ${qtdRec ? `até ${rotuloMes(rec.fim)} (${qtdRec} ${qtdRec === 1 ? "parcela" : "parcelas"})` : "sem data para terminar"} (aba Cadastros)` : "";
+    const sufixo = (aPagar ? `, a pagar em ${dataBR(salvo.data)}` : "") + textoRec;
     avisar(pagamento ? `${pagamento.nome} marcado como ${aPagar ? "lançado (a pagar)" : "pago"} em ${pagamento.rotulo}.`
       : eraAPagar && !aPagar ? `Pagamento de “${salvo.descricao}” confirmado em ${dataBR(salvo.data)}.` : antigo ? `Gasto salvo${sufixo}.`
-      : salvo.forma === "cartao" ? `Gasto lançado no cartão${parcelado}${rec ? ". Virou um pagamento recorrente (aba Cadastros)" : ""}.` : `Gasto lançado${outroMes}${sufixo}.`);
+      : salvo.forma === "cartao" ? `Gasto lançado no cartão${parcelado}${textoRec}.` : `Gasto lançado${outroMes}${sufixo}.`);
     pagamento = null;
     editandoGasto = null;
   } catch (err) {
@@ -352,6 +400,15 @@ function prepararLancamento() {
   form.elements.parcelas.innerHTML = opcoes(Array.from({ length: 48 }, (_, i) => [String(i + 1), i ? `${i + 1}x` : "À vista (1x)"]), "1");
   $("#formas-gasto").addEventListener("change", atualizarForma);
   form.elements.data.addEventListener("change", pagoPelaData);
+  form.elements.rep_dia.innerHTML = Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join("");
+  form.elements.parcelas.addEventListener("change", atualizarRepete);
+  form.elements.repete.addEventListener("change", () => {
+    if (form.elements.repete.checked) repetePelaData();
+    atualizarRepete();
+  });
+  form.elements.data.addEventListener("change", () => { if (form.elements.repete.checked) repetePelaData(); });
+  for (const nome of ["rep_inicio", "rep_fim", "rep_parcelas"]) form.elements[nome].addEventListener("input", () => sincronizarTermino(form, TERMINO_GASTO, nome));
+  form.elements.valor.addEventListener("input", () => { if (form.elements.repete.checked) sincronizarTermino(form, TERMINO_GASTO, null); });
   $("#campo-pago").addEventListener("change", () => { pagoMexido = true; });
   prepararCategorias(form);
   form.addEventListener("submit", lancarGasto);
@@ -407,6 +464,8 @@ function abrirRecorrente(id = null, fixo = null) {
   // O fixo do projeto valia em todos os meses: o primeiro mês fica em branco (continua valendo em todos)
   form.elements.inicio.value = doProjeto ? "" : (r && r.inicio) || (r ? "" : mesAtual());
   form.elements.fim.value = (r && r.fim) || "";
+  form.elements.parcelas.value = "";
+  sincronizarTermino(form, TERMINO_REC, "fim");
   const forma = form.querySelector(`[name=forma][value="${CSS.escape((r && r.forma) || "pix")}"]`);
   if (forma) forma.checked = true;
   preencherCategorias(form, r ? r.categoria || "" : "", r ? r.subcategoria || "" : "");
@@ -594,6 +653,8 @@ function prepararRecorrentes() {
   form.elements.dia.innerHTML = '<option value="">—</option>' + Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join("");
   prepararCategorias(form);
   form.addEventListener("submit", salvarRecorrente);
+  for (const nome of ["inicio", "fim", "parcelas"]) form.elements[nome].addEventListener("input", () => sincronizarTermino(form, TERMINO_REC, nome));
+  form.elements.valor.addEventListener("input", () => sincronizarTermino(form, TERMINO_REC, null));
   $("#btn-apagar-recorrente").addEventListener("click", apagarRecorrente);
   $("#btn-novo-recorrente").addEventListener("click", () => abrirRecorrente(null));
   $("#lista-recorrentes").addEventListener("click", (e) => {

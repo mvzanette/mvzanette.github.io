@@ -512,6 +512,7 @@
 /* Gasto lançado como a pagar: previsto até ser pago */
 .fin tr.a-pagar td:first-child { border-left: 3px solid var(--warn); padding-left: 8px; }
 #campo-repete { margin-top: 12px; }
+#repete-detalhes { margin-top: 12px; }
 
 /* Cadastros: juntar categorias */
 .juntar-cats { margin-top: 14px; padding: 10px 14px; background: var(--gray-100); }

@@ -144,3 +144,19 @@ export function pode(perfil, modulo) {
 // Link do painel original no Claude, onde ficam o envio de faturas e os PDFs (só endereços https)
 export const linkFinancas = (perfil) =>
   perfil && /^https:\/\/\S+$/.test(perfil.link_financas || "") ? perfil.link_financas : null;
+
+// Tipos de tarefa pendente. Quem recebe cada um é escolhido em Usuários e permissões → Tarefas pendentes; sem escolha
+// (perfil.tarefas vazio), a pessoa recebe as de todos os módulos liberados para ela.
+export const TIPOS_TAREFA = [
+  { id: "classificar", titulo: "Lançamentos a classificar", detalhe: "das faturas e gastos do próprio painel", modulo: "financas" },
+  { id: "apagar", titulo: "Gastos a pagar vencidos", detalhe: "do próprio painel de finanças", modulo: "financas" },
+  { id: "arts", titulo: "ARTs que precisam de baixa ou ação", detalhe: "Controle de ART", modulo: "art" },
+  { id: "demandas", titulo: "Demandas em andamento", detalhe: "Controle de demandas", modulo: "demandas" },
+  { id: "caixa", titulo: "Documentos do caixa a aprovar", detalhe: "caixa das empresas", modulo: "empresas" },
+];
+
+export function recebeTarefa(perfil, id) {
+  const tipo = TIPOS_TAREFA.find((t) => t.id === id);
+  if (!tipo || !perfil || !pode(perfil, tipo.modulo)) return false;
+  return Array.isArray(perfil.tarefas) ? perfil.tarefas.includes(id) : true;
+}

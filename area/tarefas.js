@@ -4,6 +4,9 @@
 import { desenharFinancas } from "./financas-painel.js";
 import { lerCategorias } from "./financas-classificacao.js";
 import { esc } from "./ui.js";
+import { recebeTarefa } from "./modulos.js";
+
+export { TIPOS_TAREFA, recebeTarefa } from "./modulos.js";
 
 const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
 
@@ -75,7 +78,7 @@ function marcarMostrou(perfil) {
 // Abre a janela com as tarefas. automatico: ao entrar, só se ainda não abriu nesta sessão do navegador.
 // aoAbrir: para a tarefa desta mesma página (link "#…"), em vez de seguir o link
 export function mostrarTarefas(tarefas, { perfil = null, automatico = false, aoAbrir = null } = {}) {
-  const lista = tarefas.filter((t) => t && t.n > 0);
+  const lista = tarefas.filter((t) => t && t.n > 0 && (!perfil || recebeTarefa(perfil, t.id)));
   if (!lista.length || (automatico && jaMostrou(perfil))) return false;
   marcarMostrou(perfil);
   let dlg = document.getElementById("dlg-tarefas");
@@ -111,7 +114,7 @@ export function mostrarTarefas(tarefas, { perfil = null, automatico = false, aoA
 
 // Faixa fixa (no início) que lembra as tarefas e reabre a janela
 export function faixaTarefas(el, tarefas, opcoes = {}) {
-  const lista = tarefas.filter((t) => t && t.n > 0);
+  const lista = tarefas.filter((t) => t && t.n > 0 && (!opcoes.perfil || recebeTarefa(opcoes.perfil, t.id)));
   el.hidden = !lista.length;
   if (!lista.length) return;
   el.innerHTML = `<p><b>Tarefas pendentes:</b> ${lista.map((t) => esc(t.resumo)).join(" · ")}.</p>

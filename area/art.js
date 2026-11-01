@@ -1,5 +1,6 @@
 // Área restrita – Controle de ART
 import { abrirPagina } from "./sessao.js";
+import { recebeTarefa } from "./modulos.js";
 import * as R from "./regras.js";
 import { extrairLinhas } from "./pdf-texto.js";
 import { lerPdf } from "./leitores.js";
@@ -244,7 +245,9 @@ async function iniciar() {
   if (location.hash === "#acao") filtro.situacao = "acao";
   $("#filtro-situacao").value = filtro.situacao;
   await recarregar();
-  if (filtro.situacao !== "acao") abrirVencimentos(true); // sempre ao entrar, quando houver ART vencida ou a vencer em 90 dias
+  // Ao entrar, quando houver ART vencida ou a vencer em 90 dias (para quem recebe a tarefa das ARTs; o botão
+  // Vencimentos abre para todos)
+  if (filtro.situacao !== "acao" && recebeTarefa(sessao.perfil, "arts")) abrirVencimentos(true);
 }
 
 async function recarregar() {

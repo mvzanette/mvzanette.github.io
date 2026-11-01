@@ -62,7 +62,8 @@ const numeros = (nome, obj) => {
 };
 
 // Cadastro de usuários: o que o administrador grava (o resto o banco preenche a cada acesso)
-const COLUNAS_PERFIL = ["email", "nome", "papel", "modulos", "situacao", "link_financas", "observacao", "casal_com"];
+const COLUNAS_PERFIL = ["email", "nome", "papel", "modulos", "situacao", "link_financas", "observacao", "casal_com", "tarefas"];
+const TAREFAS_VALIDAS = ["classificar", "apagar", "arts", "demandas", "caixa"];
 const SEM_ADM = "É preciso manter pelo menos um administrador ativo.";
 export const BANCO_DESATUALIZADO =
   "O banco de dados precisa ser atualizado: rode de novo o arquivo supabase/schema.sql no SQL Editor do Supabase.";
@@ -77,6 +78,8 @@ function regrasPerfil(p) {
     if (linha.link_financas && !/^https:\/\//.test(linha.link_financas)) throw new Error("O link do painel precisa começar com https://");
   }
   if (linha.modulos && linha.papel === "cliente") linha.modulos = linha.modulos.filter((m) => !ENGENHARIA.includes(m));
+  // Tarefas pendentes escolhidas (null: todas as dos módulos liberados)
+  if ("tarefas" in linha) linha.tarefas = Array.isArray(linha.tarefas) ? TAREFAS_VALIDAS.filter((t) => linha.tarefas.includes(t)) : null;
   // Finanças em casal: só entre perfis que não são clientes e nunca consigo mesmo
   if ("casal_com" in linha && (linha.papel === "cliente" || !linha.casal_com || linha.casal_com === p.id)) linha.casal_com = null;
   return linha;

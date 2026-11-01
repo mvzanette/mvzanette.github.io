@@ -2,7 +2,7 @@
 // liberados, situação, histórico de acessos e o passo a passo para criar o login no Supabase.
 import { abrirPagina, PAGINA_LOGIN } from "./sessao.js";
 import { SUPABASE_URL } from "./config-area.js";
-import { MODULOS, PAPEIS, PERMISSOES, SITUACOES, liberavel, situacaoDe } from "./modulos.js";
+import { MODULOS, PAPEIS, PERMISSOES, SITUACOES, TIPOS_TAREFA, liberavel, pode, recebeTarefa, situacaoDe } from "./modulos.js";
 import { $, $$, esc, avisar, opcoes, prepararDialogos } from "./ui.js";
 
 let armazem;
@@ -135,6 +135,68 @@ function renderPermissoes() {
   ].join("");
 }
 
+// ---------------------------------------------------------------- tarefas pendentes por pessoa
+// Marcações em edição: id do perfil → conjunto das tarefas marcadas (só as pessoas mexidas)
+let tarefasEditadas = new Map();
+const marcadasDe = (u) => tarefasEditadas.get(u.id) || new Set(TIPOS_TAREFA.filter((t) => recebeTarefa(u, t.id)).map((t) => t.id));
+
+function renderTarefas() {
+  $("#cab-tarefas").innerHTML = `<tr><th>Pessoa</th>${TIPOS_TAREFA.map((t) => `<th>${esc(t.titulo)}<small>${esc(t.detalhe)}</small></th>`).join("")}</tr>`;
+  const pessoas = usuarios.filter((u) => u.situacao !== "inativo").sort((a, b) => nomeDe(a).localeCompare(nomeDe(b), "pt-BR"));
+  $("#matriz-tarefas").innerHTML = pessoas.length ? pessoas.map((u) => {
+    const marcadas = marcadasDe(u);
+    const celulas = TIPOS_TAREFA.map((t) => {
+      const temModulo = pode({ ...u, situacao: "ativo" }, t.modulo);
+      return `<td>${temModulo
+        ? `<label class="marca-tarefa"><input type="checkbox" data-perfil="${esc(u.id)}" data-tarefa="${t.id}"${marcadas.has(t.id) ? " checked" : ""} aria-label="${esc(t.titulo)} para ${esc(nomeDe(u))}"></label>`
+        : '<small class="sem">sem o módulo</small>'}</td>`;
+    }).join("");
+    const origem = tarefasEditadas.has(u.id) ? '<small class="alterado">alterado, falta salvar</small>'
+      : Array.isArray(u.tarefas) ? "<small>escolhidas</small>" : "<small>padrão: todas dos módulos liberados</small>";
+    return `<tr><th scope="row">${esc(nomeDe(u))}${u.id === perfil.id ? ' <span class="voce">você</span>' : ""}${origem}</th>${celulas}</tr>`;
+  }).join("") : `<tr><td colspan="${TIPOS_TAREFA.length + 1}" class="vazio">Nenhum usuário ativo.</td></tr>`;
+  $("#btn-salvar-tarefas").disabled = !tarefasEditadas.size;
+  $("#btn-desfazer-tarefas").disabled = !tarefasEditadas.size;
+}
+
+async function salvarTarefas() {
+  const botao = $("#btn-salvar-tarefas");
+  botao.disabled = true;
+  $("#erro-tarefas").hidden = true;
+  try {
+    for (const [id, marcadas] of tarefasEditadas) {
+      const u = usuarios.find((x) => x.id === id);
+      if (u) await armazem.usuarios.salvar({ ...u, tarefas: TIPOS_TAREFA.map((t) => t.id).filter((t) => marcadas.has(t)) });
+    }
+    const n = tarefasEditadas.size;
+    tarefasEditadas = new Map();
+    await recarregar();
+    avisar(n === 1 ? "Tarefas salvas." : `Tarefas de ${n} pessoas salvas.`);
+  } catch (err) {
+    $("#erro-tarefas").textContent = "Não foi possível salvar: " + err.message;
+    $("#erro-tarefas").hidden = false;
+    botao.disabled = false;
+  }
+}
+
+function prepararTarefas() {
+  $("#matriz-tarefas").addEventListener("change", (e) => {
+    const c = e.target.closest("[data-tarefa]");
+    if (!c) return;
+    const u = usuarios.find((x) => x.id === c.dataset.perfil);
+    if (!u) return;
+    const marcadas = new Set(marcadasDe(u));
+    if (c.checked) marcadas.add(c.dataset.tarefa); else marcadas.delete(c.dataset.tarefa);
+    tarefasEditadas.set(u.id, marcadas);
+    renderTarefas();
+  });
+  $("#btn-salvar-tarefas").addEventListener("click", salvarTarefas);
+  $("#btn-desfazer-tarefas").addEventListener("click", () => {
+    tarefasEditadas = new Map();
+    renderTarefas();
+  });
+}
+
 // ---------------------------------------------------------------- histórico de acessos
 function renderAcessos() {
   const seletor = $("#filtro-acesso-usuario");
@@ -161,6 +223,7 @@ function renderTudo() {
   renderKpis();
   renderLista();
   renderPermissoes();
+  renderTarefas();
   renderAcessos();
 }
 
@@ -360,6 +423,7 @@ async function iniciar() {
   ({ armazem, perfil } = sessao);
   prepararDialogos();
   prepararAbas();
+  prepararTarefas();
 
   $("#filtro-papel").innerHTML = opcoes([["", "Todos os perfis"], ...Object.entries(PAPEIS).map(([id, p]) => [id, p.titulo])], "");
   $("#filtro-situacao").innerHTML = opcoes([["", "Todas as situações"], ...Object.entries(SITUACOES)], "");
