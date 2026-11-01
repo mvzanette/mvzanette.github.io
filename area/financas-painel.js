@@ -4,7 +4,7 @@
 // da fatura) continua no painel original, aberto pelo botão "Abrir no Claude".
 // Nenhum dado pessoal fica neste código: nomes, valores e cartões vêm todos dos dados importados.
 import { outrasPessoas } from "./financas-importar.js";
-import { chavesFatura, chavesGastos, efetivo, lerCategorias, nomeConta } from "./financas-classificacao.js";
+import { chavesFatura, chavesGastos, efetivo, lerCategorias, nomeConta, partesDe, textoPartes } from "./financas-classificacao.js";
 import { ordemFatura } from "./financas-previa.js";
 
 const MESES_PADRAO = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
@@ -45,7 +45,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   categorias = null, ajustes = [], contas = [], aoClassificar = null, aoEditarCategorias = null, comDesejos = false, comInvestimentos = false,
   comMeses = false, somenteCalculo = false, caixa: caixaPrefs = null, aoSalvarSaldo = null, aoMudarRecebimento = null,
   recorrentes: recorrentesSite = [], aoPagarRecorrente = null, aoDesmarcarRecorrente = null, aoEditarRecorrente = null, aoValorRecorrente = null,
-  aoMudarPendencias = null, aoEditarGasto = null, aoPagarGasto = null, aoEditarMetas = null }) {
+  aoMudarPendencias = null, aoEditarGasto = null, aoPagarGasto = null, aoEditarMetas = null,
+  aoEditarEntrada = null, aoReceberEntrada = null }) {
   const D = completar(dados);
   let CATS = categorias || lerCategorias(null, dados);
   let AJ = new Map(ajustes.map(a => [a.chave, a]));
@@ -252,7 +253,13 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       const m = mesDe(String(e.data).slice(0, 7));
       const salario = e.tipo === "salario";
       if (salario) m.receitas = m.receitas.filter(r => r.origem === "site" || r.fonte !== "Empresa");
-      else if (m.receitas.some(r => r.origem !== "site" && r.fonte !== "Empresa" && r.liquido != null && Math.abs(r.liquido - e.liquido) < 0.01)) { entradasRepetidas++; continue; }
+      else {
+        // Recebimento igual a um do projeto: a estimativa do projeto sai (a entrada do site confirma o recebimento);
+        // um recebimento já registrado no projeto não conta de novo
+        const igual = m.receitas.find(r => r.origem !== "site" && r.fonte !== "Empresa" && r.liquido != null && Math.abs(r.liquido - e.liquido) < 0.01);
+        if (igual && !/estimativa/i.test(igual.obs || "")) { entradasRepetidas++; continue; }
+        if (igual) m.receitas = m.receitas.filter(r => r !== igual);
+      }
       m.receitas.push({desc: e.descricao, fonte: salario ? "Empresa" : "Outros", liquido: e.liquido, obs: e.observacao || "", origem: "site", id: e.id,
         bruto: e.bruto, descontos: e.descontos || [], data: e.data, conta: e.conta || null,
         recebimento: e.recebimento || null, referencia: e.referencia || null, repete: !!e.repete});
@@ -266,7 +273,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       m.lancamentos.push({data: g.data, desc: g.descricao, valor, forma: FORMAS_SITE[g.forma] || "Outro", cat: g.categoria || "Outros",
         parcelas: parcelas > 1 ? `1/${parcelas}` : null, obs: g.observacao || "",
         essencial: g.essencial === true ? "Essencial" : g.essencial === false ? "Não essencial" : null, origem: "site", id: g.id,
-        sub: g.subcategoria || null, conta: g.conta || null, recorrente: g.recorrente || null, total: parcelas > 1 ? Number(g.valor) : null});
+        sub: g.subcategoria || null, conta: g.conta || null, recorrente: g.recorrente || null, total: parcelas > 1 ? Number(g.valor) : null,
+        partes: g.partes || null});
       // Parcelado no cartão: as próximas parcelas entram nas faturas seguintes, a não ser que a compra já
       // apareça numa fatura processada pelo projeto (aí as parcelas já estão contadas)
       if (parcelas > 1 && !D.cartao.lancamentos.some(l => l.data === g.data && Math.abs(l.valor - valor) < 0.01)) {
@@ -555,6 +563,16 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     return {cat: e.categoria, sub: e.subcategoria};
   }
   const subDe = l => (ehAjuste(l) ? null : ef(l).subcategoria || null);
+  // Lançamento dividido em categorias: uma linha por parte, com o valor, a categoria, a conta e o essencial dela
+  // (total: o valor da linha, como o total da compra parcelada; as partes ficam na mesma proporção)
+  const explodir = (item, l, total = item.valor) => {
+    const e = l && !ehAjuste(l) ? ef(l) : null;
+    if (!e || !e.partes) return [item];
+    return partesDe(e, total).map(p => ({...item, valor: p.valor, cat: p.categoria, sub: p.subcategoria || null, conta: p.conta, essencial: p.essencial,
+      parte: `${p.k + 1} de ${p.n}`, dividido: true}));
+  };
+  // Partes de um lançamento com o valor dele (sem divisão, uma parte só)
+  const partesL = l => partesDe(ef(l), l.valor);
 
   // Lançamentos da fatura que vence no mês. Fechada ou com a prévia do app: os lançamentos dela. Ainda aberta: as
   // compras no cartão do mês da compra, as parcelas de compras antigas e os fixos no cartão que vão cair. O que o total
@@ -566,13 +584,13 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const fk = FATURAS.get(rot);
     if (fk && fk.itens.length) {
       fk.itens.forEach(l => { const e = ef(l); const parc = l.parc && l.parc.n > 1;
-        itens.push({desc: l.nome, valor: l.valor, cat: e.categoria, sub: e.subcategoria || null, data: l.data, parcela: parc ? `${l.parc.k}/${l.parc.n}` : null, grupo: parc ? "Cartão parcelado" : "Cartão à vista", ref: l, tipo: "fatura"}); });
+        itens.push(...explodir({desc: l.nome, valor: l.valor, cat: e.categoria, sub: e.subcategoria || null, data: l.data, parcela: parc ? `${l.parc.k}/${l.parc.n}` : null, grupo: parc ? "Cartão parcelado" : "Cartão à vista", ref: l, tipo: "fatura"}, l)); });
     } else {
       const mm = D.meses.find(x => x.fatura === rot);
       for (const l of mm ? mm.lancamentos : []) {
         if (!card(l.forma) || ehAjuste(l) || l.origem === "fatura" || ehInvestimento(l)) continue;
         const parc = compraParcelada(l);
-        itens.push({desc: l.desc, valor: l.valor, cat: catDe(l), sub: subDe(l), data: l.data, parcela: parc ? l.parcelas : null, grupo: parc ? "Cartão parcelado" : "Cartão à vista", ref: l, tipo: "gasto"});
+        itens.push(...explodir({desc: l.desc, valor: l.valor, cat: catDe(l), sub: subDe(l), data: l.data, parcela: parc ? l.parcelas : null, grupo: parc ? "Cartão parcelado" : "Cartão à vista", ref: l, tipo: "gasto"}, l));
       }
       parcelasAgendadas(rot).forEach(p => itens.push({...p, ...(p.parcela ? categoriaPeloNome(p.desc) : {cat: "Parcelas agendadas", sub: null}), grupo: "Cartão parcelado"}));
       if (mm) statusRecorrentes(mm).filter(r => card(r.forma) && r.pendente > 0).forEach(r => itens.push({desc: r.nome, valor: r.pendente, cat: r.categoria || "Fixos", sub: r.subcategoria || null, data: null, grupo: "Fixo no cartão a cair"}));
@@ -593,10 +611,10 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     for (const l of m ? m.lancamentos : []) {
       if (card(l.forma)) continue;
       if (ehInvestimento(l)) investimentos.push({desc: l.desc, valor: l.valor, data: l.data});
-      else itens.push({desc: l.desc, valor: l.valor, grupo: FORMA_CAIXA(l.forma), cat: catDe(l), sub: subDe(l), data: l.data, ref: l, tipo: "gasto"});
+      else itens.push(...explodir({desc: l.desc, valor: l.valor, grupo: FORMA_CAIXA(l.forma), cat: catDe(l), sub: subDe(l), data: l.data, ref: l, tipo: "gasto"}, l));
     }
     // Fixos fora do cartão ainda não pagos (os mesmos do fluxo de caixa)
-    caixa(chave).saidas.filter(x => x.tipo === "fixo").forEach(x => itens.push({desc: x.desc, valor: x.valor, grupo: "Fixos fora do cartão", cat: (x.r && x.r.categoria) || "Fixos", sub: (x.r && x.r.subcategoria) || null, data: x.data}));
+    caixa(chave).saidas.filter(x => x.tipo === "fixo").forEach(x => itens.push({desc: x.desc, valor: x.valor, grupo: "Fixos fora do cartão", cat: (x.r && x.r.categoria) || "Fixos", sub: (x.r && x.r.subcategoria) || null, data: x.data, conta: (x.r && x.r.conta) || undefined}));
     const fk = FATURAS.get(rot);
     return {chave, rotulo: rot, fatura, periodo: fk && fk.fechada && fk.periodo && fk.periodo.inicio ? fk.periodo : null, itens, cartao,
       parcelas: cartao.filter(i => i.parcela), semDetalhe: sum(cartao.filter(i => i.semDetalhe), i => i.valor), investimentos,
@@ -616,8 +634,8 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       const p = compraParcelada(l) ? parcelaTexto(l.parcelas) : null;
       if (p && p.k > 1) continue; // parcela de compra antiga anotada no mês
       const total = p ? (l.total != null ? l.total : Math.round(l.valor * p.n * 100) / 100) : l.valor;
-      itens.push({desc: l.desc, data: l.data, valor: total, cat: catDe(l), grupo: p ? "Cartão parcelado" : card(l.forma) ? "Cartão à vista" : FORMA_CAIXA(l.forma),
-        parcela: p ? {n: p.n, valor: l.valor, fatura: l.fatura || m.fatura} : null, ref: ehAjuste(l) ? null : l, tipo: l.origem === "fatura" ? "fatura" : "gasto"});
+      itens.push(...explodir({desc: l.desc, data: l.data, valor: total, cat: catDe(l), grupo: p ? "Cartão parcelado" : card(l.forma) ? "Cartão à vista" : FORMA_CAIXA(l.forma),
+        parcela: p ? {n: p.n, valor: l.valor, fatura: l.fatura || m.fatura} : null, ref: ehAjuste(l) ? null : l, tipo: l.origem === "fatura" ? "fatura" : "gasto"}, l, total).map(i => (i.parte && i.parcela ? {...i, parcela: {...i.parcela, valor: Math.round(i.valor / p.n * 100) / 100}} : i)));
     }
     const parceladas = itens.filter(i => i.parcela);
     const total = Math.round(sum(itens, i => i.valor) * 100) / 100;
@@ -697,10 +715,12 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const entra = cx.ent.realizado + cx.ent.previsto, sai = cx.sai.realizado + cx.sai.previsto;
     const disponivel = (cx.inicial ?? 0) + entra;
     const dias = corrente ? diasDoMes(m.chave) - hoje.getDate() + 1 : null;
-    const kpi = (rotulo, valor, sub) => `<div class="fech-kpi"><span class="label">${rotulo}</span><b>${valor}</b><span class="sub">${sub}</span></div>`;
+    const kpi = (rotulo, valor, sub, mov) => (mov && $id("dlg-mov")
+      ? `<button type="button" class="fech-kpi fech-kpi-botao" data-abrir-mov="${mov}" title="Abrir e editar"><span class="label">${rotulo}</span><b>${valor}</b><span class="sub">${sub}</span><span class="fech-abrir">abrir e editar</span></button>`
+      : `<div class="fech-kpi"><span class="label">${rotulo}</span><b>${valor}</b><span class="sub">${sub}</span></div>`);
     const kpis = `<div class="fech-kpis">
-        ${kpi("Entradas no caixa", brl(entra), cx.ent.previsto ? `${brl(cx.ent.realizado)} recebidos · ${brl(cx.ent.previsto)} previstos` : `${cx.entradas.length} ${cx.entradas.length === 1 ? "recebimento" : "recebimentos"} no mês`)}
-        ${kpi("Saídas do caixa", brl(sai), cx.sai.previsto ? `${brl(cx.sai.realizado)} pagos · ${brl(cx.sai.previsto)} previstos` : "fatura, Pix, débito, dinheiro e fixos")}
+        ${kpi("Entradas no caixa", brl(entra), cx.ent.previsto ? `${brl(cx.ent.realizado)} recebidos · ${brl(cx.ent.previsto)} previstos` : `${cx.entradas.length} ${cx.entradas.length === 1 ? "recebimento" : "recebimentos"} no mês`, "entradas")}
+        ${kpi("Saídas do caixa", brl(sai), cx.sai.previsto ? `${brl(cx.sai.realizado)} pagos · ${brl(cx.sai.previsto)} previstos` : "fatura, Pix, débito, dinheiro e fixos", "saidas")}
         ${kpi("Compras do mês", brl(comprasLancadas(m)), `${m.lancamentos.length} ${m.lancamentos.length === 1 ? "lançamento" : "lançamentos"} · pela data da compra${m.fatura ? ` · no cartão, vão para a fatura ${esc(m.fatura)}` : ""}`)}
       </div>`;
     const doSite = m.lancamentos.filter(l => l.origem === "site").length;
@@ -876,7 +896,21 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   // ---------- Visão geral: fluxo de caixa do mês ----------
   const RECEBIMENTO = {depois: "trabalha e recebe depois", antes: "recebe antes e usa no mês", avulso: "avulso"};
   const dataDoMes = (iso, chave) => (iso && iso.slice(0, 7) === chave ? dBR(iso) : iso ? dataLonga(iso) : "");
-  function linhaEntrada(e, chave) {
+  // Entrada prevista que já dá para dar como recebida: a que repete todo mês (prevista a partir da última), a lançada
+  // com data depois de hoje e a estimativa do projeto, no mês atual ou em mês que já passou
+  const recebivel = (e, chave) => !!(aoReceberEntrada && e.st === "previsto" && e.r && chave <= hojeKey);
+  // O que gravar ao dar a entrada como recebida: a lançada no site muda só a data; a prevista vira uma entrada nova
+  function modeloEntrada(e, chave) {
+    const r = e.r || {};
+    const data = e.data && e.data <= hojeIso ? e.data : chave === hojeKey ? hojeIso : diaDe(chave, e.data ? Number(e.data.slice(8, 10)) : diasDoMes(chave));
+    const salario = r.fonte === "Empresa" || (r.bruto != null && (r.descontos || []).length > 0);
+    const entrada = {tipo: salario ? "salario" : "outro", descricao: r.desc || e.desc, bruto: r.bruto ?? null, descontos: r.descontos || [], liquido: e.valor, data,
+      conta: r.conta || null, observacao: /estimativa/i.test(r.obs || "") ? "" : r.obs || "", recebimento: r.recebimento || (salario ? "depois" : "avulso"),
+      referencia: e.ref || r.referencia || null, repete: e.prevista ? true : !!r.repete};
+    return {id: r.origem === "site" && r.id && !e.prevista ? r.id : null, entrada, rotulo: rotuloDe(chave)};
+  }
+  let HERO_ENT = []; // entradas do mês no balanço (índice dos botões)
+  function linhaEntrada(e, chave, i) {
     const r = e.r || {};
     const site = r.origem === "site" && r.id;
     const quando = e.data ? (e.st === "previsto" ? `previsto para ${dataDoMes(e.data, chave)}` : `recebido em ${dataDoMes(e.data, chave)}`) : e.st === "previsto" ? "previsto no mês" : "recebido no mês";
@@ -887,23 +921,30 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const conta = r.conta && r.conta !== "pessoal" ? ` <span class="chip conta">${esc(nomeDaConta(r.conta))}</span>` : "";
     const holerite = site && (r.bruto != null || (r.descontos || []).length)
       ? `<div class="sub">${r.bruto != null ? `Bruto ${brl(r.bruto)}` : ""}${(r.descontos || []).map(d => ` − ${esc(d.nome)} ${brl(d.valor)}`).join("")}</div>` : "";
+    const receber = recebivel(e, chave) ? `<button type="button" class="btn mini cx-recebida" data-receber-ent="${i}" title="Dar como recebida${e.data && e.data > hojeIso ? " hoje" : ""}">✓ Recebida</button>` : "";
+    const editar = aoEditarEntrada && (site && !e.prevista) ? `<button type="button" class="btn-link" data-editar-ent="${i}">Editar</button>`
+      : aoEditarEntrada && e.prevista && chave <= hojeKey ? `<button type="button" class="btn-link" data-editar-ent="${i}">Mudar o valor e confirmar</button>` : "";
     const controles = site && aoMudarRecebimento ? `<div class="cx-receb">
+        ${receber}
         <select data-recebimento="${esc(r.id)}" aria-label="Como é o recebimento de ${esc(r.desc)}"${r.recebimento ? "" : ' class="falta"'}>${r.recebimento ? "" : '<option value="" selected disabled>Como é esse recebimento?</option>'}${Object.entries(RECEBIMENTO).map(([v, t]) => `<option value="${v}"${r.recebimento === v ? " selected" : ""}>${t}</option>`).join("")}</select>
         <label class="cx-repete"><input type="checkbox" data-repete="${esc(r.id)}"${r.repete ? " checked" : ""}> repete todo mês</label>
+        ${editar}
         ${aoApagarEntrada ? `<button type="button" class="btn-link" data-apagar-entrada="${esc(r.id)}">Apagar</button>` : ""}
-      </div>` : "";
-    return `<tr><td>${esc(e.desc)}${chip}${conta}<div class="sub">${esc(partes.join(" · "))}</div>${holerite}${controles}</td>
+      </div>` : receber || editar ? `<div class="cx-receb">${receber}${editar}</div>` : "";
+    return `<tr data-mov="entradas"><td>${esc(e.desc)}${chip}${conta}<div class="sub">${esc(partes.join(" · "))}</div>${holerite}${controles}</td>
       <td class="r num">${e.st === "realizado" ? brl(e.valor) : ""}</td><td class="r num prev">${e.st === "previsto" ? brl(e.valor) : ""}</td></tr>`;
   }
 
   const investido = cx => cx.saidas.some(x => x.tipo === "investimento" && x.l);
   function renderHero(m) {
     const cx = caixa(m.chave);
+    HERO_ENT = cx.entradas;
     const passado = m.chave < hojeKey, futuro = m.chave > hojeKey;
     const dia1 = `01/${String(m.mes).padStart(2, "0")}`;
     const cel = (v, st, alvo) => (st === alvo ? brl(v) : "");
-    const linha = (rotulo, sub, valor, st) => `<tr><td>${rotulo}${sub ? `<div class="sub">${sub}</div>` : ""}</td><td class="r num">${cel(valor, st, "realizado")}</td><td class="r num prev">${cel(valor, st, "previsto")}</td></tr>`;
-    const grupo = (rotulo, a, b) => `<tr class="cx-grupo"><th scope="row">${rotulo}</th><td class="r num">${brl(a)}</td><td class="r num prev">${b ? brl(b) : "—"}</td></tr>`;
+    const linha = (rotulo, sub, valor, st, mov = "saidas") => `<tr data-mov="${mov}"><td>${rotulo}${sub ? `<div class="sub">${sub}</div>` : ""}</td><td class="r num">${cel(valor, st, "realizado")}</td><td class="r num prev">${cel(valor, st, "previsto")}</td></tr>`;
+    const temJanela = !!$id("dlg-mov");
+    const grupo = (rotulo, a, b, mov) => `<tr class="cx-grupo${mov && temJanela ? " cx-abre" : ""}"${mov && temJanela ? ` data-mov="${mov}" title="Dois cliques para abrir e editar"` : ""}><th scope="row">${rotulo}${mov && temJanela ? ` <button type="button" class="btn-link cx-abrir" data-abrir-mov="${mov}">abrir e editar</button>` : ""}</th><td class="r num">${brl(a)}</td><td class="r num prev">${b ? brl(b) : "—"}</td></tr>`;
     // Saídas em dois grupos: os gastos pagos no mês (a fatura, Pix, débito e dinheiro por forma de pagamento e os fixos
     // fora do cartão, a mesma conta do quadro "Gastos pagos") e o investimento
     const saidas = [];
@@ -919,7 +960,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     [...porForma.values()].sort((a, b) => b.v - a.v).forEach(o => saidas.push(linha(esc(o.forma), `${o.q} ${o.q === 1 ? "gasto" : "gastos"}${o.st === "previsto" ? (o.ap === o.q ? " a pagar" : o.ap ? `, ${o.ap} a pagar` : " com data futura") : ""}`, o.v, o.st)));
     cx.saidas.filter(x => x.tipo === "fixo").forEach(s => saidas.push(linha(esc(s.desc), `${s.r && s.r.site ? "recorrente ainda não pago" : "fixo fora do cartão"}${s.data ? ` · dia ${dBR(s.data)}` : ""}`, s.valor, s.st)));
     const alterar = aoEditarMetas ? ' · <button type="button" class="btn-link" data-editar-metas>alterar</button>' : "";
-    const investimentos = cx.saidas.filter(x => x.tipo === "investimento").map(s => linha(esc(s.desc), s.l ? `investimento lançado${s.data ? ` em ${dBR(s.data)}` : ""}` : `${investido(cx) ? "previsão de investimento do mês, menos o já lançado" : "investimento mensal previsto"}${alterar}`, s.valor, s.st));
+    const investimentos = cx.saidas.filter(x => x.tipo === "investimento").map(s => linha(esc(s.desc), s.l ? `investimento lançado${s.data ? ` em ${dBR(s.data)}` : ""}` : `${investido(cx) ? "previsão de investimento do mês, menos o já lançado" : "investimento mensal previsto"}${alterar}`, s.valor, s.st, "investimento"));
     const somaSt = (tipos, st) => Math.round(sum(cx.saidas.filter(x => tipos.includes(x.tipo) && x.st === st), x => x.valor) * 100) / 100;
     const GASTOS = ["fatura", "dia", "fixo"];
     // Saldo do início do mês: informado, continuação do mês anterior ou ainda sem valor
@@ -940,11 +981,11 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
         <thead><tr><th>${esc(m.rotulo)}</th><th class="r">Realizado</th><th class="r">Previsto</th></tr></thead>
         <tbody>
           ${inicial}
-          ${grupo("Entradas", cx.ent.realizado, cx.ent.previsto)}
-          ${cx.entradas.map(e => linhaEntrada(e, m.chave)).join("") || `<tr><td class="muted" colspan="3">Nenhuma entrada no mês.</td></tr>`}
-          ${grupo("(−) Gastos pagos no mês", somaSt(GASTOS, "realizado"), somaSt(GASTOS, "previsto"))}
+          ${grupo("Entradas", cx.ent.realizado, cx.ent.previsto, "entradas")}
+          ${cx.entradas.map((e, i) => linhaEntrada(e, m.chave, i)).join("") || `<tr><td class="muted" colspan="3">Nenhuma entrada no mês.</td></tr>`}
+          ${grupo("(−) Gastos pagos no mês", somaSt(GASTOS, "realizado"), somaSt(GASTOS, "previsto"), "saidas")}
           ${saidas.join("") || `<tr><td class="muted" colspan="3">Nenhum gasto pago no mês.</td></tr>`}
-          ${investimentos.length ? `${grupo("(−) Investimento", somaSt(["investimento"], "realizado"), somaSt(["investimento"], "previsto"))}${investimentos.join("")}` : ""}
+          ${investimentos.length ? `${grupo("(−) Investimento", somaSt(["investimento"], "realizado"), somaSt(["investimento"], "previsto"), "investimento")}${investimentos.join("")}` : ""}
           <tr class="total"><td>(=) Saldo do mês</td><td class="r num">${brl(cx.ent.realizado - cx.sai.realizado)}</td><td class="r num prev">${brl(cx.ent.previsto - cx.sai.previsto)}</td></tr>
           <tr class="total cx-fim"><td>${titulo}</td><td class="r num${cx.fim < 0 ? " neg" : ""}" colspan="2">${brl(cx.fim)}</td></tr>
         </tbody>
@@ -955,6 +996,116 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       ${entradasRepetidas ? `<p class="sub" style="margin:8px 0 0">${entradasRepetidas === 1 ? "Uma entrada lançada pelo site já estava" : `${entradasRepetidas} entradas lançadas pelo site já estavam`} no projeto Financeiro e não contou de novo.</p>` : ""}
       ${!cx.entradas.length ? `<div class="note"><b>Nenhuma entrada em ${esc(m.rotulo)}.</b> ${aoLancarEntrada ? "Lance o salário ou outro recebimento pelo botão Lançar entrada." : "As receitas entram pelo projeto Financeiro."}</div>` : ""}
       ${cx.entradas.some(e => e.r && e.r.origem === "site" && e.r.id && !e.r.recebimento) ? '<div class="note"><b>Como é cada recebimento?</b> Escolha em cada entrada se você trabalha o mês e recebe depois (como o salário) ou recebe antes e usa no mês (como o ticket). Com isso, o painel prevê os próximos meses.</div>' : ""}`;
+  }
+
+
+  // ---------- Janela das entradas e das saídas do mês (dois cliques no grupo do balanço ou "abrir e editar") ----------
+  // Lista tudo o que entra (ou sai) no mês, com a situação de cada um e os botões para dar como recebida, pagar,
+  // editar, classificar e apagar. Fica aberta e se redesenha depois de cada mudança.
+  let MOV = null; // {tipo: "entradas" | "saidas", chave, filtro}
+  let MOV_ITENS = [];
+  const MOV_FILTROS = {entradas: [["todas", "Todas"], ["realizado", "Recebidas"], ["previsto", "Previstas"]], saidas: [["todas", "Todas"], ["realizado", "Pagas"], ["previsto", "A pagar e previstas"]]};
+  function abrirMov(tipo, secao = null) {
+    const dlg = $id("dlg-mov");
+    if (!dlg || !atual) return;
+    MOV = {tipo, chave: atual.chave, filtro: MOV && MOV.tipo === tipo && MOV.chave === atual.chave ? MOV.filtro : "todas"};
+    seguro(null, renderMov);
+    if (!dlg.open) dlg.showModal();
+    const alvo = secao && dlg.querySelector(`[data-mov-secao="${secao}"]`);
+    if (alvo) alvo.scrollIntoView({block: "start"});
+  }
+  const chipSt = (t, c) => `<span class="chip ${c} mov-st">${t}</span>`;
+  const botaoMov = (acao, i, texto, classe = "btn sec mini") => `<button type="button" class="${classe}" data-mov-acao="${acao}" data-i="${i}">${texto}</button>`;
+  function linhaMovEntrada(e, m) {
+    const i = MOV_ITENS.push({tipo: "entrada", e}) - 1;
+    const r = e.r || {};
+    const site = r.origem === "site" && r.id && !e.prevista;
+    const quem = e.prevista ? "repete todo mês (prevista pela última)" : site ? "lançada no site" : /estimativa/i.test(r.obs || "") ? "estimativa do projeto Financeiro" : r.origem ? "do projeto Financeiro" : "previsão do mês";
+    const detalhes = [r.fonte === "Empresa" || (r.bruto != null && (r.descontos || []).length) ? "salário" : "outro recebimento", RECEBIMENTO[r.recebimento] || "", e.ref ? `trabalho de ${rotuloDe(e.ref)}` : "",
+      r.conta && r.conta !== "pessoal" ? nomeDaConta(r.conta) : "", quem].filter(Boolean);
+    const holerite = r.bruto != null || (r.descontos || []).length ? `<div class="sub">${r.bruto != null ? `Bruto ${brl(r.bruto)}` : ""}${(r.descontos || []).map(d => ` − ${esc(d.nome)} ${brl(d.valor)}`).join("")}</div>` : "";
+    const acoes = [
+      recebivel(e, m.chave) ? botaoMov("receber", i, e.data && e.data > hojeIso && m.chave === hojeKey ? "✓ Recebida hoje" : "✓ Recebida", "btn mini") : "",
+      aoEditarEntrada && site ? botaoMov("editar-ent", i, "Editar") : aoEditarEntrada && e.r && e.st === "previsto" && m.chave <= hojeKey ? botaoMov("editar-ent", i, "Mudar e confirmar") : "",
+      aoApagarEntrada && site ? botaoMov("apagar-ent", i, "Apagar", "btn-link") : "",
+    ].join("");
+    return `<tr class="${e.st === "previsto" ? "mov-prev" : ""}"><td class="num">${e.data ? dBR(e.data) : "—"}</td>
+      <td>${esc(e.desc)}<div class="sub">${esc(detalhes.join(" · "))}</div>${holerite}${r.obs && !/estimativa/i.test(r.obs) ? `<div class="compl">${esc(r.obs)}</div>` : ""}</td>
+      <td>${e.st === "realizado" ? chipSt("Recebida", "ok") : chipSt("Prevista", "warn")}</td>
+      <td class="r num">${n(e.valor)}</td><td class="mov-acoes-td"><div class="mov-acoes">${acoes || (e.st === "previsto" && m.chave > hojeKey ? '<span class="muted">mês ainda não começou</span>' : "")}</div></td></tr>`;
+  }
+  function linhaMovSaida(s, m) {
+    const i = MOV_ITENS.push({tipo: "saida", s}) - 1;
+    const l = s.l || null;
+    let sub = "", st = s.st === "realizado" ? chipSt(s.tipo === "investimento" ? "Aplicado" : "Pago", "ok") : chipSt("Previsto", "neutral");
+    const acoes = [];
+    if (s.tipo === "fatura") {
+      const f = s.fatura, per = (FATURAS.get(f.rotulo) || {}).periodo;
+      sub = [f.situacao === "fechada" ? (per && per.inicio ? `fechada, compras de ${dBR(per.inicio)} a ${dBR(per.fim)}` : "fechada") : f.situacao === "aberta" ? "aberta, valor até agora" : "prevista: parcelas, compras e fixos",
+        f.venc ? (s.st === "realizado" ? `paga em ${dBR(f.venc)}` : `vence em ${dBR(f.venc)}`) : ""].filter(Boolean).join(" · ");
+      if (s.st !== "realizado") st = chipSt(f.situacao === "fechada" ? "A vencer" : "Prevista", "warn");
+      acoes.push(botaoMov("ver-fatura", i, "Ver lançamentos"));
+    } else if (l) {
+      const e = ef(l);
+      sub = [e.partes ? `dividido: ${textoPartes(e, l.valor)}` : `${e.categoria}${e.subcategoria ? ` › ${e.subcategoria}` : ""}`, s.forma || l.forma || "", e.conta !== "pessoal" ? nomeDaConta(e.conta) : ""].filter(Boolean).map(esc).join(" · ");
+      if (s.aPagar) st = chipSt("A pagar", "warn");
+      if (s.aPagar && aoPagarGasto) acoes.push(botaoMov("pagar", i, "Pagar", "btn mini"));
+      if (l.origem === "site" && aoEditarGasto) acoes.push(botaoMov("editar-gasto", i, "Editar"));
+      else if (aoClassificar && !ehAjuste(l)) acoes.push(botaoMov("classificar", i, e.pendente ? "Classificar" : "Editar a categoria"));
+    } else if (s.tipo === "fixo") {
+      const r = s.r || {};
+      sub = [r.site ? "recorrente do site" : "fixo do projeto Financeiro", r.dia ? `dia ${r.dia}` : "", r.categoria || "", r.forma || ""].filter(Boolean).map(esc).join(" · ");
+      st = chipSt(s.st === "realizado" ? "Não pago" : "Pendente", "warn");
+      if (aoPagarRecorrente && !r.variavel && r.valor != null) acoes.push(botaoMov("rec-pagar", i, "Marcar pago", "btn mini"));
+      if (aoEditarRecorrente) acoes.push(botaoMov("rec-editar", i, "Editar"));
+    } else if (s.tipo === "investimento") {
+      sub = s.meta ? "previsão de investimento do mês (Cadastros)" : "";
+      if (s.meta && aoEditarMetas) acoes.push(botaoMov("metas", i, "Alterar a previsão"));
+    }
+    return `<tr class="${s.st === "previsto" || s.aPagar ? "mov-prev" : ""}"><td class="num">${s.data ? dBR(s.data) : "—"}</td>
+      <td>${esc(s.desc)}${l && ef(l).complemento ? `<div class="compl">${esc(ef(l).complemento)}</div>` : ""}<div class="sub">${sub}</div></td>
+      <td>${st}</td><td class="r num">${n(s.valor)}</td><td class="mov-acoes-td"><div class="mov-acoes">${acoes.join("")}</div></td></tr>`;
+  }
+  function renderMov() {
+    const dlg = $id("dlg-mov");
+    if (!dlg || !MOV) return;
+    const m = D.meses.find(x => x.chave === MOV.chave) || atual;
+    const cx = caixa(m.chave);
+    MOV_ITENS = [];
+    const entradas = MOV.tipo === "entradas";
+    const passa = x => MOV.filtro === "todas" || (MOV.filtro === "previsto" ? x.st === "previsto" || x.aPagar : x.st === "realizado" && !x.aPagar);
+    const tot = entradas ? cx.ent : cx.sai;
+    const kpi = (t, v, sub) => `<div class="mov-kpi"><span class="label">${t}</span><b class="num">${brl(v)}</b>${sub ? `<span class="sub">${sub}</span>` : ""}</div>`;
+    const cab = `<thead><tr><th>Data</th><th>${entradas ? "Entrada" : "Saída"}</th><th>Situação</th><th class="r">Valor</th><th><span class="vh">Ações</span></th></tr></thead>`;
+    let corpo;
+    if (entradas) {
+      const lista = cx.entradas.filter(passa).sort((a, b) => String(a.data || "9").localeCompare(String(b.data || "9")));
+      corpo = lista.length ? `<div class="scroll"><table class="mov-tabela">${cab}<tbody>${lista.map(e => linhaMovEntrada(e, m)).join("")}</tbody></table></div>`
+        : `<p class="muted">${cx.entradas.length ? "Nenhuma entrada com esse filtro." : `Nenhuma entrada em ${esc(m.rotulo)}.`}</p>`;
+    } else {
+      const secoes = [["fatura", "Fatura do cartão"], ["dia", "Pix, débito e dinheiro"], ["fixo", "Fixos fora do cartão"], ["investimento", "Investimento"]];
+      corpo = secoes.map(([t, nome]) => {
+        const doTipo = cx.saidas.filter(x => x.tipo === t);
+        const lista = doTipo.filter(passa).sort((a, b) => String(a.data || "9").localeCompare(String(b.data || "9")));
+        if (!doTipo.length) return "";
+        return `<div class="mov-secao" data-mov-secao="${t}"><h3>${nome} <span class="num">${brl(sum(doTipo, x => x.valor))}</span></h3>
+          ${lista.length ? `<div class="scroll"><table class="mov-tabela">${cab}<tbody>${lista.map(x => linhaMovSaida(x, m)).join("")}</tbody></table></div>` : '<p class="muted">Nada com esse filtro.</p>'}</div>`;
+      }).join("") || `<p class="muted">Nenhuma saída em ${esc(m.rotulo)}.</p>`;
+    }
+    const filtros = MOV_FILTROS[MOV.tipo].map(([k, t]) => `<button type="button" class="pilula" data-mov-filtro="${k}" aria-pressed="${MOV.filtro === k}">${t}</button>`).join("");
+    const lancar = entradas ? (aoLancarEntrada ? '<button type="button" class="btn btn-claro esquerda" data-mov-lancar>Lançar entrada</button>' : "")
+      : (aoLancarGasto ? '<button type="button" class="btn btn-claro esquerda" data-mov-lancar>Lançar gasto ou Pix</button>' : "");
+    const previstasAgora = entradas ? cx.entradas.filter(e => recebivel(e, m.chave)).length : 0;
+    dlg.innerHTML = `
+      <div class="dlg-cab"><h2 id="titulo-mov">${entradas ? "Entradas" : "Saídas"} de ${esc(m.rotulo)}</h2><button class="btn-link" type="button" data-fechar>Fechar</button></div>
+      <div class="dlg-corpo">
+        <div class="mov-kpis">${kpi(entradas ? "Recebido" : "Pago", tot.realizado)}${kpi(entradas ? "Previsto" : "A pagar e previsto", tot.previsto)}${kpi("Total do mês", tot.realizado + tot.previsto)}</div>
+        <div class="mov-filtros" role="group" aria-label="Filtrar">${filtros}</div>
+        ${previstasAgora ? `<p class="dica" style="margin:0">${previstasAgora === 1 ? "Uma entrada prevista já pode ser dada como recebida" : `${previstasAgora} entradas previstas já podem ser dadas como recebidas`}: use <b>✓ Recebida</b> (com o valor previsto) ou <b>Mudar e confirmar</b> (para corrigir o valor ou a data).</p>` : ""}
+        ${corpo}
+      </div>
+      <div class="dlg-rodape">${lancar}<button class="btn btn-claro" type="button" data-fechar>Fechar</button></div>`;
+    dlg.setAttribute("aria-labelledby", "titulo-mov");
   }
 
   // ---------- Visão geral: gastos do mês (pela data da compra, parcelas no mês da fatura) ----------
@@ -970,7 +1121,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     return `<button type="button" class="btn-link gm-editar" data-${attr}="${lista.length - 1}" aria-label="Editar a categoria e a observação de ${esc(i.desc)}">Editar</button>`;
   };
   const obsDe = i => { const c = i.ref ? ef(i.ref).complemento : null; return c ? `<span class="compl">${esc(c)}</span>` : ""; };
-  const itemGasto = i => `<li${i.ref && GM_FOCO && i.ref.chave === GM_FOCO ? ' class="gm-destaque"' : ""}><span>${esc(i.desc)}<span class="sub"> · ${[i.data && !i.parcela ? dBR(i.data) : "", esc(i.grupo), i.parcela ? `parcela ${esc(i.parcela)}` : ""].filter(Boolean).join(" · ")}</span>${obsDe(i)}</span><span class="gm-valor"><span class="num">${n(i.valor)}</span>${editarItem(i, GM_ITENS, "classificar-gm")}</span></li>`;
+  const itemGasto = i => `<li${i.ref && GM_FOCO && i.ref.chave === GM_FOCO ? ' class="gm-destaque"' : ""}><span>${esc(i.desc)}${i.parte ? ` <span class="chip neutral" title="Lançamento dividido em categorias">parte ${esc(i.parte)}</span>` : ""}<span class="sub"> · ${[i.data && !i.parcela ? dBR(i.data) : "", esc(i.grupo), i.parcela ? `parcela ${esc(i.parcela)}` : ""].filter(Boolean).join(" · ")}</span>${obsDe(i)}</span><span class="gm-valor"><span class="num">${n(i.valor)}</span>${editarItem(i, GM_ITENS, "classificar-gm")}</span></li>`;
   function categoriaExpansivel(cat, total, itens, pct, maxc) {
     const subs = new Map();
     itens.forEach(i => { const k = i.sub || ""; const o = subs.get(k) || {v: 0, itens: []}; o.v += i.valor; o.itens.push(i); subs.set(k, o); });
@@ -1179,15 +1330,16 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   // Essencial, não essencial e sem classificação (o ajuste "não detalhado" fica à parte)
   function divisaoEssencial(L) {
     const det = L.filter(l => !ehAjuste(l));
-    const ess = sum(det.filter(l => ef(l).essencial === true), l => l.valor);
-    const nEss = sum(det.filter(l => ef(l).essencial === false), l => l.valor);
+    const ps = det.flatMap(partesL);
+    const ess = sum(ps.filter(p => p.essencial === true), p => p.valor);
+    const nEss = sum(ps.filter(p => p.essencial === false), p => p.valor);
     return [[ess, "var(--parc)", "Essencial"], [nEss, "var(--inv)", "Não essencial"], [sum(det, l => l.valor) - ess - nEss, "var(--line)", "Sem classificação"],
       [sum(L.filter(ehAjuste), l => l.valor), "var(--muted)", "Não detalhado"]].filter(s => s[0] > 0.004);
   }
   // Total por conta (pessoal, engenharia, empresas), só quando há lançamento fora da conta pessoal
   function porConta(L) {
     const t = {};
-    L.forEach(l => { const c = unificada(ef(l).conta); t[c] = (t[c] || 0) + l.valor; });
+    L.forEach(l => partesL(l).forEach(p => { const c = unificada(p.conta); t[c] = (t[c] || 0) + p.valor; }));
     return Object.keys(t).some(c => c !== "pessoal") ? Object.entries(t).sort((a, b) => (a[0] === "pessoal" ? -1 : b[0] === "pessoal" ? 1 : b[1] - a[1])) : [];
   }
   function opcoes(sel, valores, rotuloTodos) {
@@ -1225,11 +1377,12 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     // Por categoria, com as subcategorias (o ajuste não detalhado fica por último)
     const porCat = {};
     L.forEach(l => {
-      const k = catDe(l);
-      const o = (porCat[k] ||= {v: 0, q: 0, subs: {}});
-      o.v += l.valor; o.q++;
-      const s = !ehAjuste(l) && ef(l).subcategoria;
-      if (s) o.subs[s] = (o.subs[s] || 0) + l.valor;
+      if (ehAjuste(l)) { const o = (porCat[catDe(l)] ||= {v: 0, q: 0, subs: {}}); o.v += l.valor; o.q++; return; }
+      partesL(l).forEach(p => {
+        const o = (porCat[p.categoria] ||= {v: 0, q: 0, subs: {}});
+        o.v += p.valor; o.q++;
+        if (p.subcategoria) o.subs[p.subcategoria] = (o.subs[p.subcategoria] || 0) + p.valor;
+      });
     });
     const ultimo = k => (k.startsWith("Não detalhado") ? 1 : 0);
     const cats = Object.entries(porCat).sort((a, b) => ultimo(a[0]) - ultimo(b[0]) || b[1].v - a[1].v);
@@ -1269,7 +1422,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     opcoes($id("g-fcat"), Object.keys(porCat).sort(), "Todas");
     opcoes($id("g-fforma"), Object.keys(porForma).sort(), "Todas");
     const fConta = $id("g-fconta");
-    const contasMes = [...new Set(L.map(l => unificada(ef(l).conta)))];
+    const contasMes = [...new Set(L.flatMap(l => partesL(l).map(p => unificada(p.conta))))];
     fConta.closest("label").hidden = !contasMes.some(c => c !== "pessoal");
     opcoesComRotulo(fConta, contasMes.map(c => [c, nomeDaConta(c)]), "Todas");
     const fConf = $id("g-fconf");
@@ -1343,8 +1496,9 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const fc = $id("g-fcat").value, ff = $id("g-fforma").value, fco = $id("g-fconta").value, fcf = $id("g-fconf").value, q = semAcento($id("g-busca").value.trim());
     const L = m.lancamentos.filter(l => {
       const e = ef(l);
-      return (!fc || catDe(l) === fc) && (!ff || (l.forma || "Outro") === ff) && (!fco || unificada(e.conta) === fco) && (!fcf || confDe(l) === fcf)
-        && (!q || semAcento(`${l.desc} ${l.obs || ""} ${e.categoria} ${e.subcategoria || ""} ${e.complemento || ""} ${nomeDaConta(e.conta)}`).includes(q));
+      const ps = ehAjuste(l) ? [] : partesL(l);
+      return (!fc || catDe(l) === fc || ps.some(p => p.categoria === fc)) && (!ff || (l.forma || "Outro") === ff) && (!fco || unificada(e.conta) === fco || ps.some(p => unificada(p.conta) === fco)) && (!fcf || confDe(l) === fcf)
+        && (!q || semAcento(`${l.desc} ${l.obs || ""} ${e.categoria} ${e.subcategoria || ""} ${e.complemento || ""} ${nomeDaConta(e.conta)} ${ps.map(p => `${p.categoria} ${p.subcategoria || ""}`).join(" ")}`).includes(q));
     });
     listaGastos = L;
     const indice = new Map(L.map((l, i) => [l, i]));
@@ -1354,7 +1508,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     $id("g-itens").innerHTML = L.length ? datas.map(d => `<div class="dgroup"><div class="dhead"><span>${dBR(d)} · ${diaSemana(d)}</span><span class="num">${brl(sum(porData[d], l => l.valor))}</span></div>
       <table><tbody>${porData[d].map(l => { const e = ef(l); return `<tr${aPagar(l) ? ' class="a-pagar"' : ""}><td>${esc(l.desc)}${ehAjuste(l) ? ' <span class="chip neutral">ajuste</span>' : ""}${e.pendente ? ' <span class="chip bad">a classificar</span>' : ""}${aPagar(l) ? ' <span class="chip warn">a pagar</span>' : ""}${l.origem === "site" ? ' <span class="chip info">lançado no site</span>' : ""}${l.recorrente ? ' <span class="chip neutral">recorrente</span>' : ""}${chipConf(l)}
         ${e.complemento ? `<div class="compl">${esc(e.complemento)}</div>` : ""}
-        <div class="sub">${esc(catDe(l))}${e.subcategoria && !ehAjuste(l) ? ` › ${esc(e.subcategoria)}` : ""} · ${esc(l.forma || "")}${l.parcelas ? ` · parcela ${esc(l.parcelas)}` : ""}${ehAjuste(l) ? "" : rotuloEssencial(e)}${chipConta(e)}${l.obs && !ehAjuste(l) && l.origem !== "site" ? ` · ${esc(l.obs)}` : ""}${confDe(l) === "conferido" ? ` · conferido na fatura ${esc(l.naFatura)}` : ""}</div></td>
+        <div class="sub">${e.partes ? `<span class="chip neutral">dividido</span> ${esc(textoPartes(e, l.valor))}` : `${esc(catDe(l))}${e.subcategoria && !ehAjuste(l) ? ` › ${esc(e.subcategoria)}` : ""}`} · ${esc(l.forma || "")}${l.parcelas ? ` · parcela ${esc(l.parcelas)}` : ""}${ehAjuste(l) ? "" : rotuloEssencial(e)}${chipConta(e)}${l.obs && !ehAjuste(l) && l.origem !== "site" ? ` · ${esc(l.obs)}` : ""}${confDe(l) === "conferido" ? ` · conferido na fatura ${esc(l.naFatura)}` : ""}</div></td>
         <td class="r num">${n(l.valor)}<div class="acoes-lanc">${aPagar(l) && aoPagarGasto ? `<button type="button" class="btn mini" data-pagar-gasto="${esc(l.id)}">Pagar</button>` : ""}${l.origem === "site" && aoEditarGasto ? `<button type="button" class="btn sec mini" data-editar-gasto="${esc(l.id)}">Editar</button>` : ""}${aoClassificar && !ehAjuste(l) && !(l.origem === "site" && aoEditarGasto) ? `<button type="button" class="btn sec mini" data-classificar-g="${indice.get(l)}">Classificar</button>` : ""}${l.origem === "site" && aoApagarGasto && !aoEditarGasto ? `<button type="button" class="btn sec mini" data-apagar-gasto="${esc(l.id)}">Apagar</button>` : ""}</div></td></tr>`; }).join("")}</tbody></table></div>`).join("")
       + `<p class="sub" style="margin:10px 0 0">${L.length} ${L.length === 1 ? "lançamento" : "lançamentos"} · total ${brl(sum(L, l => l.valor))}</p>`
       : `<p class="muted" style="margin:6px 0 0">${m.lancamentos.length ? "Nenhum lançamento com esses filtros." : `Nenhum gasto lançado em ${esc(m.rotulo)}.`}</p>`;
@@ -1459,7 +1613,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const doMes = C.lancamentos.filter(l => l.mes === f.mes);
     // Categorias somadas dos lançamentos com a classificação feita no site (sem lançamentos, as do projeto)
     const somaCat = {};
-    doMes.forEach(l => { const k = ef(l).categoria; somaCat[k] = (somaCat[k] || 0) + l.valor; });
+    doMes.forEach(l => partesL(l).forEach(p => { somaCat[p.categoria] = (somaCat[p.categoria] || 0) + p.valor; }));
     const cats = Object.entries(doMes.length ? somaCat : C.categorias[f.mes] || {}).sort((a, b) => b[1] - a[1]);
     const maxc = Math.max(1, ...cats.map(c => c[1]));
     const segs = divisaoEssencial(doMes), totSegs = sum(segs, s => s[0]);
@@ -1486,7 +1640,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       ${al.length ? `<div class="label" style="margin:16px 0 6px">Pontos de atenção</div>
         <div class="scroll"><table><tbody>${al.map(a => `<tr><td><span class="chip ${prio[a.prioridade] || "neutral"}">${esc(a.prioridade || "")}</span> ${esc(a.tipo || "")}<div class="sub">${esc(a.nome || "")}${a.detalhe ? ` · ${esc(a.detalhe)}` : ""}</div></td><td class="r num">${a.valor != null ? n(a.valor) : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}
       <div class="label" style="margin:16px 0 6px">Maiores lançamentos</div>
-      <div class="scroll"><table><tbody>${top.map(l => { const e = ef(l); return `<tr><td>${esc(l.nome)}${e.complemento ? `<div class="compl">${esc(e.complemento)}</div>` : ""}<div class="sub">${esc(e.categoria)}${e.subcategoria ? ` › ${esc(e.subcategoria)}` : ""}${l.parcela ? ` · parcela ${esc(l.parcela)}` : ""}${l.data ? ` · ${dBR(l.data)}` : ""}</div></td><td class="r num">${n(l.valor)}</td></tr>`; }).join("")}</tbody></table></div>
+      <div class="scroll"><table><tbody>${top.map(l => { const e = ef(l); return `<tr><td>${esc(l.nome)}${e.complemento ? `<div class="compl">${esc(e.complemento)}</div>` : ""}<div class="sub">${e.partes ? `dividido: ${esc(textoPartes(e, l.valor))}` : `${esc(e.categoria)}${e.subcategoria ? ` › ${esc(e.subcategoria)}` : ""}`}${l.parcela ? ` · parcela ${esc(l.parcela)}` : ""}${l.data ? ` · ${dBR(l.data)}` : ""}</div></td><td class="r num">${n(l.valor)}</td></tr>`; }).join("")}</tbody></table></div>
       <p class="sub" style="margin:10px 0 0">Os lançamentos completos estão no fim desta página.</p>`;
     box.querySelectorAll("[data-fat]").forEach(b => b.onclick = () => {
       fatSel[QUEM] = b.dataset.fat; renderFaturaAnalise();
@@ -1553,7 +1707,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const antes = selM.value;
     selM.innerHTML = meses.map(mm => `<option value="${esc(mm)}">${esc(mm)}</option>`).join("");
     if (meses.includes(antes)) selM.value = antes; else if (meses.length) selM.value = meses.at(-1);
-    opcoes($id("f-fcat"), [...new Set(T.filter(l => l.mes === selM.value).map(l => ef(l).categoria))].sort(), "Todas");
+    opcoes($id("f-fcat"), [...new Set(T.filter(l => l.mes === selM.value).flatMap(l => partesL(l).map(p => p.categoria)))].sort(), "Todas");
     renderFaturaLista();
   }
 
@@ -1563,14 +1717,15 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const mm = $id("f-fmes").value, fc = $id("f-fcat").value, q = semAcento($id("f-busca").value.trim());
     const L = FC().lancamentos.filter(l => {
       const e = ef(l);
-      return l.mes === mm && (!fc || e.categoria === fc)
-        && (!q || semAcento(`${l.nome} ${l.cidade} ${e.categoria} ${e.subcategoria || ""} ${e.complemento || ""} ${nomeDaConta(e.conta)}`).includes(q));
+      const ps = partesL(l);
+      return l.mes === mm && (!fc || ps.some(p => p.categoria === fc))
+        && (!q || semAcento(`${l.nome} ${l.cidade} ${ps.map(p => `${p.categoria} ${p.subcategoria || ""}`).join(" ")} ${e.complemento || ""} ${nomeDaConta(e.conta)}`).includes(q));
     }).sort((a, b) => (b.data || "").localeCompare(a.data || ""));
     const corta = !fatTodos && !fc && !q && L.length > 30;
     const V = corta ? L.slice(0, 25) : L;
     listaFatura = V;
     $id("f-itens").innerHTML = L.length ? `<div class="scroll"><table><thead><tr><th>Data</th><th>Lançamento</th><th class="r">Valor</th></tr></thead><tbody>${V.map((l, i) => { const e = ef(l); return `<tr><td class="num muted" style="padding-right:10px">${l.data ? dBR(l.data) : ""}</td>
-      <td>${esc(l.nome)}${e.pendente ? ' <span class="chip bad">a classificar</span>' : ""}${e.complemento ? `<div class="compl">${esc(e.complemento)}</div>` : ""}<div class="sub">${esc(e.categoria)}${e.subcategoria ? ` › ${esc(e.subcategoria)}` : ""}${l.cidade ? ` · ${esc(l.cidade)}` : ""}${l.parcela ? ` · parcela ${esc(l.parcela)}` : ""}${l.tipo && l.tipo !== "Nacional" ? ` · ${esc(l.tipo)}` : ""}${rotuloEssencial(e)}${chipConta(e)}</div></td>
+      <td>${esc(l.nome)}${e.pendente ? ' <span class="chip bad">a classificar</span>' : ""}${e.partes ? ' <span class="chip neutral">dividido</span>' : ""}${e.complemento ? `<div class="compl">${esc(e.complemento)}</div>` : ""}<div class="sub">${e.partes ? esc(textoPartes(e, l.valor)) : `${esc(e.categoria)}${e.subcategoria ? ` › ${esc(e.subcategoria)}` : ""}`}${l.cidade ? ` · ${esc(l.cidade)}` : ""}${l.parcela ? ` · parcela ${esc(l.parcela)}` : ""}${l.tipo && l.tipo !== "Nacional" ? ` · ${esc(l.tipo)}` : ""}${rotuloEssencial(e)}${chipConta(e)}</div></td>
       <td class="r num">${n(l.valor)}${aoClassificar ? `<div class="acoes-lanc"><button type="button" class="btn sec mini" data-classificar-f="${i}">Classificar</button></div>` : ""}</td></tr>`; }).join("")}</tbody></table></div>
       ${corta ? `<button type="button" class="btn sec mini" id="f-todos" style="margin-top:10px">Mostrar todos os ${L.length} lançamentos</button>` : ""}
       <p class="sub" style="margin:10px 0 0">${corta ? `Mostrando os 25 mais recentes de ${L.length}` : `${L.length} ${L.length === 1 ? "lançamento" : "lançamentos"}`} · total da seleção ${brl(sum(L, l => l.valor))}</p>`
@@ -1659,10 +1814,28 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       investimento: tipo("investimento"), investimentoNome: INV_NOME || "Investimento", cartao: tipo("fatura"), fatura: rotuloDe(chave),
       fora: tipo("dia"), fixosFora: tipo("fixo"), saldo: cx.saldoMes};
   }
+  // Detalhe do mês para a visão do casal: cada entrada, cada gasto pago no mês (uma linha por parte do lançamento
+  // dividido, com a categoria, a subcategoria, o essencial e a conta) e cada saída do caixa
+  function detalhe(chave) {
+    const cx = caixa(chave);
+    const g = gastosDoMes(chave);
+    const daRef = (i, campo) => (i[campo] !== undefined ? i[campo] : i.ref && !ehAjuste(i.ref) ? ef(i.ref)[campo] : null);
+    return {
+      entradas: cx.entradas.map(e => ({desc: e.desc, valor: e.valor, data: e.data || null, previsto: e.st === "previsto", ref: e.ref || null,
+        conta: (e.r && e.r.conta) || "pessoal", tipo: e.r && (e.r.fonte === "Empresa" || e.r.bruto != null) ? "Salário" : "Outro recebimento",
+        origem: e.prevista ? "repete todo mês" : e.r && e.r.origem === "site" ? "lançada no site" : e.r ? "projeto Financeiro" : "previsão"})),
+      gastos: g.itens.map(i => ({desc: i.desc, valor: i.valor, cat: i.cat, sub: i.sub || null, grupo: i.grupo, data: i.data || null,
+        conta: daRef(i, "conta") || "pessoal", essencial: daRef(i, "essencial"), parte: i.parte || null, parcela: typeof i.parcela === "string" ? i.parcela : null})),
+      saidas: cx.saidas.map(x => ({tipo: x.tipo, desc: x.desc, valor: x.valor, data: x.data || null, previsto: x.st === "previsto" || !!x.aPagar, aPagar: !!x.aPagar, meta: !!x.meta})),
+      fatura: g.fatura ? {rotulo: g.fatura.rotulo, valor: g.fatura.valor, situacao: g.fatura.situacao, venc: g.fatura.venc || null} : null,
+      ent: {...cx.ent}, sai: {...cx.sai}, inicial: cx.inicial, fim: cx.fim, totalGastos: g.total,
+    };
+  }
   // Só os números, sem desenhar nada na página (visão do casal)
   // Gastos lançados no site marcados como a pagar com a data até hoje (vencidos ou para hoje)
   const aPagarVencidos = () => D.meses.flatMap(m => m.lancamentos).filter(l => aPagar(l) && l.data && l.data <= hojeIso);
-  if (somenteCalculo) return {meses: () => D.meses.map(m => ({chave: m.chave, rotulo: m.rotulo})), resumo, investimentos: D.investimentos || null, pendentes, aPagarVencidos};
+  if (somenteCalculo) return {meses: () => D.meses.map(m => ({chave: m.chave, rotulo: m.rotulo})), resumo, detalhe, investimentos: D.investimentos || null, pendentes, aPagarVencidos,
+    metas: {investimento_mensal: INV || 0, investimento_nome: INV_NOME || "", cartao_mensal: META}};
 
   iniciarAbas();
 
@@ -1720,6 +1893,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     seguro("alertas", () => alertas(atual, c));
     seguro("g-termometro", () => renderTermometro(atual));
     seguro("hero", () => renderHero(atual));
+    if (MOV && $id("dlg-mov") && $id("dlg-mov").open) seguro(null, renderMov);
     seguro("gastos-mes", () => renderGastosMes(atual));
     seguro("compras-mes", () => renderComprasMes(atual));
     seguro("comparativo", () => renderComparativo(atual));
@@ -1758,6 +1932,67 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const v = numeroDigitado(f.elements.saldo.value);
     if (!Number.isFinite(v)) { f.elements.saldo.focus(); return; }
     salvarSaldo(f.dataset.saldoForm, v, f);
+  });
+
+  // Entrada prevista dada como recebida, editar entrada e a janela das entradas e saídas
+  const receberEntrada = (e, chave) => { if (aoReceberEntrada && e) aoReceberEntrada(modeloEntrada(e, chave)); };
+  const editarEntrada = (e, chave) => {
+    if (!aoEditarEntrada || !e) return;
+    const r = e.r || {};
+    if (r.origem === "site" && r.id && !e.prevista) aoEditarEntrada(r.id, null);
+    else aoEditarEntrada(null, modeloEntrada(e, chave).entrada);
+  };
+  $id("hero").addEventListener("click", e => {
+    const rec = e.target.closest("[data-receber-ent]");
+    if (rec) receberEntrada(HERO_ENT[Number(rec.dataset.receberEnt)], atual.chave);
+    const ed = e.target.closest("[data-editar-ent]");
+    if (ed) editarEntrada(HERO_ENT[Number(ed.dataset.editarEnt)], atual.chave);
+    const ab = e.target.closest("[data-abrir-mov]");
+    if (ab) abrirMov(ab.dataset.abrirMov === "investimento" ? "saidas" : ab.dataset.abrirMov, ab.dataset.abrirMov === "investimento" ? "investimento" : null);
+  });
+  // Dois cliques numa linha do balanço abrem a janela do grupo (menos nos campos e botões da linha)
+  $id("hero").addEventListener("dblclick", e => {
+    if (e.target.closest("button, a, input, select, label, summary, form")) return;
+    const tr = e.target.closest("[data-mov]");
+    if (!tr) return;
+    const g = tr.dataset.mov;
+    window.getSelection && window.getSelection().removeAllRanges();
+    abrirMov(g === "investimento" ? "saidas" : g, g === "investimento" ? "investimento" : null);
+  });
+  $id("g-termometro").addEventListener("click", e => { const b = e.target.closest("[data-abrir-mov]"); if (b) abrirMov(b.dataset.abrirMov); });
+  const DLG_MOV = $id("dlg-mov");
+  if (DLG_MOV) DLG_MOV.addEventListener("click", e => {
+    const f = e.target.closest("[data-mov-filtro]");
+    if (f && MOV) { MOV.filtro = f.dataset.movFiltro; seguro(null, renderMov); const nb = DLG_MOV.querySelector(`[data-mov-filtro="${f.dataset.movFiltro}"]`); if (nb) nb.focus(); return; }
+    if (e.target.closest("[data-mov-lancar]")) { if (MOV.tipo === "entradas" ? aoLancarEntrada : aoLancarGasto) (MOV.tipo === "entradas" ? aoLancarEntrada : aoLancarGasto)(); return; }
+    const b = e.target.closest("[data-mov-acao]");
+    if (!b) return;
+    const it = MOV_ITENS[Number(b.dataset.i)];
+    if (!it) return;
+    const chave = MOV.chave, acao = b.dataset.movAcao;
+    if (it.tipo === "entrada") {
+      const r = it.e.r || {};
+      if (acao === "receber") receberEntrada(it.e, chave);
+      else if (acao === "editar-ent") editarEntrada(it.e, chave);
+      else if (acao === "apagar-ent" && aoApagarEntrada) aoApagarEntrada(r.id);
+      return;
+    }
+    const s = it.s;
+    if (acao === "ver-fatura") { DLG_MOV.close(); irPara("cartao", true); return; }
+    if (acao === "pagar" && aoPagarGasto) aoPagarGasto(s.l.id);
+    else if (acao === "editar-gasto" && aoEditarGasto) aoEditarGasto(s.l.id);
+    else if (acao === "classificar" && aoClassificar) aoClassificar(paraClassificar(s.l, "gasto"));
+    else if (acao === "metas" && aoEditarMetas) aoEditarMetas();
+    else if (acao === "rec-pagar" && aoPagarRecorrente) {
+      const r = s.r;
+      aoPagarRecorrente({chave: `${r.chave}|${chave}`, nome: r.nome, valor: r.valor, data: dataDoPagamento(r, chave), forma: r.formaSite || formaDoProjeto(r.forma),
+        categoria: r.categoria || null, subcategoria: r.subcategoria || null, conta: r.conta || null, mes: chave, rotulo: rotuloDe(chave)});
+    } else if (acao === "rec-editar" && aoEditarRecorrente) {
+      const r = s.r;
+      if (r.site) aoEditarRecorrente(r.id);
+      else aoEditarRecorrente(null, {chave: r.chave, nome: r.nome, valor: r.valor, dia: r.dia || null, forma: formaDoProjeto(r.forma),
+        categoria: r.categoria || null, subcategoria: r.subcategoria || null, busca: r.busca || [], variavel: !!r.variavel});
+    }
   });
 
   // Pagamentos recorrentes: marcar e desmarcar como pago, valor do mês, editar e novo

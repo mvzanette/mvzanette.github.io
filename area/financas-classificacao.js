@@ -211,9 +211,24 @@ export function chavesFatura(lancamentos, prefixo = "c") {
   });
 }
 
+// Lançamento dividido em mais de uma categoria (ex.: uma compra no Mercado Livre com um item da casa e um pessoal):
+// as partes, cada uma com o valor, a categoria, a subcategoria e a conta. Ficam no ajuste (lançamentos do projeto
+// e das faturas) ou no próprio gasto lançado pelo site. Precisa de pelo menos duas partes, todas com valor e categoria.
+export function partesValidas(lista) {
+  if (!Array.isArray(lista) || lista.length < 2 || lista.length > 8) return null;
+  const ps = lista.map((p) => ({
+    valor: Math.round(Number(p && p.valor) * 100) / 100,
+    categoria: String((p && p.categoria) || "").trim().slice(0, 60),
+    subcategoria: String((p && p.subcategoria) || "").trim().slice(0, 60) || null,
+    conta: contaValida(p && p.conta) ? p.conta : null,
+  }));
+  return ps.some((p) => !(p.valor > 0) || semClassificacao(p.categoria)) ? null : ps;
+}
+
 // Valores que valem para o lançamento: o ajuste feito no site (se houver) sobre o que veio do projeto.
 // Essencial: o ajuste, depois o que veio do projeto, depois o padrão da categoria.
 // pendente: sem categoria (ou em Outros, fora do ajuste), fica "A classificar"
+// partes: o lançamento dividido em categorias (a categoria do lançamento passa a ser a da maior parte)
 export function efetivo(l, ajuste, cats) {
   const a = ajuste || {};
   const site = l.origem === "site";
@@ -226,7 +241,7 @@ export function efetivo(l, ajuste, cats) {
   const c = categoriaDe(cats, categoria) || {};
   const padrao = (subcategoria && c.essSub && c.essSub[subcategoria] != null ? c.essSub[subcategoria] : c.essencial) ?? null;
   const doProjeto = simNao(l.essencial);
-  return {
+  const base = {
     categoria,
     subcategoria,
     essencial: simNao(a.essencial) ?? doProjeto ?? padrao,
@@ -236,8 +251,36 @@ export function efetivo(l, ajuste, cats) {
     conta: a.conta || l.conta || "pessoal",
     ajustado: !!ajuste,
     pendente,
+    partes: null,
   };
+  const ps = ehAjuste(l) ? null : partesValidas(a.partes || (site ? l.partes : null));
+  if (!ps) return base;
+  const total = ps.reduce((t, p) => t + p.valor, 0);
+  const partes = ps.map((p) => {
+    const cat = renomear(cats, p.categoria);
+    const cc = categoriaDe(cats, cat) || {};
+    const ess = (p.subcategoria && cc.essSub && cc.essSub[p.subcategoria] != null ? cc.essSub[p.subcategoria] : cc.essencial) ?? null;
+    return { valor: p.valor, fracao: p.valor / total, categoria: cat, subcategoria: p.subcategoria, conta: p.conta || base.conta, essencial: ess };
+  });
+  const maior = partes.reduce((x, p) => (p.valor > x.valor ? p : x), partes[0]);
+  return { ...base, categoria: maior.categoria, subcategoria: maior.subcategoria, pendente: false, partes };
 }
+
+// Partes de um lançamento com o valor dado (a parcela do mês ou o total da compra), na proporção da divisão; sem
+// divisão, uma parte só com a classificação do lançamento. Os centavos que sobram do arredondamento vão na última.
+export function partesDe(e, valor) {
+  const v = Number(valor) || 0;
+  if (!e || !e.partes) return [{ valor: v, categoria: e ? e.categoria : A_CLASSIFICAR, subcategoria: e ? e.subcategoria : null, conta: e ? e.conta : "pessoal", essencial: e ? e.essencial : null, k: 0, n: 1 }];
+  let resto = Math.round(v * 100);
+  return e.partes.map((p, i, todas) => {
+    const c = i === todas.length - 1 ? resto : Math.round(v * p.fracao * 100);
+    resto -= c;
+    return { valor: c / 100, categoria: p.categoria, subcategoria: p.subcategoria, conta: p.conta, essencial: p.essencial, k: i, n: todas.length };
+  });
+}
+
+// Texto curto da divisão: "Casa 120,00 + Itens pessoais 80,00"
+export const textoPartes = (e, valor) => partesDe(e, valor).map((p) => `${p.categoria}${p.subcategoria ? ` › ${p.subcategoria}` : ""} ${p.valor.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`).join(" + ");
 
 // Lançamentos das finanças pessoais marcados com uma conta (ex.: pagos com o seu dinheiro para uma empresa),
 // para as páginas da engenharia e das empresas. A compra no cartão que também está nos gastos do dia a dia
@@ -248,13 +291,17 @@ export function lancamentosDaConta({ dados, gastos = [], ajustes = [], prefs = n
   const cats = lerCategorias(prefs, d);
   const aj = new Map(ajustes.map((a) => [a.chave, a]));
   const lista = [];
+  // O lançamento dividido entra com a parte (ou as partes) da conta; o valor inteiro fica em valorTotal
+  const daConta = (e, valor) => partesDe(e, valor).filter((p) => alvo.has(p.conta));
+  const juntar = (ps) => ({ valor: Math.round(ps.reduce((t, p) => t + p.valor, 0) * 100) / 100, categoria: [...new Set(ps.map((p) => p.categoria))].join(" + ") });
   for (const m of d.meses || []) {
     const ls = m.lancamentos || [];
     chavesGastos(ls).forEach((chave, i) => {
       const e = efetivo(ls[i], aj.get(chave), cats);
-      if (alvo.has(e.conta)) {
-        lista.push({ chave, data: ls[i].data, descricao: ls[i].desc, complemento: e.complemento, valor: Number(ls[i].valor),
-          categoria: e.categoria, origem: "Gastos do dia a dia", doDia: true });
+      const ps = daConta(e, Number(ls[i].valor));
+      if (ps.length) {
+        lista.push({ chave, data: ls[i].data, descricao: ls[i].desc, complemento: e.complemento, ...juntar(ps), valorTotal: Number(ls[i].valor),
+          dividido: !!e.partes, origem: "Gastos do dia a dia", doDia: true });
       }
     });
   }
@@ -262,16 +309,20 @@ export function lancamentosDaConta({ dados, gastos = [], ajustes = [], prefs = n
   chavesFatura(fatura, "c").forEach((chave, i) => {
     const l = fatura[i];
     const e = efetivo(l, aj.get(chave), cats);
-    if (!alvo.has(e.conta)) return;
-    if (lista.some((x) => x.doDia && x.data === l.data && Math.abs(x.valor - Number(l.valor)) < 0.01)) return;
-    lista.push({ chave, data: l.data || null, descricao: l.nome, complemento: e.complemento, valor: Number(l.valor),
-      categoria: e.categoria, origem: `Fatura ${l.mes}${l.parcela ? ` · parcela ${l.parcela}` : ""}` });
+    const ps = daConta(e, Number(l.valor));
+    if (!ps.length) return;
+    if (lista.some((x) => x.doDia && x.data === l.data && Math.abs(x.valorTotal - Number(l.valor)) < 0.01)) return;
+    lista.push({ chave, data: l.data || null, descricao: l.nome, complemento: e.complemento, ...juntar(ps), valorTotal: Number(l.valor),
+      dividido: !!e.partes, origem: `Fatura ${l.mes}${l.parcela ? ` · parcela ${l.parcela}` : ""}` });
   });
   for (const g of gastos) {
-    if (!alvo.has(g.conta || "pessoal")) continue;
-    const categoria = renomear(cats, g.categoria || OUTROS);
-    lista.push({ chave: `s|${g.id}`, data: g.data, descricao: g.descricao, complemento: g.observacao, valor: Number(g.valor),
-      categoria: semClassificacao(categoria) ? A_CLASSIFICAR : categoria, origem: g.parcelas > 1 ? `Lançado no site · ${g.parcelas}x` : "Lançado no site" });
+    const e = efetivo({ origem: "site", cat: g.categoria, sub: g.subcategoria, conta: g.conta, obs: g.observacao, partes: g.partes, desc: g.descricao }, null, cats);
+    const ps = daConta(e, Number(g.valor));
+    if (!ps.length) continue;
+    lista.push({ chave: `s|${g.id}`, data: g.data, descricao: g.descricao, complemento: g.observacao, ...juntar(ps), valorTotal: Number(g.valor),
+      dividido: !!e.partes, origem: g.parcelas > 1 ? `Lançado no site · ${g.parcelas}x` : "Lançado no site" });
   }
+  // Dividido: a origem diz de quanto é a parte
+  for (const x of lista) if (x.dividido && Math.abs(x.valor - x.valorTotal) >= 0.01) x.origem += ` · parte de ${x.valorTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`;
   return lista.sort((a, b) => String(b.data || "").localeCompare(String(a.data || "")));
 }

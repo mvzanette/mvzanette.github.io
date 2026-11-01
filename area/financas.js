@@ -14,7 +14,7 @@ import { desenharFinancas } from "./financas-painel.js";
 import { desenharDesejos } from "./financas-desejos.js";
 import { desenharInvestimentosPessoais } from "./financas-investimentos.js";
 import { mostrarCasal } from "./financas-casal.js";
-import { categoriaDe, categoriasEscolhiveis, chavesFatura, chavesGastos, contasDisponiveis, juntarCategorias, lerCategorias, lerContas, normalizarCategoria, semClassificacao } from "./financas-classificacao.js";
+import { categoriaDe, categoriasEscolhiveis, chavesFatura, chavesGastos, contasDisponiveis, juntarCategorias, lerCategorias, lerContas, normalizarCategoria, partesDe, semClassificacao } from "./financas-classificacao.js";
 import { aplicarFatura, herdarClassificacao, historicoDeCategorias, lerFaturaPdf, manterFaturasDoSite, montarFatura } from "./financas-faturas.js";
 import { decodificarExtrato, lerExtrato, MOTIVOS, saidasDoExtrato } from "./financas-extrato.js";
 import { aplicarPrevia, bancoDoCartao, faturaProvavel, lerFaturaParcial, montarPrevia, ordemFatura, rotuloFatura } from "./financas-previa.js";
@@ -156,6 +156,112 @@ function preencherConta(form, atual) {
 }
 const contaEscolhida = (form) => (contas.length > 1 && form.elements.conta.value !== "pessoal" ? form.elements.conta.value : null);
 
+// ---------------------------------------------------------------- dividir um lançamento em categorias
+// Quadro dos formulários de classificar e de lançar ou editar gasto: o lançamento dividido em duas ou mais partes,
+// cada uma com o valor, a categoria, a subcategoria e a conta. A primeira parte fica com o que falta para o total.
+function opcoesCats(atual) {
+  const nomes = categoriasEscolhiveis(cats).map((c) => c.nome);
+  if (atual && !semClassificacao(atual) && !nomes.some((n) => igual(n, atual))) nomes.push(atual);
+  const sel = nomes.find((n) => igual(n, atual || "")) || "";
+  return '<option value="">Escolha…</option>' + nomes.map((n) => `<option value="${esc(n)}"${n === sel ? " selected" : ""}>${esc(n)}</option>`).join("");
+}
+function opcoesSubs(cat, atual) {
+  const subs = [...((categoriaDe(cats, cat || "") || {}).sub || [])];
+  if (atual && !subs.includes(atual)) subs.push(atual);
+  return '<option value="">—</option>' + subs.map((x) => `<option value="${esc(x)}"${x === atual ? " selected" : ""}>${esc(x)}</option>`).join("");
+}
+function opcoesContas(atual) {
+  const lista = [...contas];
+  if (atual && !lista.some((c) => c.id === atual)) lista.push(contasTodas.find((c) => c.id === atual) || { id: atual, nome: "Conta removida" });
+  return lista.map((c) => `<option value="${esc(c.id)}"${c.id === (atual || "pessoal") ? " selected" : ""}>${esc(c.nome)}</option>`).join("");
+}
+const linhaParte = (p = {}) => `<div class="parte-linha">
+    <label>Valor (R$)<input name="parte_valor" inputmode="decimal" autocomplete="off" placeholder="0,00" value="${p.valor > 0 ? valorBR(p.valor) : ""}"></label>
+    <label>Categoria<select name="parte_cat">${opcoesCats(p.categoria)}</select></label>
+    <label>Subcategoria<select name="parte_sub"${p.categoria ? "" : " disabled"}>${opcoesSubs(p.categoria, p.subcategoria)}</select></label>
+    ${contas.length > 1 ? `<label>Conta<select name="parte_conta">${opcoesContas(p.conta)}</select></label>` : ""}
+    <button type="button" class="btn-link" data-tirar-parte>Tirar</button></div>`;
+const quadroDivisao = (form) => form.querySelector("[data-divisao]");
+const totalDivisao = (q) => (typeof q._total === "function" ? q._total() : q._total) || 0;
+// total: o valor do lançamento (ou uma função que lê o campo valor); partes: a divisão que ele já tem
+function montarDivisao(form, { total, partes = null, categoria = "", subcategoria = "", conta = "pessoal" }) {
+  const q = quadroDivisao(form);
+  q._total = total;
+  q._base = { categoria: semClassificacao(categoria) ? "" : categoria, subcategoria, conta: conta || "pessoal" };
+  const lista = Array.isArray(partes) && partes.length >= 2 ? partes : null;
+  form.elements.dividir.checked = !!lista;
+  q.querySelector(".partes").innerHTML = lista ? lista.map(linhaParte).join("") : "";
+  mostrarDivisao(form);
+}
+function mostrarDivisao(form) {
+  const q = quadroDivisao(form);
+  const ligado = form.elements.dividir.checked;
+  q.querySelector(".divisao-corpo").hidden = !ligado;
+  form.querySelectorAll("[data-sem-divisao]").forEach((el) => { el.hidden = ligado; });
+  if (ligado && !q.querySelectorAll(".parte-linha").length) {
+    q.querySelector(".partes").innerHTML = linhaParte({ valor: totalDivisao(q), ...q._base }) + linhaParte({ conta: q._base.conta });
+  }
+  somarDivisao(form);
+}
+const valorParte = (linha) => numeroDigitado(linha.querySelector("[name=parte_valor]").value) || 0;
+// mexida: a parte que mudou; a primeira parte fica com o resto do total
+function somarDivisao(form, mexida = null) {
+  const q = quadroDivisao(form);
+  if (!form.elements.dividir.checked) return;
+  const linhas = [...q.querySelectorAll(".parte-linha")];
+  const t = totalDivisao(q);
+  if (mexida && linhas.length > 1 && mexida !== linhas[0]) {
+    const resto = Math.round((t - linhas.slice(1).reduce((x, l) => x + valorParte(l), 0)) * 100) / 100;
+    linhas[0].querySelector("[name=parte_valor]").value = resto > 0 ? valorBR(resto) : "";
+  }
+  const soma = Math.round(linhas.reduce((x, l) => x + valorParte(l), 0) * 100) / 100;
+  const ok = Math.abs(soma - t) < 0.005;
+  const el = q.querySelector(".divisao-soma");
+  el.textContent = `Soma das partes: ${brl(soma)} de ${brl(t)}${ok ? "" : ` (${soma > t ? "passa" : "faltam"} ${brl(Math.abs(t - soma))})`}`;
+  el.classList.toggle("erro-soma", !ok);
+}
+// Partes escolhidas ({ partes: null } sem divisão) ou { erro } quando falta alguma coisa
+function lerDivisao(form) {
+  if (!form.elements.dividir || !form.elements.dividir.checked) return { partes: null };
+  const q = quadroDivisao(form);
+  const t = totalDivisao(q);
+  const partes = [...q.querySelectorAll(".parte-linha")].map((l) => {
+    const conta = l.querySelector("[name=parte_conta]");
+    return { valor: Math.round(valorParte(l) * 100) / 100, categoria: l.querySelector("[name=parte_cat]").value,
+      subcategoria: l.querySelector("[name=parte_sub]").value || null, conta: conta && conta.value !== "pessoal" ? conta.value : null };
+  });
+  if (partes.length < 2) return { erro: "Para dividir, são pelo menos duas partes." };
+  if (partes.length > 8) return { erro: "Divida em no máximo oito partes." };
+  if (partes.some((p) => !(p.valor > 0))) return { erro: "Cada parte precisa de um valor maior que zero." };
+  if (partes.some((p) => !p.categoria)) return { erro: "Escolha a categoria de cada parte." };
+  const soma = partes.reduce((x, p) => x + p.valor, 0);
+  if (Math.abs(soma - t) >= 0.005) return { erro: `A soma das partes (${brl(soma)}) precisa ser igual ao valor do lançamento (${brl(t)}).` };
+  return { partes, maior: partes.reduce((x, p) => (p.valor > x.valor ? p : x), partes[0]) };
+}
+function prepararDivisao(form) {
+  const q = quadroDivisao(form);
+  form.elements.dividir.addEventListener("change", () => mostrarDivisao(form));
+  q.addEventListener("input", (e) => { if (e.target.name === "parte_valor") somarDivisao(form, e.target.closest(".parte-linha")); });
+  q.addEventListener("change", (e) => {
+    if (e.target.name !== "parte_cat") return;
+    const sub = e.target.closest(".parte-linha").querySelector("[name=parte_sub]");
+    sub.innerHTML = opcoesSubs(e.target.value, "");
+    sub.disabled = !e.target.value;
+  });
+  q.addEventListener("click", (e) => {
+    if (e.target.closest("[data-mais-parte]")) {
+      q.querySelector(".partes").insertAdjacentHTML("beforeend", linhaParte({ conta: q._base && q._base.conta }));
+      q.querySelector(".parte-linha:last-child [name=parte_valor]").focus();
+      somarDivisao(form);
+    }
+    const tirar = e.target.closest("[data-tirar-parte]");
+    if (tirar) {
+      tirar.closest(".parte-linha").remove();
+      somarDivisao(form, q.querySelector(".parte-linha:last-child"));
+    }
+  });
+}
+
 // ---------------------------------------------------------------- gastos lançados pelo site
 // Forma de pagamento do último gasto lançado nesta visita: quem lança vários Pix seguidos não troca toda vez
 const FORMA_DA_VISITA = "mz-fin-forma";
@@ -218,6 +324,8 @@ function abrirLancamento(recorrente = null, gasto = null, { pagar = false } = {}
   $("#btn-apagar-gasto").hidden = !g;
   preencherCategorias(form, g ? g.categoria || "" : pagamento ? pagamento.categoria || "" : "", g ? g.subcategoria || "" : pagamento ? pagamento.subcategoria || "" : "");
   preencherConta(form, (g && g.conta) || (pagamento && pagamento.conta) || "pessoal");
+  montarDivisao(form, { total: () => numeroDigitado(form.elements.valor.value), partes: g ? g.partes : null,
+    categoria: g ? g.categoria || "" : pagamento ? pagamento.categoria || "" : "", subcategoria: g ? g.subcategoria || "" : "", conta: (g && g.conta) || "pessoal" });
   $("#erro-gasto").hidden = true;
   atualizarForma();
   $("#dlg-gasto").showModal();
@@ -304,8 +412,11 @@ async function lancarGasto(e) {
   if (!(valor > 0)) return falha("Informe o valor (ex.: 45,90).");
   if (!form.elements.descricao.value.trim()) return falha("Informe a descrição.");
   if (!form.elements.data.value) return falha("Informe a data.");
-  const { categoria, subcategoria } = lerCategoria(form);
-  if (form.elements.categoria.value === NOVA && !categoria) return falha("Escreva o nome da nova categoria.");
+  const div = lerDivisao(form);
+  if (div.erro) return falha(div.erro);
+  let { categoria, subcategoria } = lerCategoria(form);
+  if (div.partes) ({ categoria, subcategoria } = div.maior); // dividido: a categoria do gasto é a da maior parte
+  else if (form.elements.categoria.value === NOVA && !categoria) return falha("Escreva o nome da nova categoria.");
   const essencial = form.elements.essencial.value;
   const forma = form.elements.forma.value;
   const aPagar = forma !== "cartao" && form.elements.pago.value === "nao";
@@ -335,6 +446,7 @@ async function lancarGasto(e) {
     essencial: essencial === "sim" ? true : essencial === "nao" ? false : null,
     observacao: form.elements.observacao.value,
     recorrente: pagamento ? pagamento.chave : novoRec ? `${novoRec.id}|${mes}` : antigo ? antigo.recorrente || null : null,
+    partes: div.partes,
   };
   const botao = form.querySelector("[type=submit]");
   botao.disabled = true;
@@ -408,9 +520,14 @@ function prepararLancamento() {
   });
   form.elements.data.addEventListener("change", () => { if (form.elements.repete.checked) repetePelaData(); });
   for (const nome of ["rep_inicio", "rep_fim", "rep_parcelas"]) form.elements[nome].addEventListener("input", () => sincronizarTermino(form, TERMINO_GASTO, nome));
-  form.elements.valor.addEventListener("input", () => { if (form.elements.repete.checked) sincronizarTermino(form, TERMINO_GASTO, null); });
+  form.elements.valor.addEventListener("input", () => {
+    if (form.elements.repete.checked) sincronizarTermino(form, TERMINO_GASTO, null);
+    // Dividido: a primeira parte acompanha o valor novo
+    if (form.elements.dividir.checked) somarDivisao(form, form.querySelectorAll("[data-divisao] .parte-linha")[1] || null);
+  });
   $("#campo-pago").addEventListener("change", () => { pagoMexido = true; });
   prepararCategorias(form);
+  prepararDivisao(form);
   form.addEventListener("submit", lancarGasto);
   $("#btn-apagar-gasto").addEventListener("click", async () => {
     if (editandoGasto && (await apagarGasto(editandoGasto.id))) {
@@ -694,9 +811,9 @@ let liquidoDigitado = false; // com o líquido digitado à mão, ele deixa de se
 const formEntrada = () => $("#form-entrada");
 const valorBR = (v) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-const linhaDesconto = (nome = "") => `<div class="desconto-linha">
+const linhaDesconto = (nome = "", valor = null) => `<div class="desconto-linha">
   <input name="desconto_nome" list="nomes-desconto" maxlength="60" autocomplete="off" placeholder="ex.: INSS" aria-label="Nome do desconto" value="${esc(nome)}">
-  <input name="desconto_valor" inputmode="decimal" autocomplete="off" placeholder="0,00" aria-label="Valor do desconto">
+  <input name="desconto_valor" inputmode="decimal" autocomplete="off" placeholder="0,00" aria-label="Valor do desconto" value="${valor > 0 ? valorBR(valor) : ""}">
   <button type="button" class="btn-link" data-tirar-desconto aria-label="Tirar este desconto">Tirar</button></div>`;
 
 function descontosDigitados() {
@@ -742,19 +859,72 @@ function atualizarReferencia(manterEscolha) {
   form.querySelector("[data-campo-referencia]").hidden = recebimento === "avulso";
 }
 
-function abrirEntrada() {
+// Entrada nova, edição de uma entrada lançada (idEntrada) ou confirmação de uma prevista (modelo: os campos dela)
+let editandoEntrada = null; // id da entrada em edição (null: entrada nova)
+function abrirEntrada(idEntrada = null, modelo = null) {
   const form = formEntrada();
   form.reset();
-  form.elements.data.value = hojeISO();
-  // Os descontos mais comuns já vêm com o nome; os que ficarem sem valor não entram
-  $("#descontos-entrada").innerHTML = ["INSS", "IRRF", "Plano de saúde"].map(linhaDesconto).join("");
-  preencherConta(form, "pessoal");
-  liquidoDigitado = false;
+  editandoEntrada = typeof idEntrada === "string" ? idEntrada : null;
+  const base = editandoEntrada ? entradas.find((x) => x.id === editandoEntrada) : modelo && typeof modelo === "object" ? modelo : null;
   $("#erro-entrada").hidden = true;
+  $("#titulo-entrada").textContent = editandoEntrada ? "Editar entrada" : base ? "Confirmar recebimento" : "Lançar entrada";
+  form.querySelector("[type=submit]").textContent = editandoEntrada ? "Salvar" : base ? "Confirmar recebimento" : "Lançar";
+  if (!base) {
+    editandoEntrada = null;
+    form.elements.data.value = hojeISO();
+    // Os descontos mais comuns já vêm com o nome; os que ficarem sem valor não entram
+    $("#descontos-entrada").innerHTML = ["INSS", "IRRF", "Plano de saúde"].map((d) => linhaDesconto(d)).join("");
+    preencherConta(form, "pessoal");
+    liquidoDigitado = false;
+    atualizarTipoEntrada();
+    escolherRecebimento();
+    $("#dlg-entrada").showModal();
+    form.elements.bruto.focus();
+    return;
+  }
+  const salario = base.tipo === "salario";
+  form.elements.tipo.value = salario ? "salario" : "outro";
+  form.elements.descricao.value = base.descricao || "";
+  form.elements.data.value = base.data || hojeISO();
+  form.elements.bruto.value = base.bruto != null ? valorBR(Number(base.bruto)) : "";
+  const descontos = base.descontos || [];
+  $("#descontos-entrada").innerHTML = (descontos.length ? descontos.map((d) => linhaDesconto(d.nome, Number(d.valor))) : ["INSS", "IRRF", "Plano de saúde"].map((d) => linhaDesconto(d))).join("");
+  form.elements.liquido.value = valorBR(Number(base.liquido));
+  liquidoDigitado = true; // o valor que veio fica, até mudar o bruto ou os descontos
+  preencherConta(form, base.conta || "pessoal");
+  form.elements.observacao.value = base.observacao || "";
   atualizarTipoEntrada();
-  escolherRecebimento();
+  form.elements.recebimento.value = base.recebimento || (salario ? "depois" : "avulso");
+  form.elements.repete.checked = !!base.repete;
+  atualizarReferencia(false);
+  const sel = form.elements.referencia;
+  if (base.referencia) {
+    if (![...sel.options].some((o) => o.value === base.referencia)) sel.insertAdjacentHTML("afterbegin", `<option value="${esc(base.referencia)}">${rotuloMes(base.referencia)}</option>`);
+    sel.value = base.referencia;
+  }
   $("#dlg-entrada").showModal();
-  form.elements.bruto.focus();
+  form.elements.liquido.focus();
+}
+
+// Entrada prevista dada como recebida (botão ✓ Recebida): a lançada no site muda só a data; a que repete todo mês ou
+// a estimativa vira uma entrada nova, com o valor previsto
+async function receberEntrada({ id, entrada }) {
+  try {
+    let salvo;
+    if (id) {
+      const atual = entradas.find((x) => x.id === id);
+      if (!atual) return;
+      salvo = await armazem.financas.editarEntrada(id, { ...atual, data: entrada.data });
+      entradas = entradas.map((x) => (x.id === id ? salvo : x));
+    } else {
+      salvo = await armazem.financas.salvarEntrada({ perfil_id: dono.id, ...entrada });
+      entradas.push(salvo);
+    }
+    painel.atualizarEntradas(entradas);
+    avisar(`${salvo.descricao}: ${brl(salvo.liquido)} recebido em ${dataBR(salvo.data)}.`);
+  } catch (err) {
+    avisar("Não foi possível dar como recebida: " + err.message);
+  }
 }
 
 async function lancarEntrada(e) {
@@ -777,8 +947,9 @@ async function lancarEntrada(e) {
   const bruto = salario ? numeroDigitado(form.elements.bruto.value) : null;
   const botao = form.querySelector("[type=submit]");
   botao.disabled = true;
+  const confirmando = !editandoEntrada && $("#titulo-entrada").textContent === "Confirmar recebimento";
   try {
-    const salvo = await armazem.financas.salvarEntrada({
+    const campos = {
       perfil_id: dono.id,
       data: form.elements.data.value,
       tipo: salario ? "salario" : "outro",
@@ -791,17 +962,22 @@ async function lancarEntrada(e) {
       recebimento: form.elements.recebimento.value || null,
       referencia: form.elements.recebimento.value === "avulso" ? null : form.elements.referencia.value,
       repete: form.elements.repete.checked,
-    });
-    entradas.push(salvo);
+    };
+    const editada = editandoEntrada;
+    const salvo = editada ? await armazem.financas.editarEntrada(editada, campos) : await armazem.financas.salvarEntrada(campos);
+    entradas = editada ? entradas.map((x) => (x.id === editada ? salvo : x)) : [...entradas, salvo];
+    editandoEntrada = null;
     painel.atualizarEntradas(entradas);
     // A entrada conta no mês da data em que entrou: a visão geral vai para esse mês
     const mesEntrou = salvo.data.slice(0, 7);
     painel.mostrarMes(mesEntrou);
     $("#dlg-entrada").close();
     const trabalho = salvo.referencia && salvo.referencia !== mesEntrou ? ` (trabalho de ${rotuloMes(salvo.referencia)})` : "";
-    avisar(`${salario ? "Salário lançado" : "Entrada lançada"}: ${brl(salvo.liquido)} no caixa de ${rotuloMes(mesEntrou)}${trabalho}.`);
+    avisar(editada ? `Entrada atualizada: ${brl(salvo.liquido)} em ${dataBR(salvo.data)}.`
+      : confirmando ? `${salvo.descricao}: ${brl(salvo.liquido)} recebido em ${dataBR(salvo.data)}.`
+      : `${salario ? "Salário lançado" : "Entrada lançada"}: ${brl(salvo.liquido)} no caixa de ${rotuloMes(mesEntrou)}${trabalho}.`);
   } catch (err) {
-    falha("Não foi possível lançar: " + err.message);
+    falha((editandoEntrada ? "Não foi possível salvar: " : "Não foi possível lançar: ") + err.message);
   } finally {
     botao.disabled = false;
   }
@@ -878,7 +1054,7 @@ function prepararEntrada() {
     calcularLiquido();
   });
   form.addEventListener("submit", lancarEntrada);
-  $("#btn-entrada-topo").addEventListener("click", abrirEntrada);
+  $("#btn-entrada-topo").addEventListener("click", () => abrirEntrada());
 }
 
 // ---------------------------------------------------------------- classificar um lançamento
@@ -913,6 +1089,8 @@ function abrirClassificacao(item) {
   form.elements.essencial.value = escolhido === true ? "sim" : escolhido === false ? "nao" : "";
   atualizarPadraoEssencial();
   preencherConta(form, a.conta);
+  montarDivisao(form, { total: Number(item.valor) || 0, partes: a.partes ? partesDe(a, Number(item.valor) || 0) : null,
+    categoria: a.categoria, subcategoria: a.subcategoria, conta: a.conta });
   form.elements.complemento.value = a.complemento || "";
   $("#dica-classificar").hidden = item.site;
   $("#btn-desfazer-classificacao").hidden = item.site || !item.ajuste;
@@ -923,20 +1101,22 @@ function abrirClassificacao(item) {
 // Grava a classificação de um lançamento e do seu par (a compra da fatura e o gasto do dia a dia conferido com ela
 // são o mesmo lançamento). No gasto lançado pelo site, grava no próprio gasto; nos outros, só o que muda em relação
 // ao que veio do projeto ou da fatura. redesenhar: false para gravar vários e redesenhar o painel uma vez no fim.
-async function gravarClassificacao(item, { categoria, subcategoria, essencial, conta, complemento }, { redesenhar = true } = {}) {
+// partes: a divisão em categorias (null tira a divisão; sem o campo, a divisão que houver continua)
+async function gravarClassificacao(item, { categoria, subcategoria, essencial, conta, complemento, partes }, { redesenhar = true } = {}) {
   await guardarNaLista(categoria, subcategoria);
+  const comPartes = partes !== undefined ? { partes } : {};
   let mexeuGastos = false;
   for (const alvo of [item, ...(item.par ? [item.par] : [])]) {
     if (alvo.site) {
-      const salvo = await armazem.financas.atualizarGasto(alvo.id, { categoria, subcategoria, essencial, observacao: complemento, conta });
+      const salvo = await armazem.financas.atualizarGasto(alvo.id, { categoria, subcategoria, essencial, observacao: complemento, conta, ...comPartes });
       gastos = gastos.map((g) => (g.id === salvo.id ? salvo : g));
       mexeuGastos = true;
       continue;
     }
-    const linha = { perfil_id: dono.id, chave: alvo.chave, categoria: categoria && !igual(categoria, alvo.original.categoria) ? categoria : null,
-      subcategoria, essencial, complemento, conta };
-    const vazio = !linha.categoria && !linha.subcategoria && linha.essencial == null && !linha.complemento && !linha.conta;
     const existente = ajustes.find((x) => x.chave === alvo.chave);
+    const linha = { perfil_id: dono.id, chave: alvo.chave, categoria: categoria && !igual(categoria, alvo.original.categoria) ? categoria : null,
+      subcategoria, essencial, complemento, conta, ...(partes !== undefined ? { partes } : existente && existente.partes ? { partes: existente.partes } : {}) };
+    const vazio = !linha.categoria && !linha.subcategoria && linha.essencial == null && !linha.complemento && !linha.conta && !linha.partes;
     if (vazio) {
       if (existente) await armazem.financas.apagarAjuste(existente.id);
       ajustes = ajustes.filter((x) => x.chave !== alvo.chave);
@@ -957,8 +1137,11 @@ async function salvarClassificacao(e) {
   e.preventDefault();
   const form = e.target;
   const item = classificando;
-  const { categoria, subcategoria } = lerCategoria(form);
-  if (form.elements.categoria.value === NOVA && !categoria) return erroClassificar("Escreva o nome da nova categoria.");
+  const div = lerDivisao(form);
+  if (div.erro) return erroClassificar(div.erro);
+  let { categoria, subcategoria } = lerCategoria(form);
+  if (div.partes) ({ categoria, subcategoria } = div.maior); // dividido: a categoria do lançamento é a da maior parte
+  else if (form.elements.categoria.value === NOVA && !categoria) return erroClassificar("Escreva o nome da nova categoria.");
   if (semClassificacao(categoria)) return erroClassificar(SEM_OUTROS);
   const ess = form.elements.essencial.value;
   const essencial = ess === "sim" ? true : ess === "nao" ? false : null;
@@ -967,9 +1150,10 @@ async function salvarClassificacao(e) {
   const botao = form.querySelector("[type=submit]");
   botao.disabled = true;
   try {
-    await gravarClassificacao(item, { categoria, subcategoria, essencial, conta, complemento });
+    await gravarClassificacao(item, { categoria, subcategoria, essencial, conta, complemento, partes: div.partes });
     $("#dlg-classificar").close();
-    avisar(item.par ? "Classificação salva na compra da fatura e no gasto do dia a dia." : "Classificação salva.");
+    const dividido = div.partes ? ` Dividido em ${div.partes.length} categorias.` : "";
+    avisar((item.par ? "Classificação salva na compra da fatura e no gasto do dia a dia." : "Classificação salva.") + dividido);
   } catch (err) {
     erroClassificar("Não foi possível salvar: " + err.message);
   } finally {
@@ -999,6 +1183,7 @@ async function desfazerClassificacao() {
 function prepararClassificacao() {
   const form = $("#form-classificar");
   prepararCategorias(form);
+  prepararDivisao(form);
   form.elements.categoria.addEventListener("change", atualizarPadraoEssencial);
   form.addEventListener("submit", salvarClassificacao);
   $("#btn-desfazer-classificacao").addEventListener("click", desfazerClassificacao);
@@ -2250,8 +2435,10 @@ async function iniciar() {
     aoEditarMetas: abrirMetas,
     aoImportarExtrato: abrirExtrato,
     entradasSite: entradas,
-    aoLancarEntrada: abrirEntrada,
+    aoLancarEntrada: () => abrirEntrada(),
     aoApagarEntrada: apagarEntrada,
+    aoEditarEntrada: (id, modelo) => abrirEntrada(id, modelo),
+    aoReceberEntrada: receberEntrada,
     aoMudarRecebimento: mudarRecebimento,
     caixa: (prefs && prefs.caixa) || {},
     aoSalvarSaldo: salvarSaldoInicial,

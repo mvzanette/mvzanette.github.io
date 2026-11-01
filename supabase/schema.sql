@@ -1276,3 +1276,19 @@ do $$ begin
     perform cron.schedule('informativo-diario', '0 10 * * *', 'select public.informativo_diario()');
   end if;
 end $$;
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- Lançamento dividido em mais de uma categoria (ex.: uma compra no Mercado Livre com um item da casa e um pessoal):
+-- [{ "valor": 120.00, "categoria": "Casa", "subcategoria": "Móveis e utensílios", "conta": "casal" }, ...]
+-- No ajuste (lançamentos do projeto e das faturas) e no próprio gasto lançado pelo site. As somas por categoria, por
+-- essencial e por conta usam as partes, na proporção do valor de cada uma.
+alter table public.financas_ajustes add column if not exists partes jsonb;
+alter table public.financas_gastos add column if not exists partes jsonb;
+do $$
+declare t text;
+begin
+  foreach t in array array['financas_ajustes', 'financas_gastos'] loop
+    execute format('alter table public.%I drop constraint if exists %I', t, t || '_partes_check');
+    execute format('alter table public.%I add constraint %I check (partes is null or (jsonb_typeof(partes) = ''array'' and jsonb_array_length(partes) between 2 and 8))', t, t || '_partes_check');
+  end loop;
+end $$;

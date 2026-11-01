@@ -11,9 +11,9 @@
   <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@500;600;700;800&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../styles.css?v=69f81afa">
   <link rel="stylesheet" href="area.css?v=ec6c0301">
-  <link rel="stylesheet" href="financas.css?v=1e1109c1">
-  <script type="importmap" data-versoes>{"imports": {"./art.js": "./art.js?v=c36b7b16", "./caixa-documentos.js": "./caixa-documentos.js?v=7c2bf156", "./caixa.js": "./caixa.js?v=d61657d1", "./config-area.js": "./config-area.js?v=c77553f2", "./conta.js": "./conta.js?v=fdce23ea", "./dados.js": "./dados.js?v=6eec4a5f", "./demandas.js": "./demandas.js?v=bf374ec7", "./financas-casal.js": "./financas-casal.js?v=5e9f74eb", "./financas-classificacao.js": "./financas-classificacao.js?v=e7b791cd", "./financas-desejos.js": "./financas-desejos.js?v=7175e284", "./financas-extrato.js": "./financas-extrato.js?v=6a8ecce9", "./financas-faturas.js": "./financas-faturas.js?v=07623b15", "./financas-importar.js": "./financas-importar.js?v=71dfaaa4", "./financas-investimentos.js": "./financas-investimentos.js?v=b239c889", "./financas-painel.js": "./financas-painel.js?v=c8519b57", "./financas-previa.js": "./financas-previa.js?v=bfb16e3d", "./financas.js": "./financas.js?v=61275646", "./financeiro.js": "./financeiro.js?v=3d080ed0", "./inicio.js": "./inicio.js?v=c228470e", "./leitores.js": "./leitores.js?v=7eec42d0", "./login.js": "./login.js?v=f434d5fc", "./modulos.js": "./modulos.js?v=c4e201e1", "./painel.js": "./painel.js?v=0fe885d9", "./pdf-texto.js": "./pdf-texto.js?v=b5de895d", "./planilha.js": "./planilha.js?v=ce3e0414", "./regras-gestao.js": "./regras-gestao.js?v=8fcde8ed", "./regras.js": "./regras.js?v=d828568d", "./sessao.js": "./sessao.js?v=ff1b532e", "./tarefas.js": "./tarefas.js?v=d7065fe4", "./ui.js": "./ui.js?v=efb69f88", "./usuarios.js": "./usuarios.js?v=43715674", "./vendor/pdf.min.mjs": "./vendor/pdf.min.mjs?v=f548e26b", "./vendor/pdf.worker.min.mjs": "./vendor/pdf.worker.min.mjs?v=8860b503"}}</script>
-  <script type="module" src="financas.js?v=61275646"></script>
+  <link rel="stylesheet" href="financas.css?v=4710bd3e">
+  <script type="importmap" data-versoes>{"imports": {"./art.js": "./art.js?v=c36b7b16", "./caixa-documentos.js": "./caixa-documentos.js?v=7c2bf156", "./caixa.js": "./caixa.js?v=d61657d1", "./config-area.js": "./config-area.js?v=c77553f2", "./conta.js": "./conta.js?v=fdce23ea", "./dados.js": "./dados.js?v=9af523fd", "./demandas.js": "./demandas.js?v=bf374ec7", "./financas-casal.js": "./financas-casal.js?v=5b40ceb6", "./financas-classificacao.js": "./financas-classificacao.js?v=0f7a2cce", "./financas-desejos.js": "./financas-desejos.js?v=7175e284", "./financas-extrato.js": "./financas-extrato.js?v=6a8ecce9", "./financas-faturas.js": "./financas-faturas.js?v=07623b15", "./financas-importar.js": "./financas-importar.js?v=71dfaaa4", "./financas-investimentos.js": "./financas-investimentos.js?v=b239c889", "./financas-painel.js": "./financas-painel.js?v=aa967e46", "./financas-previa.js": "./financas-previa.js?v=bfb16e3d", "./financas.js": "./financas.js?v=54a7fd40", "./financeiro.js": "./financeiro.js?v=3d080ed0", "./inicio.js": "./inicio.js?v=c228470e", "./leitores.js": "./leitores.js?v=7eec42d0", "./login.js": "./login.js?v=f434d5fc", "./modulos.js": "./modulos.js?v=c4e201e1", "./painel.js": "./painel.js?v=0fe885d9", "./pdf-texto.js": "./pdf-texto.js?v=b5de895d", "./planilha.js": "./planilha.js?v=ce3e0414", "./regras-gestao.js": "./regras-gestao.js?v=8fcde8ed", "./regras.js": "./regras.js?v=d828568d", "./sessao.js": "./sessao.js?v=ff1b532e", "./tarefas.js": "./tarefas.js?v=d7065fe4", "./ui.js": "./ui.js?v=efb69f88", "./usuarios.js": "./usuarios.js?v=43715674", "./vendor/pdf.min.mjs": "./vendor/pdf.min.mjs?v=f548e26b", "./vendor/pdf.worker.min.mjs": "./vendor/pdf.worker.min.mjs?v=8860b503"}}</script>
+  <script type="module" src="financas.js?v=54a7fd40"></script>
 </head>
 <body class="area">
 
@@ -67,11 +67,14 @@
     <!-- Visão do casal: o mês das duas pessoas lado a lado -->
     <section class="casal" id="casal" hidden>
       <div class="empresas-abas" id="casal-meses" role="group" aria-label="Mês"></div>
-      <div class="kpis" id="casal-kpis"></div>
+      <div class="kpis casal-kpis" id="casal-kpis"></div>
       <div class="tabela-wrap"><table class="tabela casal-tabela" id="casal-tabela"></table></div>
-      <div class="casal-pessoas" id="casal-entradas"></div>
-      <p class="dica">Os números vêm dos painéis de cada um, com os mesmos cálculos. Transferências entre vocês (como o investimento na conta conjunta) contam como saída de quem transfere e não entram como entrada da outra pessoa. Para lançar ou mudar alguma coisa, abra o painel de cada um: os dois podem alterar os dois.</p>
+      <section class="cartao casal-bloco" id="casal-entradas" aria-label="Entradas do casal"></section>
+      <section class="cartao casal-bloco" id="casal-gastos" aria-label="Gastos pagos do casal"></section>
+      <div class="casal-links" id="casal-links"></div>
+      <p class="dica">Os números vêm dos painéis de cada um, com os mesmos cálculos e a classificação feita no site (o lançamento dividido em categorias entra com cada parte). Transferências entre vocês (como o investimento na conta conjunta) contam como saída de quem transfere e não entram como entrada da outra pessoa. Para lançar ou mudar alguma coisa, abra o painel de cada um: os dois podem alterar os dois.</p>
     </section>
+    <dialog class="dialogo largo dialogo-casal" id="dlg-casal" aria-labelledby="titulo-casal"></dialog>
 
     <!-- Sem dados ainda -->
     <section class="cartao fin-vazio" id="fin-vazio" hidden>
@@ -384,6 +387,9 @@
     </form>
   </dialog>
 
+  <!-- ============ ENTRADAS OU SAÍDAS DO MÊS (dois cliques no balanço) ============ -->
+  <dialog class="dialogo largo dialogo-mov" id="dlg-mov" aria-labelledby="titulo-mov"></dialog>
+
   <!-- ============ IMPORTAR EXTRATO DA CONTA ============ -->
   <dialog class="dialogo largo" id="dlg-extrato" aria-labelledby="titulo-extrato">
     <div class="dlg-cab">
@@ -492,12 +498,20 @@
           <label class="c2">Valor (R$)<input name="valor" inputmode="decimal" autocomplete="off" placeholder="45,90" required></label>
           <label class="c4">Descrição<input name="descricao" maxlength="120" autocomplete="off" placeholder="ex.: farmácia" required></label>
           <label class="c2">Data<input name="data" type="date" required></label>
-          <label class="c4">Categoria<select name="categoria"></select></label>
-          <label class="c3">Subcategoria<select name="subcategoria"></select></label>
+          <label class="c4" data-sem-divisao>Categoria<select name="categoria"></select></label>
+          <label class="c3" data-sem-divisao>Subcategoria<select name="subcategoria"></select></label>
           <label class="c3" data-campo-conta hidden>Conta (de quem é o dinheiro)<select name="conta"></select></label>
           <label class="c3" data-campo-nova-categoria hidden>Nova categoria<input name="categoria_nova" maxlength="60" autocomplete="off"></label>
           <label class="c3" data-campo-nova-sub hidden>Nova subcategoria<input name="subcategoria_nova" maxlength="60" autocomplete="off"></label>
         </div>
+        <fieldset class="bloco divisao" data-divisao>
+          <legend>Dividir</legend>
+          <label class="opcao-linha"><input type="checkbox" name="dividir"><span><b>Dividir em mais de uma categoria</b><small>Ex.: uma compra no Mercado Livre com um item da casa e um pessoal. Cada parte entra na categoria (e na conta) dela nas somas do mês.</small></span></label>
+          <div class="divisao-corpo" hidden>
+            <div class="partes"></div>
+            <div class="divisao-rodape"><button type="button" class="btn sec mini" data-mais-parte>+ Parte</button><span class="divisao-soma" aria-live="polite"></span></div>
+          </div>
+        </fieldset>
         <fieldset class="bloco">
           <legend>Forma de pagamento</legend>
           <div class="opcoes" id="formas-gasto">
@@ -690,11 +704,19 @@
       <div class="dlg-corpo">
         <div class="classificar-info" id="classificar-info"></div>
         <div class="campos">
-          <label class="c3">Categoria<select name="categoria"></select></label>
-          <label class="c3">Subcategoria<select name="subcategoria"></select></label>
+          <label class="c3" data-sem-divisao>Categoria<select name="categoria"></select></label>
+          <label class="c3" data-sem-divisao>Subcategoria<select name="subcategoria"></select></label>
           <label class="c3" data-campo-nova-categoria hidden>Nova categoria<input name="categoria_nova" maxlength="60" autocomplete="off"></label>
           <label class="c3" data-campo-nova-sub hidden>Nova subcategoria<input name="subcategoria_nova" maxlength="60" autocomplete="off"></label>
         </div>
+        <fieldset class="bloco divisao" data-divisao>
+          <legend>Dividir</legend>
+          <label class="opcao-linha"><input type="checkbox" name="dividir"><span><b>Dividir em mais de uma categoria</b><small>Ex.: uma compra no Mercado Livre com um item da casa e um pessoal. Cada parte entra na categoria (e na conta) dela nas somas do mês.</small></span></label>
+          <div class="divisao-corpo" hidden>
+            <div class="partes"></div>
+            <div class="divisao-rodape"><button type="button" class="btn sec mini" data-mais-parte>+ Parte</button><span class="divisao-soma" aria-live="polite"></span></div>
+          </div>
+        </fieldset>
         <fieldset class="bloco">
           <legend>Tipo</legend>
           <div class="opcoes">

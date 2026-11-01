@@ -119,7 +119,17 @@ function limparGasto(g) {
     subcategoria: texto(g.subcategoria, 60),
     conta: contaValida(g.conta),
     recorrente: texto(g.recorrente, 120), // pagamento recorrente que o gasto paga
+    ...("partes" in g ? { partes: limparPartes(g.partes) } : {}),
   };
+}
+
+// Lançamento dividido em mais de uma categoria: [{ valor, categoria, subcategoria, conta }], de duas a oito partes
+function limparPartes(lista) {
+  if (!Array.isArray(lista) || lista.length < 2) return null;
+  const ps = lista.slice(0, 8).map((p) => ({ valor: Math.round(Number(p && p.valor) * 100) / 100, categoria: texto(p && p.categoria, 60),
+    subcategoria: texto(p && p.subcategoria, 60), conta: contaValida(p && p.conta) }));
+  if (ps.some((p) => !(p.valor > 0) || !p.categoria)) throw new Error("Cada parte da divisão precisa de valor e categoria.");
+  return ps;
 }
 
 // Entrada lançada pelo site: salário (holerite com bruto e descontos) ou outro recebimento
@@ -165,6 +175,7 @@ const limparClassificacao = (c) => ({
   essencial: simNao(c.essencial),
   observacao: texto(c.observacao, 300),
   conta: contaValida(c.conta),
+  ...("partes" in c ? { partes: limparPartes(c.partes) } : {}),
 });
 
 // Classificação de um lançamento que vem do projeto Financeiro (gastos do dia a dia e faturas)
@@ -176,6 +187,7 @@ const limparAjuste = (a) => ({
   essencial: simNao(a.essencial),
   complemento: texto(a.complemento, 200),
   conta: contaValida(a.conta),
+  ...("partes" in a ? { partes: limparPartes(a.partes) } : {}),
 });
 
 // Desejo de compra: só as colunas da tabela, com tipos certos
@@ -506,6 +518,17 @@ function armazemDemo() {
         gravarJson(ENTRADAS, todas);
         return structuredClone(e);
       },
+      // Edição completa de uma entrada (descrição, data, valores, descontos, conta, recebimento e se repete)
+      async editarEntrada(idEntrada, entrada) {
+        const todas = lerJson(ENTRADAS, []);
+        const e = todas.find((x) => x.id === idEntrada);
+        if (!e) throw new Error("Entrada não encontrada.");
+        if (!acessoFinancas(e.perfil_id)) throw new Error("Sem permissão para alterar este painel.");
+        const { perfil_id, ...linha } = limparEntrada({ ...e, ...entrada, perfil_id: e.perfil_id });
+        Object.assign(e, linha);
+        gravarJson(ENTRADAS, todas);
+        return structuredClone(e);
+      },
       async apagarEntrada(idEntrada) {
         gravarJson(ENTRADAS, lerJson(ENTRADAS, []).filter((e) => e.id !== idEntrada));
       },
@@ -821,6 +844,12 @@ async function armazemSupabase(url, chave) {
         const { data, error } = await sb.from("financas_entradas").update(comoRecebe(campos)).eq("id", idEntrada).select().single();
         if (error) throw new Error(error.code === "42501" || error.code === "PGRST116" ? "Sem permissão para alterar este painel."
           : /recebimento|referencia|repete/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+        return numerosEntrada(data);
+      },
+      async editarEntrada(idEntrada, entrada) {
+        const { perfil_id, ...linha } = limparEntrada(entrada);
+        const { data, error } = await sb.from("financas_entradas").update(linha).eq("id", idEntrada).select().single();
+        if (error) throw new Error(error.code === "42501" || error.code === "PGRST116" ? "Sem permissão para alterar este painel." : error.message);
         return numerosEntrada(data);
       },
       async apagarEntrada(idEntrada) {
