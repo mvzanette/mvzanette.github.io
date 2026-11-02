@@ -175,9 +175,23 @@ function limparCaixinha(c) {
   const parte = divisao === "fixo" && c.parte != null && c.parte !== "" ? Math.min(100, Math.max(0, Number(c.parte))) : null;
   if (dono === "casal" && divisao === "fixo" && !Number.isFinite(parte)) throw new Error("Informe o percentual da divisão fixa.");
   const data = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || "")) ? v : null);
+  const mensal = c.aporte_mensal == null || c.aporte_mensal === "" ? null : centavos(c.aporte_mensal);
+  if (mensal != null && (!Number.isFinite(mensal) || mensal < 0)) throw new Error("O aporte mensal não pode ser negativo.");
+  // Aporte inicial de cada pessoa (só nas do casal): { perfil_id: valor }
+  const aportes = {};
+  if (dono === "casal" && c.aportes_iniciais && typeof c.aportes_iniciais === "object") {
+    for (const [k, v] of Object.entries(c.aportes_iniciais)) {
+      const n = centavos(v);
+      if (!/^[0-9a-f-]{36}$/i.test(k) && !/^[\w-]{1,64}$/.test(k)) continue;
+      if (!Number.isFinite(n) || n < 0) throw new Error("O aporte inicial não pode ser negativo.");
+      if (n > 0) aportes[k] = n;
+    }
+  }
   return {
     ...(c.id ? { id: c.id } : {}),
     perfil_id: c.perfil_id,
+    aporte_mensal: mensal > 0 ? mensal : null,
+    aportes_iniciais: aportes,
     nome,
     dono,
     tipo: c.tipo === "recorrente" ? "recorrente" : "meta",
@@ -192,7 +206,8 @@ function limparCaixinha(c) {
     saldo_atualizado: /^\d{4}-\d{2}-\d{2}T/.test(String(c.saldo_atualizado || "")) ? c.saldo_atualizado : null,
   };
 }
-const numerosCaixinha = (c) => ({ ...c, meta: Number(c.meta), saldo: Number(c.saldo), parte: c.parte == null ? null : Number(c.parte) });
+const numerosCaixinha = (c) => ({ ...c, meta: Number(c.meta), saldo: Number(c.saldo), parte: c.parte == null ? null : Number(c.parte),
+  aporte_mensal: c.aporte_mensal == null ? null : Number(c.aporte_mensal), aportes_iniciais: c.aportes_iniciais && typeof c.aportes_iniciais === "object" ? c.aportes_iniciais : {} });
 
 // Lançamento dividido em mais de uma categoria: [{ valor, categoria, subcategoria, conta }], de duas a oito partes
 function limparPartes(lista) {
@@ -1079,8 +1094,14 @@ async function armazemSupabase(url, chave) {
       },
       async salvarCaixinha(caixinha) {
         const { id, ...campos } = limparCaixinha(caixinha);
-        const consulta = id ? sb.from("caixinhas").update(campos).eq("id", id) : sb.from("caixinhas").insert(campos);
-        const { data, error } = await consulta.select().single();
+        const gravar = (c) => (id ? sb.from("caixinhas").update(c).eq("id", id) : sb.from("caixinhas").insert(c)).select().single();
+        let { data, error } = await gravar(campos);
+        // Banco ainda sem as colunas do aporte mensal e do aporte inicial: sem usar esses campos, grava como antes
+        if (error && /aporte_mensal|aportes_iniciais/.test(error.message || "")) {
+          if (campos.aporte_mensal != null || Object.keys(campos.aportes_iniciais).length) throw new Error(BANCO_DESATUALIZADO);
+          const { aporte_mensal, aportes_iniciais, ...antigos } = campos;
+          ({ data, error } = await gravar(antigos));
+        }
         if (error) throw new Error(error.code === "42501" || error.code === "PGRST116" ? "Sem permissão para alterar esta caixinha." : error.message);
         return numerosCaixinha(data);
       },
