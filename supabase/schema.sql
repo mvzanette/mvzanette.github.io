@@ -1379,3 +1379,86 @@ create policy "caixinhas do proprio perfil" on public.caixinhas
   for all to authenticated
   using (public.financas_acesso(perfil_id))
   with check (public.financas_acesso(perfil_id));
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- Tarefas avulsas: o que uma pessoa precisa fazer no sistema e que não sai de uma conta (ex.: conferir uma tela
+-- nova com os dados reais). O administrador cria, escolhendo o responsável (uma linha por pessoa); a tarefa aparece
+-- na janela de tarefas pendentes de quem é responsável até ela ser marcada como feita.
+--   link: página da área onde se resolve (ex.: financas.html#caixinhas)
+--   chave: identifica as tarefas que o próprio script cria (para não criar de novo)
+create table if not exists public.tarefas_avulsas (
+  id         uuid primary key default gen_random_uuid(),
+  perfil_id  uuid not null references public.perfis (id) on delete cascade,
+  titulo     text not null check (length(trim(titulo)) between 1 and 120),
+  texto      text check (texto is null or length(texto) <= 600),
+  link       text check (link is null or link ~ '^[a-z0-9-]+\.html(#[a-z0-9-]+)?$'),
+  chave      text,
+  feita_em   timestamptz,
+  feita_por  uuid references public.perfis (id) on delete set null,
+  criado_em  timestamptz not null default now(),
+  criado_por uuid default auth.uid() references auth.users (id) on delete set null
+);
+create index if not exists tarefas_avulsas_perfil_idx on public.tarefas_avulsas (perfil_id) where feita_em is null;
+create unique index if not exists tarefas_avulsas_chave_key on public.tarefas_avulsas (chave, perfil_id) where chave is not null;
+
+alter table public.tarefas_avulsas enable row level security;
+revoke all on public.tarefas_avulsas from anon;
+grant select, insert, update, delete on public.tarefas_avulsas to authenticated, service_role;
+revoke truncate, trigger, references on public.tarefas_avulsas from authenticated;
+
+-- Cada pessoa vê as próprias; o administrador vê, cria, altera e apaga todas
+drop policy if exists "tarefas avulsas: ver" on public.tarefas_avulsas;
+create policy "tarefas avulsas: ver" on public.tarefas_avulsas
+  for select to authenticated
+  using (public.eh_adm() or perfil_id in (select id from public.perfis where user_id = auth.uid() and situacao = 'ativo'));
+drop policy if exists "tarefas avulsas: administrador" on public.tarefas_avulsas;
+create policy "tarefas avulsas: administrador" on public.tarefas_avulsas
+  for all to authenticated
+  using (public.eh_adm())
+  with check (public.eh_adm());
+
+-- Quem é responsável marca a própria tarefa como feita (ou desfaz); o resto da tarefa só o administrador muda
+create or replace function public.marcar_tarefa_avulsa(p_id uuid, p_feita boolean default true) returns void
+language plpgsql security definer set search_path = '' as $$
+declare v_eu uuid;
+begin
+  select id into v_eu from public.perfis where user_id = auth.uid() and situacao = 'ativo';
+  if v_eu is null then raise exception 'Sem permissão.'; end if;
+  update public.tarefas_avulsas
+     set feita_em = case when p_feita then now() end, feita_por = case when p_feita then v_eu end
+   where id = p_id and (perfil_id = v_eu or public.eh_adm());
+  if not found then raise exception 'Tarefa não encontrada.'; end if;
+end $$;
+revoke all on function public.marcar_tarefa_avulsa(uuid, boolean) from public, anon;
+grant execute on function public.marcar_tarefa_avulsa(uuid, boolean) to authenticated, service_role;
+
+-- Conferência das telas novas de nov/2026 com os dados reais (os testes foram feitos só no modo demonstração).
+-- Para o administrador e para quem forma casal com ele nas finanças (a de Onde investir, só o administrador).
+-- Rodar o script de novo não cria em dobro; a partir de dezembro de 2026 este bloco não faz mais nada.
+do $$
+begin
+  if current_date >= date '2026-12-01' then return; end if;
+  insert into public.tarefas_avulsas (perfil_id, titulo, texto, link, chave)
+  select p.id, t.titulo, t.texto, t.link, t.chave
+  from public.perfis p
+  cross join (values
+    ('conferir-2026-11:entradas', 'Conferir o quadro Entradas do mês',
+     'Na Visão geral, confira o recebido, o previsto, a categoria de cada entrada e a comparação com a média dos três meses anteriores. Veja também as páginas nos modos claro e escuro (seletor no topo).',
+     'financas.html#geral', false),
+    ('conferir-2026-11:aportes', 'Conferir o plano de aportes',
+     'Em Cadastros → Plano de aportes, confira os degraus (destino, valor por mês e a partir de quando). Na Visão geral, a linha (−) Investimento e a previsão dos próximos meses devem usar o valor que vale em cada mês.',
+     'financas.html#cadastros', false),
+    ('conferir-2026-11:caixinhas', 'Conferir as caixinhas',
+     'Confira a meta, o saldo, o "por mês" e a situação (em dia ou atrasada) de cada caixinha, e se a linha (−) Caixinhas do balanço bate com o que foi guardado.',
+     'financas.html#caixinhas', false),
+    ('conferir-2026-11:investir', 'Conferir a ferramenta Onde investir',
+     'No topo da aba Investimentos, confira as premissas (Selic, CDI e IPCA), troque as ofertas de exemplo pelas reais e veja se o quadro "O que já temos" mostra todos os investimentos.',
+     'financas.html#investimentos', true)
+  ) as t (chave, titulo, texto, link, so_adm)
+  where p.situacao = 'ativo'
+    and (p.papel = 'adm'
+      or (not t.so_adm and p.papel = 'pessoal' and 'financas' = any (p.modulos)
+        and exists (select 1 from public.perfis a where a.id = p.casal_com and a.papel = 'adm' and a.casal_com = p.id)))
+    and not exists (select 1 from public.tarefas_avulsas x where x.chave = t.chave and x.perfil_id = p.id)
+  on conflict do nothing;
+end $$;

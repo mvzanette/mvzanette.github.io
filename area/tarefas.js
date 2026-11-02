@@ -47,6 +47,13 @@ export const tarefaCaixinhas = (lista, href = "financas.html#caixinhas") => ({
   texto: `${lista.map((x) => `${x.nome} (faltam ${Number(x.falta || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} até ${x.ate})`).join("; ")}. Faltam 3 meses ou menos para a data e o saldo está abaixo do esperado.`,
 });
 
+// Tarefa avulsa (criada pelo administrador para esta pessoa): aparece até ser marcada como feita, sem depender
+// das tarefas escolhidas em Usuários e permissões. feita: grava a marca (o botão "Feita" da janela)
+export const tarefaAvulsa = (t, feita) => ({
+  id: "avulsa", avulsa: true, n: 1, href: t.link || "", botao: "Abrir", resumo: t.titulo, titulo: t.titulo,
+  texto: t.texto || "", feita,
+});
+
 // Pendências do painel de finanças da pessoa, com o mesmo cálculo do painel: lançamentos a classificar e gastos
 // lançados como a pagar com a data já chegada
 export async function contarPendenciasFinancas(armazem, perfilId) {
@@ -84,7 +91,7 @@ function marcarMostrou(perfil) {
 // Abre a janela com as tarefas. automatico: ao entrar, só se ainda não abriu nesta sessão do navegador.
 // aoAbrir: para a tarefa desta mesma página (link "#…"), em vez de seguir o link
 export function mostrarTarefas(tarefas, { perfil = null, automatico = false, aoAbrir = null } = {}) {
-  const lista = tarefas.filter((t) => t && t.n > 0 && (!perfil || recebeTarefa(perfil, t.id)));
+  const lista = tarefas.filter((t) => t && t.n > 0 && (t.avulsa || !perfil || recebeTarefa(perfil, t.id)));
   if (!lista.length || (automatico && jaMostrou(perfil))) return false;
   marcarMostrou(perfil);
   let dlg = document.getElementById("dlg-tarefas");
@@ -94,7 +101,21 @@ export function mostrarTarefas(tarefas, { perfil = null, automatico = false, aoA
     dlg.className = "dialogo";
     dlg.setAttribute("aria-labelledby", "titulo-tarefas");
     document.body.append(dlg);
-    dlg.addEventListener("click", (e) => {
+    dlg.addEventListener("click", async (e) => {
+      const marca = e.target.closest("[data-feita]");
+      if (marca && dlg.feitas) {
+        const item = marca.closest("li");
+        marca.disabled = true;
+        try {
+          await dlg.feitas[Number(marca.dataset.feita)]();
+          item.remove();
+          if (!dlg.querySelector(".tarefas-lista li")) dlg.close();
+        } catch (err) {
+          marca.disabled = false;
+          alert("Não foi possível marcar como feita: " + err.message);
+        }
+        return;
+      }
       if (e.target === dlg || e.target.closest("[data-fechar-tarefas]")) dlg.close();
       const link = e.target.closest("a[href^='#']");
       if (link && aoAbrir) {
@@ -105,13 +126,15 @@ export function mostrarTarefas(tarefas, { perfil = null, automatico = false, aoA
     });
   }
   const total = lista.reduce((t, x) => t + x.n, 0);
+  dlg.feitas = lista.map((t) => t.feita);
   dlg.innerHTML = `<div class="dlg-cab"><h2 id="titulo-tarefas">Tarefas pendentes</h2><button class="btn-link" type="button" data-fechar-tarefas>Fechar</button></div>
     <div class="dlg-corpo">
       <p class="dica">${total === 1 ? "Um item precisa" : `${total} itens precisam`} da sua atenção.</p>
-      <ul class="tarefas-lista">${lista.map((t) => `<li class="tarefa tarefa-${esc(t.id)}">
+      <ul class="tarefas-lista">${lista.map((t, i) => `<li class="tarefa tarefa-${esc(t.id)}">
         <span class="tarefa-n">${t.n}</span>
-        <div class="tarefa-texto"><b>${esc(t.titulo)}</b><p>${esc(t.texto)}</p></div>
-        <a class="btn btn-primary" href="${esc(t.href)}">${esc(t.botao)}</a></li>`).join("")}</ul>
+        <div class="tarefa-texto"><b>${esc(t.titulo)}</b>${t.texto ? `<p>${esc(t.texto)}</p>` : ""}</div>
+        <div class="tarefa-botoes">${t.href ? `<a class="btn btn-primary" href="${esc(t.href)}">${esc(t.botao)}</a>` : ""}${t.feita ? `
+          <button class="btn btn-claro" type="button" data-feita="${i}">Feita</button>` : ""}</div></li>`).join("")}</ul>
     </div>
     <div class="dlg-rodape"><button class="btn btn-claro" type="button" data-fechar-tarefas>Depois</button></div>`;
   dlg.showModal();
@@ -120,7 +143,7 @@ export function mostrarTarefas(tarefas, { perfil = null, automatico = false, aoA
 
 // Faixa fixa (no início) que lembra as tarefas e reabre a janela
 export function faixaTarefas(el, tarefas, opcoes = {}) {
-  const lista = tarefas.filter((t) => t && t.n > 0 && (!opcoes.perfil || recebeTarefa(opcoes.perfil, t.id)));
+  const lista = tarefas.filter((t) => t && t.n > 0 && (t.avulsa || !opcoes.perfil || recebeTarefa(opcoes.perfil, t.id)));
   el.hidden = !lista.length;
   if (!lista.length) return;
   el.innerHTML = `<p><b>Tarefas pendentes:</b> ${lista.map((t) => esc(t.resumo)).join(" · ")}.</p>

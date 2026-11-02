@@ -6,7 +6,7 @@ import * as R from "./regras.js";
 import * as G from "./regras-gestao.js";
 import { resumoCaixa } from "./caixa-documentos.js";
 import { $, esc, moeda, moedaCurta } from "./ui.js";
-import { contarPendenciasFinancas, faixaTarefas, mostrarTarefas, tarefaAPagar, tarefaArts, tarefaCaixa, tarefaClassificar, tarefaDemandas } from "./tarefas.js";
+import { contarPendenciasFinancas, faixaTarefas, mostrarTarefas, tarefaAPagar, tarefaArts, tarefaAvulsa, tarefaCaixa, tarefaClassificar, tarefaDemandas } from "./tarefas.js";
 
 const hoje = R.hojeISO();
 const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
@@ -174,8 +174,19 @@ async function iniciar() {
     resumo.financas = { texto: `${aClassificar} ${aClassificar === 1 ? "lançamento a classificar" : "lançamentos a classificar"}`, alerta: true };
     renderizar(perfil, empresas, resumo);
   }
-  const tarefas = [tarefaClassificar(aClassificar), ...(fin ? [tarefaAPagar(fin.aPagar.n, fin.aPagar.total)] : []), ...resumo.tarefas];
-  faixaTarefas($("#faixa-tarefas"), tarefas, { perfil });
+  // Tarefas avulsas (criadas pelo administrador para esta pessoa): "Feita" grava a marca e tira da faixa
+  const avulsas = await Promise.resolve(armazem.tarefasAvulsas && armazem.tarefasAvulsas.minhas(perfil.id))
+    .catch((err) => { console.warn("Tarefas: não deu para ler as tarefas avulsas.", err); return null; }) || [];
+  let tarefas = [];
+  const atualizarFaixa = () => faixaTarefas($("#faixa-tarefas"), tarefas, { perfil });
+  const comoTarefa = (t) => tarefaAvulsa(t, async () => {
+    await armazem.tarefasAvulsas.marcar(t.id, true);
+    tarefas = tarefas.filter((x) => x.idAvulsa !== t.id);
+    atualizarFaixa();
+  });
+  tarefas = [...avulsas.map((t) => ({ ...comoTarefa(t), idAvulsa: t.id })), tarefaClassificar(aClassificar),
+    ...(fin ? [tarefaAPagar(fin.aPagar.n, fin.aPagar.total)] : []), ...resumo.tarefas];
+  atualizarFaixa();
   mostrarTarefas(tarefas, { perfil, automatico: true });
 }
 

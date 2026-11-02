@@ -9,6 +9,7 @@ let armazem;
 let perfil; // quem está usando a página
 let usuarios = [];
 let acessos = [];
+let avulsas = null; // tarefas avulsas (null: o banco ainda não tem a tabela)
 let editando = null; // cadastro aberto no diálogo (null = novo)
 const parDe = (u) => (u.casal_com && usuarios.find((x) => x.id === u.casal_com && x.casal_com === u.id)) || null;
 const filtro = { busca: "", papel: "", situacao: "" };
@@ -197,6 +198,72 @@ function prepararTarefas() {
   });
 }
 
+// ---------------------------------------------------------------- tarefas avulsas
+function renderAvulsas() {
+  const pessoas = usuarios.filter((u) => u.situacao === "ativo").sort((a, b) => nomeDe(a).localeCompare(nomeDe(b), "pt-BR"));
+  const marcadas = new Set([...document.querySelectorAll("#avulsa-pessoas input:checked")].map((c) => c.value));
+  $("#avulsa-pessoas").innerHTML = pessoas.map((u) => `<label><input type="checkbox" name="pessoa" value="${esc(u.id)}"${marcadas.has(u.id) ? " checked" : ""}> ${esc(nomeDe(u))}</label>`).join("");
+  if (avulsas === null) {
+    $("#lista-avulsas").innerHTML = '<tr><td colspan="4" class="vazio">O banco de dados precisa ser atualizado: rode de novo o arquivo supabase/schema.sql no SQL Editor do Supabase.</td></tr>';
+    return;
+  }
+  const nomes = Object.fromEntries(usuarios.map((u) => [u.id, nomeDe(u)]));
+  // Pendentes primeiro, depois as feitas mais recentes
+  const lista = [...avulsas].sort((a, b) => (!!a.feita_em - !!b.feita_em) || String(b.feita_em || b.criado_em).localeCompare(String(a.feita_em || a.criado_em)));
+  $("#lista-avulsas").innerHTML = lista.length ? lista.map((t) => `<tr${t.feita_em ? ' class="avulsa-feita"' : ""}>
+      <td><b>${esc(t.titulo)}</b>${t.link ? `<small><a href="${esc(t.link)}">${esc(t.link)}</a></small>` : ""}${t.texto ? `<small>${esc(t.texto)}</small>` : ""}</td>
+      <td>${esc(nomes[t.perfil_id] || "Cadastro excluído")}</td>
+      <td>${t.feita_em ? `Feita em ${dataHora(t.feita_em)}${t.feita_por && t.feita_por !== t.perfil_id ? ` <small>por ${esc(nomes[t.feita_por] || "outra pessoa")}</small>` : ""}` : `Pendente<small>criada em ${dataHora(t.criado_em)}</small>`}</td>
+      <td class="acoes"><button class="btn-link" type="button" data-avulsa-marcar="${esc(t.id)}">${t.feita_em ? "Reabrir" : "Marcar feita"}</button>
+        <button class="btn-link" type="button" data-avulsa-remover="${esc(t.id)}">Apagar</button></td></tr>`).join("")
+    : '<tr><td colspan="4" class="vazio">Nenhuma tarefa avulsa.</td></tr>';
+}
+
+async function carregarAvulsas() {
+  try {
+    avulsas = await armazem.tarefasAvulsas.listar();
+  } catch (err) {
+    avulsas = null;
+    console.warn("Tarefas avulsas:", err.message);
+  }
+  renderAvulsas();
+}
+
+function prepararAvulsas() {
+  const form = $("#form-avulsa");
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    $("#erro-avulsa").hidden = true;
+    const dados = new FormData(form);
+    try {
+      const novas = await armazem.tarefasAvulsas.criar({ titulo: dados.get("titulo"), texto: dados.get("texto"), link: dados.get("link"), perfil_ids: dados.getAll("pessoa") });
+      form.reset();
+      await carregarAvulsas();
+      avisar(novas.length === 1 ? "Tarefa criada." : `Tarefa criada para ${novas.length} pessoas.`);
+    } catch (err) {
+      $("#erro-avulsa").textContent = "Não foi possível criar: " + err.message;
+      $("#erro-avulsa").hidden = false;
+    }
+  });
+  $("#lista-avulsas").addEventListener("click", async (e) => {
+    const marcar = e.target.closest("[data-avulsa-marcar]");
+    const remover = e.target.closest("[data-avulsa-remover]");
+    try {
+      if (marcar) {
+        const t = avulsas.find((x) => x.id === marcar.dataset.avulsaMarcar);
+        await armazem.tarefasAvulsas.marcar(t.id, !t.feita_em);
+      } else if (remover) {
+        const t = avulsas.find((x) => x.id === remover.dataset.avulsaRemover);
+        if (!confirm(`Apagar a tarefa “${t.titulo}”?`)) return;
+        await armazem.tarefasAvulsas.remover(t.id);
+      } else return;
+      await carregarAvulsas();
+    } catch (err) {
+      avisar("Não foi possível alterar a tarefa: " + err.message);
+    }
+  });
+}
+
 // ---------------------------------------------------------------- histórico de acessos
 function renderAcessos() {
   const seletor = $("#filtro-acesso-usuario");
@@ -224,12 +291,14 @@ function renderTudo() {
   renderLista();
   renderPermissoes();
   renderTarefas();
+  renderAvulsas();
   renderAcessos();
 }
 
 async function recarregar() {
   try {
     [usuarios, acessos] = await Promise.all([armazem.usuarios.listar(), armazem.acessos({ limite: 1000 })]);
+    avulsas = await armazem.tarefasAvulsas.listar().catch((err) => { console.warn("Tarefas avulsas:", err.message); return null; });
   } catch (err) {
     avisar("Não foi possível carregar os usuários: " + err.message);
   }
@@ -424,6 +493,7 @@ async function iniciar() {
   prepararDialogos();
   prepararAbas();
   prepararTarefas();
+  prepararAvulsas();
 
   $("#filtro-papel").innerHTML = opcoes([["", "Todos os perfis"], ...Object.entries(PAPEIS).map(([id, p]) => [id, p.titulo])], "");
   $("#filtro-situacao").innerHTML = opcoes([["", "Todas as situações"], ...Object.entries(SITUACOES)], "");
