@@ -2390,7 +2390,14 @@ tr.marcada td { background: var(--c-fffbea); }
 .tarefa-n { min-width: 48px; font: 700 2rem/1 var(--font-head); color: var(--graphite-900); text-align: center; font-variant-numeric: tabular-nums; }
 .tarefa-texto b { font: 700 1rem var(--font-head); text-transform: uppercase; letter-spacing: 0.03em; }
 .tarefa-texto p { margin: 4px 0 0; color: var(--muted); font-size: 0.92rem; }
-@media (max-width: 560px) { .tarefa { grid-template-columns: auto minmax(0, 1fr); } .tarefa .btn { grid-column: 1 / -1; justify-self: start; } }
+.tabela-avulsas td small { display: block; color: var(--muted); font-size: 0.8rem; margin-top: 2px; }
+.tabela-avulsas .avulsa-feita td { color: var(--muted); }
+.tabela-avulsas .acoes { white-space: nowrap; }
+.tabela-avulsas .acoes .btn-link + .btn-link { margin-left: 12px; }
+#avulsa-pessoas label { display: inline-flex; align-items: center; gap: 6px; margin: 0 16px 6px 0; }
+.tarefa-avulsa { border-left-color: var(--graphite-900); }
+.tarefa-botoes { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+@media (max-width: 560px) { .tarefa { grid-template-columns: auto minmax(0, 1fr); } .tarefa-botoes { grid-column: 1 / -1; justify-content: flex-start; } }
 .faixa-tarefas { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin: 0 0 20px; padding: 12px 16px; background: var(--c-fff8f7); border: 1px solid var(--gray-200); border-left: 5px solid var(--erro); }
 .faixa-tarefas p { margin: 0; }
 
@@ -2428,7 +2435,7 @@ tr.marcada td { background: var(--c-fffbea); }
 :root[data-tema="escuro"] .pilula[aria-current="page"], :root[data-tema="escuro"] .pilula[aria-pressed="true"] { color: #fff; border-color: #3b4148; }
 /* Modo escuro: o que é faixa preta nos dois modos (alertas, cabeçalho das tabelas, avisos, contadores, barra de lote,
    decisão próxima e rodapé dos investimentos) continua com as cores do modo claro dentro dele */
-:root[data-tema="escuro"] :is(.faixa-alertas, .tabela th, .toast, .vinculo-empresa, .venc-n, .barra-lote, .fin .chip.conta, .cj.oi .oi-decisao, .cj.oi .oi-rodape, .btn-dark) {
+:root[data-tema="escuro"] :is(.faixa-alertas, .tabela thead th, .toast, .vinculo-empresa, .venc-n, .barra-lote, .fin .chip.conta, .cj.oi .oi-decisao, .cj.oi .oi-rodape, .btn-dark) {
   --white: #ffffff; --gray-100: #f3f4f5; --gray-200: #e3e6e9; --gray-300: #c9ced3; --gray-500: #6b737b;
   --graphite-900: #16181b; --graphite-800: #1f2328; --graphite-700: #2b3036; --graphite-600: #3b4148; --text: #1e2125; --muted: #59616a;
 }

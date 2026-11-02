@@ -68,6 +68,18 @@ const SEM_ADM = "É preciso manter pelo menos um administrador ativo.";
 export const BANCO_DESATUALIZADO =
   "O banco de dados precisa ser atualizado: rode de novo o arquivo supabase/schema.sql no SQL Editor do Supabase.";
 
+// Tarefa avulsa (criada pelo administrador para uma ou mais pessoas): mesmas regras do banco
+const LINK_TAREFA = /^[a-z0-9-]+\.html(#[a-z0-9-]+)?$/;
+function limparTarefaAvulsa(t) {
+  const titulo = texto(t.titulo, 120);
+  if (!titulo) throw new Error("Informe o que precisa ser feito.");
+  const link = texto(t.link, 120);
+  if (link && !LINK_TAREFA.test(link)) throw new Error("O link deve ser uma página da área, como financas.html#caixinhas.");
+  const ids = [...new Set((t.perfil_ids || []).filter(idValido))];
+  if (!ids.length) throw new Error("Escolha quem é responsável.");
+  return ids.map((perfil_id) => ({ perfil_id, titulo, texto: texto(t.texto, 600), link }));
+}
+
 // Mesmas regras do banco: e-mail em minúsculas, link só https e cliente sem módulo de engenharia
 function regrasPerfil(p) {
   const linha = Object.fromEntries(COLUNAS_PERFIL.filter((c) => c in p).map((c) => [c, p[c] === "" ? null : p[c] ?? null]));
@@ -407,6 +419,7 @@ function armazemDemo() {
   const DESEJOS = "mz-area-demo-financas-desejos";
   const PLANOS = "mz-area-demo-financas-planos";
   const CAIXINHAS = "mz-area-demo-financas-caixinhas";
+  const TAREFAS_AVULSAS = "mz-area-demo-tarefas-avulsas";
   const pdfsFinancas = []; // PDFs só durante a sessão
   const lerPerfis = () => lerJson(PERFIS, []);
   const eu = () => {
@@ -519,6 +532,36 @@ function armazemDemo() {
         if (p && p.papel === "adm" && p.situacao === "ativo" && !algumAdm(perfis, p.id)) throw new Error(SEM_ADM);
         gravarJson(PERFIS, perfis.filter((x) => x.id !== idPerfil).map((x) => (x.casal_com === idPerfil ? { ...x, casal_com: null } : x)));
         gravarJson(ACESSOS, lerJson(ACESSOS, []).filter((a) => a.perfil_id !== idPerfil));
+      },
+    },
+    // Tarefas avulsas: cada pessoa vê e marca as próprias; o administrador cria, vê e apaga todas
+    tarefasAvulsas: {
+      async listar() {
+        exigirAdm();
+        return lerJson(TAREFAS_AVULSAS, []);
+      },
+      async minhas() {
+        const p = eu();
+        return p ? lerJson(TAREFAS_AVULSAS, []).filter((t) => t.perfil_id === p.id && !t.feita_em) : [];
+      },
+      async criar(tarefa) {
+        exigirAdm();
+        const agora = new Date().toISOString();
+        const novas = limparTarefaAvulsa(tarefa).map((t) => ({ id: novoId(), ...t, feita_em: null, feita_por: null, criado_em: agora }));
+        gravarJson(TAREFAS_AVULSAS, [...lerJson(TAREFAS_AVULSAS, []), ...novas]);
+        return novas;
+      },
+      async marcar(id, feita = true) {
+        const p = eu();
+        const lista = lerJson(TAREFAS_AVULSAS, []);
+        const t = lista.find((x) => x.id === id && p && (x.perfil_id === p.id || p.papel === "adm"));
+        if (!t) throw new Error("Tarefa não encontrada.");
+        Object.assign(t, feita ? { feita_em: new Date().toISOString(), feita_por: p.id } : { feita_em: null, feita_por: null });
+        gravarJson(TAREFAS_AVULSAS, lista);
+      },
+      async remover(id) {
+        exigirAdm();
+        gravarJson(TAREFAS_AVULSAS, lerJson(TAREFAS_AVULSAS, []).filter((t) => t.id !== id));
       },
     },
     async acessos({ limite = 300 } = {}) {
@@ -881,6 +924,32 @@ async function armazemSupabase(url, chave) {
       async remover(idPerfil) {
         const { error } = await sb.from("perfis").delete().eq("id", idPerfil);
         if (error) throw new Error(mensagemPerfil(error));
+      },
+    },
+    tarefasAvulsas: {
+      async listar() {
+        const { data, error } = await sb.from("tarefas_avulsas").select("*").order("criado_em");
+        if (error) throw new Error(/tarefas_avulsas/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+        return data || [];
+      },
+      // As pendentes de quem está usando (o banco só devolve as da própria pessoa; o administrador vê todas)
+      async minhas(perfilId) {
+        const { data, error } = await sb.from("tarefas_avulsas").select("*").eq("perfil_id", perfilId).is("feita_em", null).order("criado_em");
+        if (error) throw new Error(/tarefas_avulsas/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+        return data || [];
+      },
+      async criar(tarefa) {
+        const { data, error } = await sb.from("tarefas_avulsas").insert(limparTarefaAvulsa(tarefa)).select();
+        if (error) throw new Error(/tarefas_avulsas/.test(error.message) ? BANCO_DESATUALIZADO : error.code === "42501" ? "Só o administrador cria tarefas." : error.message);
+        return data || [];
+      },
+      async marcar(id, feita = true) {
+        const { error } = await sb.rpc("marcar_tarefa_avulsa", { p_id: id, p_feita: feita });
+        if (error) throw new Error(error.code === "PGRST202" ? BANCO_DESATUALIZADO : error.message);
+      },
+      async remover(id) {
+        const { error } = await sb.from("tarefas_avulsas").delete().eq("id", id);
+        falhou(error);
       },
     },
     async acessos({ limite = 300 } = {}) {
