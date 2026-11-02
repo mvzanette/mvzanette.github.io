@@ -202,6 +202,10 @@ export function desenharInvestimentosPessoais({ raiz, lista: inicial = [], nomeD
   let movimento = null; // { id, tipo: "aplicar" | "resgatar" }
   let dicaTocada = {}; // campos que a pessoa mudou à mão no formulário (a detecção pelo nome não mexe mais)
   let filtro = "tudo"; // de quem é o dinheiro: tudo, pessoal ou o id da conta (ex.: casal)
+  const abertos = new Set(); // grupos que a pessoa abriu (começam fechados e continuam abertos ao redesenhar)
+  const grupo = (id, titulo, sub, extra, corpo) => `<details class="grupo-inv" data-grupo="${id}"${abertos.has(id) ? " open" : ""}>
+        <summary><span class="grupo-inv-tit"><b>${titulo}</b><span>${sub}</span></span>${extra ? `<span class="grupo-inv-extra num">${extra}</span>` : ""}</summary>
+        <div class="grupo-inv-corpo">${corpo}</div></details>`;
   const contaDe = (inv) => inv.conta || "pessoal";
   const nomeConta = (id) => {
     if (id === "pessoal") return nomeCurto ? `Só de ${nomeCurto}` : "Só seus";
@@ -301,6 +305,12 @@ export function desenharInvestimentosPessoais({ raiz, lista: inicial = [], nomeD
         ${kpi(`Rendeu em ${mes.slice(0, 4)}`, R.rendeuAno == null ? "—" : rendeuTexto(R.rendeuAno), "soma dos meses com rendimento")}
         ${kpi("Isento de IR", pct(R.isento), "LCI, LCA, CRI, CRA, poupança e incentivadas")}
       </div>
+      ${grupo("lista", "Investimentos", "Cada investimento por classe, com saldo, rendimento e os botões Aplicar, Resgatar e Editar", `${vis.length} · ${brl(R.total)}`, `
+      <section class="panel">
+        ${itensPorClasse.map((g) => `<details class="inv-classe" open><summary><i style="background:${g.c.cor}"></i>${esc(g.c.nome)} <span class="muted">(${g.itens.length})</span><span class="num">${brl(g.itens.reduce((t, inv) => t + saldoEm(inv, mes), 0))}</span></summary>
+          <div class="scroll"><table class="inv-tabela"><colgroup><col><col class="inv-col-saldo"><col class="inv-col-rendeu"></colgroup><thead><tr><th>Investimento</th><th class="r">Saldo</th><th class="r">Rendeu em ${rotuloMes(mes)}</th></tr></thead><tbody>${g.itens.map(linhaInv).join("")}</tbody></table></div></details>`).join("")}
+      </section>`)}
+      ${grupo("composicao", "Composição da carteira", "Por classe, por tipo e por indexador", "", `
       <div class="grid">
         <div class="col">
           <section class="panel">
@@ -311,16 +321,16 @@ export function desenharInvestimentosPessoais({ raiz, lista: inicial = [], nomeD
           <section class="panel"><h2>Por tipo</h2>${barraLista(R.porTipo.filter((g) => g.saldo > 0), (g) => tipoDe(g.id).nome, (g) => classeDe(g.id).cor)}</section>
           <section class="panel"><h2>Por indexador</h2>${barraLista(R.porIndexador.filter((g) => g.saldo > 0), (g) => NOME_INDEXADOR[g.id] || "Outro")}</section>
         </div>
+      </div>`)}
+      ${grupo("rendimentos", "Rendimentos e vencimentos", "Rendimento de cada mês e os próximos vencimentos", vencimentos.length ? `${vencimentos.length} ${vencimentos.length === 1 ? "vencimento" : "vencimentos"}` : "", `
+      <div class="grid">
         <div class="col">
           <section class="panel"><h2>Rendimentos mensais</h2>${graficoRendimentos(serie)}</section>
+        </div>
+        <div class="col">
           <section class="panel"><h2>Próximos vencimentos</h2>${vencimentos.length ? `<ul class="gm-itens inv-venc">${vencimentos.map((inv) => `<li><span>${esc(inv.nome)}<span class="sub"> · ${dataBR(inv.vencimento)}</span></span><span class="num">${n2(saldoEm(inv, mes))}</span></li>`).join("")}</ul>` : '<p class="muted" style="margin:0">Nenhum vencimento informado.</p>'}</section>
         </div>
-      </div>
-      <section class="panel" style="margin-top:18px">
-        <h2>Investimentos</h2>
-        ${itensPorClasse.map((g) => `<details class="inv-classe" open><summary><i style="background:${g.c.cor}"></i>${esc(g.c.nome)} <span class="muted">(${g.itens.length})</span><span class="num">${brl(g.itens.reduce((t, inv) => t + saldoEm(inv, mes), 0))}</span></summary>
-          <div class="scroll"><table class="inv-tabela"><colgroup><col><col class="inv-col-saldo"><col class="inv-col-rendeu"></colgroup><thead><tr><th>Investimento</th><th class="r">Saldo</th><th class="r">Rendeu em ${rotuloMes(mes)}</th></tr></thead><tbody>${g.itens.map(linhaInv).join("")}</tbody></table></div></details>`).join("")}
-      </section>`}`;
+      </div>`)}`}`;
     ligarDica(serie);
   }
 
@@ -556,6 +566,12 @@ export function desenharInvestimentosPessoais({ raiz, lista: inicial = [], nomeD
   $("#form-inv-movimento").addEventListener("submit", salvarMovimento);
   $("#form-inv-saldos").addEventListener("submit", salvarSaldos);
   $("#form-inv-saldos").elements.mes.addEventListener("change", desenharSaldos);
+  // "toggle" não sobe pela página: escuta na captura para lembrar quais grupos estão abertos
+  raiz.addEventListener("toggle", (e) => {
+    const g = e.target.matches && e.target.matches("details[data-grupo]") ? e.target.dataset.grupo : null;
+    if (!g) return;
+    if (e.target.open) abertos.add(g); else abertos.delete(g);
+  }, true);
   raiz.addEventListener("click", (e) => {
     const b = e.target.closest("button");
     if (!b) return;
