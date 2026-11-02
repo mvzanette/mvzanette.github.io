@@ -1,0 +1,36 @@
+name: Ações e dividendos
+
+# De segunda a sexta às 18h30 (Brasília), depois do fechamento da B3: atualiza cotações, indicadores e proventos
+# das ações e manda o alerta diário por e-mail para quem ligou. Também pode ser executado manualmente em
+# Actions → "Ações e dividendos" → "Run workflow".
+on:
+  schedule:
+    - cron: "30 21 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      sem_email:
+        description: "Só atualizar os dados, sem enviar e-mails"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  acoes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Atualizar as ações e enviar os alertas
+        run: node ferramentas/acoes-atualizar.mjs ${{ inputs.sem_email && '--sem-email' || '' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          ALERTA_EMAIL: ${{ secrets.ALERTA_EMAIL }}
+          ALERTA_LINK: ${{ vars.ALERTA_LINK }}
+          BRAPI_TOKEN: ${{ secrets.BRAPI_TOKEN }}

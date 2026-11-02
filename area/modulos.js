@@ -70,6 +70,16 @@ export const MODULOS = [
     icone: svg('<path d="M12 2v20"/><path d="M17 6H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>'),
   },
   {
+    // Mesma permissão das finanças pessoais (não é liberado à parte)
+    id: "acoes",
+    grupo: "pessoal",
+    titulo: "Ações e dividendos",
+    descricao: "Principais ações da B3: indicadores, proventos com datas, nota de confiabilidade e alertas de preço por e-mail.",
+    pagina: "acoes.html",
+    permissao: "financas",
+    icone: svg('<path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/>'),
+  },
+  {
     id: "usuarios",
     grupo: "admin",
     titulo: "Usuários e permissões",
@@ -135,6 +145,7 @@ export function pode(perfil, modulo) {
   if (!perfil || perfil.situacao !== "ativo") return false;
   const m = MODULOS.find((x) => x.id === modulo);
   if (m && m.todos) return true;
+  if (m && m.permissao) return pode(perfil, m.permissao);
   if (perfil.papel === "adm") return true;
   if (m && m.somenteAdm) return false;
   if (modulo === "painel") return DO_PAINEL.some((e) => pode(perfil, e));

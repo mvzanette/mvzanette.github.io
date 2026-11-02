@@ -34,6 +34,15 @@ const TABELAS = {
       "documento_nome", "detalhes", "observacao"],
     numeros: ["valor"],
   },
+  // Painel de ações: dados de mercado (gravados só pela rotina diária) e as ações que cada pessoa acompanha
+  acoes_mercado: {
+    colunas: ["ticker", "nome", "setor", "preco", "variacao", "dados", "atualizado_em"],
+    numeros: ["preco", "variacao"],
+  },
+  acoes_acompanhamento: {
+    colunas: ["id", "perfil_id", "ticker", "preco_compra", "preco_venda", "alertar", "quantidade", "preco_medio", "observacao"],
+    numeros: ["preco_compra", "preco_venda", "quantidade", "preco_medio"],
+  },
 };
 
 // Configuração do caixa das empresas: quais empresas, saldo inicial e o saldo informado da conta do caixa

@@ -356,6 +356,19 @@ Num grupo da aba **Investimentos**, logo abaixo dos investimentos individuais (e
 - **5. Ações com aportes mensais:** três cenários acima da inflação contra o Tesouro IPCA+ da lista, em dinheiro de hoje e sem IR, num gráfico de barras com a linha "vocês colocam", e as regras curtas (isenção de R$ 20 mil não vale para ETF).
 - Rodapé fixo: "Ferramenta educativa, não é recomendação de investimento. Taxas de exemplo; confira as ofertas reais antes de aplicar."
 
+### Ações e dividendos
+
+Página própria na área restrita (`area/acoes.html`, menu **Pessoal → Ações e dividendos**), aberta para quem tem as finanças pessoais. **Informativa: não é recomendação de compra ou venda.**
+
+- **Dados:** a rotina `ferramentas/acoes-atualizar.mjs` (GitHub Actions **Ações e dividendos**, de segunda a sexta às 18h30 de Brasília, depois do fechamento da B3) busca as 35 principais ações (lista `ACOES_PADRAO` em `area/regras-acoes.js`) e as que alguém acompanha, e grava em `acoes_mercado`. Fonte gratuita e sem cadastro: Yahoo Finance (cotação, 2 anos de preços diários, todo o histórico de proventos com a data ex, indicadores do último balanço e lucro anual dos últimos 4 ou 5 anos). Opcional: com o segredo `BRAPI_TOKEN` (plano gratuito da [brapi.dev](https://brapi.dev)), os proventos vêm de lá, com **data com, data de pagamento e tipo** (dividendo ou JCP). Sem ele, a data com é estimada como o pregão anterior à data ex. Uma fonte que falhar não impede as outras; a ação que falhar fica com os dados do dia anterior.
+- **Indicadores:** preço e variação do dia, DY de 12 meses, yield médio de 5 anos, P/L, P/VP, ROE, margem líquida, dívida líquida/EBITDA (não se aplica a bancos e seguradoras), EV/EBITDA, payout, crescimento do lucro, LPA e VPA, valor de mercado, liquidez diária (média de 60 pregões), média de 200 dias, retorno de 12 meses e de 5 anos e beta. Os que dependem do preço (P/L, P/VP, DY) são refeitos com a cotação do dia. Cores: verde no que o mercado costuma ver como bom, vermelho no que pede atenção.
+- **Preços de referência:** preço-teto de Bazin (média anual dos proventos dos últimos 5 anos completos ÷ 6%) e preço justo de Graham (√(22,5 × LPA × VPA)). Zona: abaixo do teto, até 10% acima ou acima; proventos irrisórios (teto abaixo de 25% do preço) ficam sem zona.
+- **Nota de confiabilidade (0 a 100):** consistência ao longo do tempo: anos pagando proventos nos últimos 10 (25 pontos), regularidade sem queda de mais de 25% de um ano para o outro (15), anos com lucro (15), crescimento do lucro (5, cheio com 10% ao ano), tempo de bolsa (10, cheio com 15 anos), ROE (10, cheio com 15%), endividamento (10, cheio até 1× o EBITDA, zero com 4×) e liquidez (10, escala de R$ 1 mi a R$ 50 mi por dia). Critério sem dado fica de fora e a nota é refeita sobre os outros (com pelo menos 30 pontos de critérios). 75 ou mais: alta; 55 a 74: média; abaixo: baixa.
+- **Tela:** resumo no topo; **Minha lista** (alvos, situação, posição com ganho ou perda pelo preço médio, alerta); tabela das principais com busca, setor, ordenação e filtro "só abaixo do preço-teto"; **proventos recentes e anunciados** (data com nos últimos 60 dias ou à frente); detalhe de cada ação com gráfico de 12 meses e as linhas de referência e dos alvos, todos os indicadores explicados, a nota por critério, proventos por ano (10 anos) e a lista completa com as datas.
+- **Alvos e alerta:** cada pessoa define "comprar até" e "vender a partir de" (a sugestão usa o preço-teto e 40% acima dele ou 20% acima do preço justo; só é usada se a pessoa clicar). Fica em `acoes_acompanhamento` (mesmo acesso das finanças: a pessoa, o casal e o administrador). Com o alerta ligado, a rotina manda em cada dia de pregão um e-mail para o e-mail do cadastro da pessoa com a cotação de fechamento dessas ações, as que entraram na zona de compra ou de venda primeiro. Em feriado (nenhuma cotação do dia), não manda. Um código fora da lista padrão entra na próxima atualização.
+- **Testes:** `node ferramentas/testar-acoes.mjs` (contas e leitura das fontes, sem internet) e `node ferramentas/acoes-atualizar.mjs --teste` (e-mail de exemplo). No modo demonstração, a página usa dados fictícios (`area/acoes-exemplo.js`).
+- Para buscar os dados na hora (por exemplo, logo depois de publicar): **Actions → Ações e dividendos → Run workflow** (marque "Só atualizar os dados" para não mandar e-mail).
+
 ### Lançamento dividido em mais de uma categoria
 
 No **Classificar** de qualquer lançamento (fatura, gastos do dia a dia) e no **Lançar gasto / Editar gasto**, a opção **Dividir em mais de uma categoria** divide o valor em duas a oito partes, cada uma com valor, categoria, subcategoria e conta (ex.: uma compra no Mercado Livre com um item da casa e um pessoal). A primeira parte fica com o que falta para o total, e o site só salva quando a soma bate. Nas somas por categoria, por essencial e por conta (gastos pagos, gastos do dia a dia, análise da fatura, casal e páginas das empresas e da engenharia), cada parte entra na dela; a parcela de uma compra dividida segue a mesma proporção. As listas mostram o lançamento com a marca "dividido" e as partes. Fica em `financas_ajustes.partes` (lançamentos do projeto e das faturas) e em `financas_gastos.partes` (gastos lançados pelo site).
@@ -466,6 +479,8 @@ Em **Settings → Secrets and variables → Actions**:
 
 Para testar na hora: **Actions → Alertas de ART → Run workflow**. Depois disso a rotina roda todo dia às 8h (Brasília).
 
+A rotina **Ações e dividendos** usa os mesmos segredos (o e-mail vai para o e-mail do cadastro de cada pessoa que ligou o alerta). Opcional: o segredo `BRAPI_TOKEN`, criado de graça em brapi.dev, traz a data de pagamento e o tipo de cada provento.
+
 Observações:
 
 - A rotina agendada roda a partir da branch principal do repositório.
@@ -513,6 +528,8 @@ Se der erro, o GitHub avisa por e-mail. Enquanto nada da AWS estiver configurado
 
 ```
 node ferramentas/alertas-art.mjs --teste   # simula o e-mail do dia com dados fictícios
+node ferramentas/testar-acoes.mjs          # contas do painel de ações (sem internet)
+node ferramentas/acoes-atualizar.mjs --teste  # e-mail de exemplo do alerta de ações
 python3 ferramentas/versionar_area.py      # depois de alterar arquivos da área restrita, antes de publicar
 ```
 

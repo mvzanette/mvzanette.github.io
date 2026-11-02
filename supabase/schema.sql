@@ -1384,3 +1384,63 @@ create policy "caixinhas do proprio perfil" on public.caixinhas
   for all to authenticated
   using (public.financas_acesso(perfil_id))
   with check (public.financas_acesso(perfil_id));
+
+-- ------------------------------------------------------------
+-- Painel de ações (página Ações e dividendos, com a permissão das finanças pessoais)
+-- ------------------------------------------------------------
+-- Dados de mercado das ações: cotação, indicadores, proventos e histórico. Gravados só pela rotina diária do GitHub
+-- Actions (ferramentas/acoes-atualizar.mjs, com a chave secreta); quem tem as finanças pessoais lê.
+--   dados: { data_preco, ind: { pl, pvp, lpa, vpa, roe, margem, divEbitda, evEbitda, payout, valorMercado, beta,
+--            liquidez }, proventos: [{ data_com, data_ex, pagamento, valor, tipo }], lucros: [{ ano, lucro }],
+--            historico: { inicio, min52, max52, mm200, ret12m, ret5a, semanal }, fontes, avisos }
+create table if not exists public.acoes_mercado (
+  ticker        text primary key check (ticker ~ '^[A-Z]{4}[0-9]{1,2}$'),
+  nome          text,
+  setor         text,
+  preco         numeric(14, 4),
+  variacao      numeric(10, 6),
+  dados         jsonb not null default '{}'::jsonb check (jsonb_typeof(dados) = 'object'),
+  atualizado_em timestamptz not null default now()
+);
+
+-- Ações que cada pessoa acompanha, com os alvos de compra e de venda e o alerta diário por e-mail.
+-- quantidade e preco_medio (opcionais): a posição que a pessoa já tem, para mostrar o ganho ou a perda.
+create table if not exists public.acoes_acompanhamento (
+  id            uuid primary key default gen_random_uuid(),
+  perfil_id     uuid not null references public.perfis (id) on delete cascade,
+  ticker        text not null check (ticker ~ '^[A-Z]{4}[0-9]{1,2}$'),
+  preco_compra  numeric(14, 2) check (preco_compra is null or preco_compra > 0),
+  preco_venda   numeric(14, 2) check (preco_venda is null or preco_venda > 0),
+  alertar       boolean not null default true,
+  quantidade    numeric(14, 2) check (quantidade is null or quantidade >= 0),
+  preco_medio   numeric(14, 2) check (preco_medio is null or preco_medio > 0),
+  observacao    text check (observacao is null or length(observacao) <= 300),
+  criado_em     timestamptz not null default now(),
+  atualizado_em timestamptz not null default now(),
+  unique (perfil_id, ticker)
+);
+create index if not exists acoes_acompanhamento_perfil_idx on public.acoes_acompanhamento (perfil_id);
+
+drop trigger if exists acoes_acompanhamento_atualizado_em on public.acoes_acompanhamento;
+create trigger acoes_acompanhamento_atualizado_em before update on public.acoes_acompanhamento
+  for each row execute function public.tocar_atualizado_em();
+
+alter table public.acoes_mercado enable row level security;
+alter table public.acoes_acompanhamento enable row level security;
+revoke all on public.acoes_mercado, public.acoes_acompanhamento from anon;
+grant select on public.acoes_mercado to authenticated;
+grant select, insert, update, delete on public.acoes_mercado to service_role;
+grant select, insert, update, delete on public.acoes_acompanhamento to authenticated, service_role;
+revoke truncate, trigger, references on public.acoes_acompanhamento from authenticated;
+
+drop policy if exists "acoes - ler mercado" on public.acoes_mercado;
+create policy "acoes - ler mercado" on public.acoes_mercado
+  for select to authenticated
+  using ((select public.pode('financas')));
+
+-- Mesmo acesso das finanças: a pessoa, quem forma casal com ela e o administrador
+drop policy if exists "acoes acompanhadas do proprio perfil" on public.acoes_acompanhamento;
+create policy "acoes acompanhadas do proprio perfil" on public.acoes_acompanhamento
+  for all to authenticated
+  using (public.financas_acesso(perfil_id))
+  with check (public.financas_acesso(perfil_id));

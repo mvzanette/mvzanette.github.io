@@ -1,0 +1,64 @@
+/* Área restrita – Ações e dividendos (acoes.html). Cores pelas variáveis da área: valem no modo claro e no escuro. */
+.ac-aviso { margin: -6px 0 16px; color: var(--muted); font-size: 0.9rem; }
+.ac-filtros { grid-template-columns: 1fr 200px 260px auto; align-items: center; }
+.area label.ac-check { display: flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0; font: 500 0.92rem var(--font-body); color: var(--text); white-space: nowrap; }
+.campos label.ac-check { align-self: end; padding-bottom: 10px; }
+.ac-check input { width: auto; margin: 0; }
+.ac-tabela td small, #ac-minhas td small { color: var(--muted); }
+.ac-bom { color: var(--ok); }
+.ac-ruim { color: var(--erro); }
+.ac-marca { color: var(--c-8a6400); }
+
+/* Etiquetas: zona pelo preço-teto e situação diante dos alvos */
+.ac-z-abaixo, .ac-a-compra { color: var(--ok); background: var(--c-e8f5e9); border-color: var(--c-a5d6a7); }
+.ac-z-perto, .ac-a-entre { color: var(--c-6b4b00); background: var(--c-fff3c4); border-color: var(--c-f0d27a); }
+.ac-z-acima, .ac-a-venda { color: var(--erro); background: var(--c-fbe5e3); border-color: var(--c-e7b4b4); }
+.ac-z-sem, .ac-a-sem { color: var(--muted); }
+
+.ac-nota { display: inline-block; min-width: 2.4em; padding: 2px 6px; font: 700 0.95rem var(--font-head); text-align: center; border: 1px solid currentColor; }
+.ac-n-alta { color: var(--ok); background: var(--c-e8f5e9); }
+.ac-n-media { color: var(--c-6b4b00); background: var(--c-fff3c4); }
+.ac-n-baixa { color: var(--erro); background: var(--c-fbe5e3); }
+
+/* Detalhe da ação */
+.ac-setor { font: 500 0.85rem var(--font-body, inherit); color: var(--muted); margin-left: 6px; }
+.ac-topo { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 14px; }
+.ac-topo > div { line-height: 1.5; }
+.ac-topo .kpi-rotulo { display: block; margin-bottom: 4px; }
+.ac-topo small { color: var(--muted); }
+.ac-preco { font: 800 1.6rem var(--font-head); }
+.ac-grafico { margin: 0 0 8px; padding: 10px; background: var(--gray-100); border: 1px solid var(--gray-200); }
+.ac-grafico svg { display: block; width: 100%; height: 200px; overflow: visible; }
+.ac-grafico figcaption { margin-top: 6px; font-size: 0.82rem; color: var(--muted); }
+.ac-h3 { margin: 22px 0 10px; font-size: 1rem; }
+.ac-inds { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+.ac-ind { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; background: var(--white); border: 1px solid var(--gray-200); border-left: 4px solid var(--gray-300); }
+.ac-ind b { font: 700 1.1rem var(--font-head); color: var(--text); }
+.ac-ind small { color: var(--muted); font-size: 0.78rem; }
+.ac-ind.ac-bom { border-left-color: var(--ok); }
+.ac-ind.ac-ruim { border-left-color: var(--erro); }
+.ac-partes { display: grid; gap: 6px; }
+.ac-parte { display: grid; grid-template-columns: 200px 1fr 90px; grid-template-areas: "n t p" ". d d"; gap: 2px 12px; align-items: center; font-size: 0.9rem; }
+.ac-parte > span:first-child { grid-area: n; }
+.ac-parte .ac-trilho { grid-area: t; height: 10px; background: var(--gray-200); }
+.ac-parte .ac-trilho span { display: block; height: 100%; background: var(--yellow, #f5b800); }
+.ac-parte b { grid-area: p; text-align: right; font-weight: 600; }
+.ac-parte small { grid-area: d; color: var(--muted); font-size: 0.78rem; }
+.ac-barras { display: flex; align-items: flex-end; gap: 6px; height: 150px; padding: 8px 0; }
+.ac-barra { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; min-width: 0; }
+.ac-barra-c { width: 100%; max-width: 38px; background: var(--yellow, #f5b800); }
+.ac-barra.parcial .ac-barra-c { opacity: 0.45; }
+.ac-barra-v { font-size: 0.7rem; color: var(--muted); margin-bottom: 2px; white-space: nowrap; }
+.ac-barra-a { font-size: 0.75rem; margin-top: 4px; }
+.ac-lista-prov { margin: 6px 0 14px; }
+.ac-lista-prov summary { cursor: pointer; font-weight: 600; margin-bottom: 8px; }
+.ac-alvos { margin-top: 18px; }
+.ac-ajuda { margin-top: 24px; }
+.ac-ajuda summary { cursor: pointer; }
+.ac-ajuda li { margin-bottom: 6px; }
+
+@media (max-width: 760px) {
+  .ac-filtros { grid-template-columns: 1fr; }
+  .ac-topo { grid-template-columns: 1fr; }
+  .ac-parte { grid-template-columns: 1fr 80px; grid-template-areas: "n p" "t t" "d d"; }
+}
