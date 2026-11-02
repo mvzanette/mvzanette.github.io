@@ -8,6 +8,7 @@ import { chavesFatura, chavesGastos, efetivo, lerCategorias, nomeConta, partesDe
 import { ordemFatura } from "./financas-previa.js";
 import { mudancas, primeiroMes, rotuloMes as rotuloPlano, textoPrevistoFeito, vigenteNoMes } from "./financas-plano.js";
 import { calcular as calcularCaixinha, ehDeposito, movimentosDe, parteDe, valorNoMes } from "./financas-caixinhas.js";
+import { CATEGORIAS_ENTRADA, categoriaPadrao, chaveEntrada, htmlEntradas, ligarEntradas, sugerirCategoria } from "./financas-entradas.js";
 
 const MESES_PADRAO = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 const VAZIO = {arquivo: "", faturas: [], parcelamentos: [], comprometido: {}, categorias: {}, postos: {}, lancamentos: [], alertas: []};
@@ -49,7 +50,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   recorrentes: recorrentesSite = [], aoPagarRecorrente = null, aoDesmarcarRecorrente = null, aoEditarRecorrente = null, aoValorRecorrente = null,
   aoMudarPendencias = null, aoEditarGasto = null, aoPagarGasto = null, aoEditarMetas = null,
   aoEditarEntrada = null, aoReceberEntrada = null, outroAporte = null, investimentosCasal = null,
-  planoAporte = null, planoCasal = null, caixinhas = null }) {
+  planoAporte = null, planoCasal = null, caixinhas = null, aoCategoriaEntrada = null, aoUnirEntradas = null }) {
   const D = completar(dados);
   let CATS = categorias || lerCategorias(null, dados);
   let AJ = new Map(ajustes.map(a => [a.chave, a]));
@@ -135,6 +136,12 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   let PAGOS_CX = []; // gastos do site pagos com uma caixinha (fora dos gastos do mês)
   // Gastos lançados no site ainda a pagar (ids) e fixos do projeto trocados por um recorrente do site ou tirados
   let APAGAR = new Set((caixaPrefs && caixaPrefs.aPagar) || []);
+  // Entradas: categoria escolhida pela pessoa (pela descrição), sugestões dispensadas e a decisão sobre a entrada do site
+  // igual a uma do projeto ("site": a do site vale no lugar da do projeto; "separadas": contam as duas)
+  let CAT_ENT = {...((caixaPrefs && caixaPrefs.categoriasEntrada) || {})};
+  let IGN_ENT = new Set((caixaPrefs && caixaPrefs.categoriasEntradaIgnoradas) || []);
+  let UNIAO = {...((caixaPrefs && caixaPrefs.uniaoEntradas) || {})};
+  let PARES = []; // entradas do site iguais a uma do projeto, à espera da decisão da pessoa
   let OCULTOS = new Set((caixaPrefs && caixaPrefs.fixosOcultos) || []);
   const aPagar = l => !!l && l.origem === "site" && !card(l.forma) && APAGAR.has(l.id);
   // Prévias das faturas que ainda não fecharam, importadas do CSV ou do OFX do app do banco
@@ -270,6 +277,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     D.cartao.comprometido = structuredClone(ORIGINAL.comprometido);
     duplicados = 0;
     entradasRepetidas = 0;
+    PARES = [];
     parcelasSite = [];
     memoCaixa.clear();
     memoCx = null;
@@ -286,9 +294,18 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       else {
         // Recebimento igual a um do projeto: a estimativa do projeto sai (a entrada do site confirma o recebimento);
         // um recebimento já registrado no projeto não conta de novo
+        // Com a decisão da pessoa: a do site no lugar da do projeto (o total não muda) ou as duas; sem decisão, como antes
+        // (conta só a do projeto) e a dupla aparece para confirmar
         const igual = m.receitas.find(r => r.origem !== "site" && r.fonte !== "Empresa" && r.liquido != null && Math.abs(r.liquido - e.liquido) < 0.01);
-        if (igual && !/estimativa/i.test(igual.obs || "")) { entradasRepetidas++; continue; }
-        if (igual) m.receitas = m.receitas.filter(r => r !== igual);
+        if (igual && !/estimativa/i.test(igual.obs || "")) {
+          const dec = UNIAO[e.id];
+          if (dec === "site") m.receitas = m.receitas.filter(r => r !== igual);
+          else if (dec !== "separadas") {
+            entradasRepetidas++;
+            PARES.push({id: e.id, mes: m.chave, site: {desc: e.descricao, valor: e.liquido, data: e.data}, projeto: {desc: igual.desc, valor: igual.liquido, data: igual.data || null}});
+            continue;
+          }
+        } else if (igual) m.receitas = m.receitas.filter(r => r !== igual);
       }
       m.receitas.push({desc: e.descricao, fonte: salario ? "Empresa" : "Outros", liquido: e.liquido, obs: e.observacao || "", origem: "site", id: e.id,
         bruto: e.bruto, descontos: e.descontos || [], data: e.data, conta: e.conta || null,
@@ -985,29 +1002,69 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     return {id: r.origem === "site" && r.id && !e.prevista ? r.id : null, entrada, rotulo: rotuloDe(chave)};
   }
   let HERO_ENT = []; // entradas do mês no balanço (índice dos botões)
-  function linhaEntrada(e, chave, i) {
+  // Detalhes de uma entrada (ao tocar na linha do quadro Entradas do mês): quando, mês de trabalho, origem, holerite e os
+  // botões (recebida, editar, apagar, como é o recebimento, repete)
+  function detalhesEntrada(e, chave, i) {
     const r = e.r || {};
     const site = r.origem === "site" && r.id;
-    const quando = e.data ? (e.st === "previsto" ? `previsto para ${dataDoMes(e.data, chave)}` : `recebido em ${dataDoMes(e.data, chave)}`) : e.st === "previsto" ? "previsto no mês" : "recebido no mês";
-    const partes = [quando];
-    if (e.ref) partes.push(`trabalho de ${rotuloDe(e.ref)}`);
-    if (e.prevista) partes.push("repete todo mês");
-    const chip = /estimativa/i.test(r.obs || "") ? ' <span class="chip warn">estimado</span>' : site ? ' <span class="chip info">lançado no site</span>' : e.prevista ? ' <span class="chip neutral">previsto</span>' : "";
-    const conta = r.conta && r.conta !== "pessoal" ? ` <span class="chip conta">${esc(nomeDaConta(r.conta))}</span>` : "";
-    const holerite = site && (r.bruto != null || (r.descontos || []).length)
-      ? `<div class="sub">${r.bruto != null ? `Bruto ${brl(r.bruto)}` : ""}${(r.descontos || []).map(d => ` − ${esc(d.nome)} ${brl(d.valor)}`).join("")}</div>` : "";
-    const receber = recebivel(e, chave) ? `<button type="button" class="btn mini cx-recebida" data-receber-ent="${i}" title="Dar como recebida${e.data && e.data > hojeIso ? " hoje" : ""}">✓ Recebida</button>` : "";
+    const quando = e.data ? (e.st === "previsto" ? `previsto para ${dataDoMes(e.data, chave)}` : `recebido em ${dataDoMes(e.data, chave)}`) : e.st === "previsto" ? "previsto no mês" : "recebido no mês, sem data";
+    const partes = [quando, e.ref ? `trabalho de ${rotuloDe(e.ref)}` : "", e.prevista ? "repete todo mês (prevista pela última)" : site ? "lançada no site" : /estimativa/i.test(r.obs || "") ? "estimativa do projeto Financeiro" : e.r ? "do projeto Financeiro" : "previsão do mês (como no último mês)",
+      r.recebimento ? RECEBIMENTO[r.recebimento] : "", r.conta && r.conta !== "pessoal" ? nomeDaConta(r.conta) : ""].filter(Boolean);
+    const holerite = r.bruto != null || (r.descontos || []).length ? `<div class="sub">${r.bruto != null ? `Bruto ${brl(r.bruto)}` : ""}${(r.descontos || []).map(d => ` − ${esc(d.nome)} ${brl(d.valor)}`).join("")}</div>` : "";
+    const receber = recebivel(e, chave) ? `<button type="button" class="btn mini cx-recebida" data-receber-ent="${i}">✓ Recebida${e.data && e.data > hojeIso ? " hoje" : ""}</button>` : "";
     const editar = aoEditarEntrada && (site && !e.prevista) ? `<button type="button" class="btn-link" data-editar-ent="${i}">Editar</button>`
       : aoEditarEntrada && e.prevista && chave <= hojeKey ? `<button type="button" class="btn-link" data-editar-ent="${i}">Mudar o valor e confirmar</button>` : "";
-    const controles = site && aoMudarRecebimento ? `<div class="cx-receb">
-        ${receber}
+    const controles = site && aoMudarRecebimento ? `<div class="cx-receb">${receber}
         <select data-recebimento="${esc(r.id)}" aria-label="Como é o recebimento de ${esc(r.desc)}"${r.recebimento ? "" : ' class="falta"'}>${r.recebimento ? "" : '<option value="" selected disabled>Como é esse recebimento?</option>'}${Object.entries(RECEBIMENTO).map(([v, t]) => `<option value="${v}"${r.recebimento === v ? " selected" : ""}>${t}</option>`).join("")}</select>
         <label class="cx-repete"><input type="checkbox" data-repete="${esc(r.id)}"${r.repete ? " checked" : ""}> repete todo mês</label>
-        ${editar}
-        ${aoApagarEntrada ? `<button type="button" class="btn-link" data-apagar-entrada="${esc(r.id)}">Apagar</button>` : ""}
-      </div>` : receber || editar ? `<div class="cx-receb">${receber}${editar}</div>` : "";
-    return `<tr data-mov="entradas"><td>${esc(e.desc)}${chip}${conta}<div class="sub">${esc(partes.join(" · "))}</div>${holerite}${controles}</td>
-      <td class="r num">${e.st === "realizado" ? brl(e.valor) : ""}</td><td class="r num prev">${e.st === "previsto" ? brl(e.valor) : ""}</td></tr>`;
+        ${editar}${aoApagarEntrada ? `<button type="button" class="btn-link" data-apagar-entrada="${esc(r.id)}">Apagar</button>` : ""}</div>`
+      : receber || editar ? `<div class="cx-receb">${receber}${editar}</div>` : "";
+    return `<div class="sub">${esc(partes.join(" · "))}</div>${holerite}${r.obs && !/estimativa/i.test(r.obs) ? `<div class="compl">${esc(r.obs)}</div>` : ""}${controles}`;
+  }
+
+  // ---------- Entradas do mês: categorias, renda sem reembolsos, média dos três meses anteriores e avisos ----------
+  const categoriaEntrada = e => CAT_ENT[chaveEntrada(e.desc)] || categoriaPadrao(e.r || {});
+  const valoresRecorrentes = chave => {
+    const m = D.meses.find(x => x.chave === chave);
+    const rec = m ? statusRecorrentes(m) : recorrentesDe(chave);
+    return rec.filter(r => !card(r.forma) && r.valor != null).map(r => Number(r.valor));
+  };
+  const rendaDoMes = chave => sum(entradasDoMes(chave).filter(e => categoriaEntrada(e) !== "reembolso"), e => e.valor);
+  function entradasResumo(chave) {
+    const ents = caixa(chave).entradas;
+    const vals = valoresRecorrentes(chave);
+    const itens = ents.map((e, i) => {
+      const k = chaveEntrada(e.desc), categoria = categoriaEntrada(e);
+      const sug = sugerirCategoria(e.desc, e.valor, vals);
+      return {i, e, chave: k, desc: e.desc, valor: e.valor, data: e.data || null, st: e.st, categoria, semData: !e.data && e.st === "realizado",
+        sugestao: !CAT_ENT[k] && !IGN_ENT.has(k) && sug && sug !== categoria ? sug : null};
+    });
+    const renda = itens.filter(x => x.categoria !== "reembolso");
+    const r2 = v => Math.round(v * 100) / 100;
+    const recebido = r2(sum(renda.filter(x => x.st !== "previsto"), x => x.valor)), previsto = r2(sum(renda, x => x.valor));
+    const porCategoria = Object.fromEntries(CATEGORIAS_ENTRADA.map(c => [c.id, r2(sum(itens.filter(x => x.categoria === c.id), x => x.valor))]));
+    // Média dos três meses anteriores com alguma renda
+    const anteriores = [1, 2, 3].map(k => somarChave(chave, -k)).filter(c => D.meses.some(x => x.chave === c)).map(c => ({c, v: rendaDoMes(c)})).filter(x => x.v > 0.004);
+    const media = anteriores.length ? r2(sum(anteriores, x => x.v) / anteriores.length) : 0;
+    const mesesMedia = anteriores.length ? (anteriores.length === 1 ? rotuloDe(anteriores[0].c) : `${rotuloDe(anteriores.at(-1).c)}–${rotuloDe(anteriores[0].c)}`) : "";
+    // Entrada prevista mais de 3 dias depois do dia habitual (o da última vez) e que ainda não caiu
+    const alertas = chave === hojeKey ? itens.filter(x => x.st === "previsto" && x.data && x.data < hojeIso && (Date.parse(hojeIso) - Date.parse(x.data)) / 864e5 > 3 && x.categoria !== "reembolso")
+      .map(x => `${x.desc} ${TEM_NOME ? `de ${DONO} ` : ""}ainda não caiu (costuma cair dia ${Number(x.data.slice(8, 10))}).`) : [];
+    const vistas = new Set();
+    const sugestoes = itens.filter(x => x.sugestao && !vistas.has(x.chave) && vistas.add(x.chave)).map(x => ({chave: x.chave, desc: x.desc, de: x.categoria, para: x.sugestao}));
+    return {chave, rotulo: rotuloDe(chave), itens, recebido, previsto, falta: r2(previsto - recebido), reembolsos: porCategoria.reembolso, porCategoria, media, mesesMedia,
+      alertas, sugestoes, pares: PARES.filter(p => p.mes === chave)};
+  }
+  function renderEntradasMes(m) {
+    const box = $id("entradas-mes");
+    if (!box) return;
+    const r = entradasResumo(m.chave);
+    HERO_ENT = caixa(m.chave).entradas;
+    const editavel = !!aoCategoriaEntrada;
+    const notas = [];
+    if (r.itens.some(x => x.e.r && x.e.r.origem === "site" && x.e.r.id && !x.e.r.recebimento)) notas.push('<p class="ent-nota"><b>Como é cada recebimento?</b> Toque na entrada e escolha se você trabalha o mês e recebe depois (como o salário) ou recebe antes e usa no mês (como o ticket). Com isso, o painel prevê os próximos meses.</p>');
+    box.innerHTML = htmlEntradas({...r, itens: r.itens.map(x => ({...x, editavel, detalhes: detalhesEntrada(x.e, m.chave, x.i)})),
+      sugestoes: editavel ? r.sugestoes : [], pares: aoUnirEntradas ? r.pares : [], lancar: !!aoLancarEntrada, notas});
   }
 
   const investido = cx => cx.saidas.some(x => x.tipo === "investimento" && x.l);
@@ -1068,7 +1125,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
         <tbody>
           ${inicial}
           ${grupo("Entradas", cx.ent.realizado, cx.ent.previsto, "entradas")}
-          ${cx.entradas.map((e, i) => linhaEntrada(e, m.chave, i)).join("") || `<tr><td class="muted" colspan="3">Nenhuma entrada no mês.</td></tr>`}
+          <tr class="cx-ent-resumo"><td class="muted" colspan="3">${cx.entradas.length ? `${cx.entradas.length} ${cx.entradas.length === 1 ? "entrada" : "entradas"}: veja no quadro Entradas de ${esc(m.rotulo)}` : "Nenhuma entrada lançada ainda."}</td></tr>
           ${grupo("(−) Gastos pagos no mês", somaSt(GASTOS, "realizado"), somaSt(GASTOS, "previsto"), "saidas")}
           ${saidas.join("") || `<tr><td class="muted" colspan="3">Nenhum gasto pago no mês.</td></tr>`}
           ${investimentos.length ? `${grupo("(−) Investimento", somaSt(["investimento"], "realizado"), somaSt(["investimento"], "previsto"), "investimento")}${investimentos.join("")}` : ""}
@@ -1081,9 +1138,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       <details class="como"><summary>Como o balanço é calculado?</summary><p>O que entra e sai da conta, pela data. Realizado é o que tem data até hoje; o resto é previsto. O cartão entra pela fatura paga no mês${cx.fatura ? ` (${esc(cx.fatura.rotulo)})` : ""}, com os lançamentos dela no quadro “Gastos pagos em ${esc(m.rotulo)}”.${prox && prox.valor > 0 ? ` As compras no cartão feitas em ${esc(m.rotulo)} vão para a fatura ${esc(prox.rotulo)}${prox.venc ? `, que vence em ${dataLonga(prox.venc)}` : ""} (${prox.situacao === "fechada" ? "fechada em" : "até agora"} ${brl(prox.valor)}), e entram no balanço de ${esc(mesSeguinte)}.` : ""} O pagamento de um recorrente conta como fixo; o investimento e o depósito nas caixinhas ficam à parte, não são gastos. O gasto pago com o dinheiro de uma caixinha não entra aqui: só tira do saldo dela.</p></details>
       ${!passado ? caixinhasDoMes(m.chave).filter(x => x.conta.alerta).map(x => `<div class="note"><b>Caixinha ${esc(x.cx.nome)} atrasada.</b> Faltam ${x.conta.mesesAte <= 0 ? "menos de um mês" : `${x.conta.mesesAte} ${x.conta.mesesAte === 1 ? "mês" : "meses"}`} para ${dataLonga(x.cx.data_alvo)} e ela tem ${brl(x.conta.saldo)} de ${brl(x.cx.meta)} (pelo tempo, deveria ter ${brl(x.conta.esperado)}). <button type="button" class="btn-link" data-ir-caixinhas>Abrir Caixinhas</button></div>`).join("") : ""}
       ${cx.inicial == null && editavel ? `<div class="note"><b>Informe o saldo da conta em ${dia1}.</b> O Pix do começo do mês sai do que sobrou do mês anterior; com o saldo do início, o caixa mostra quanto há de verdade.</div>` : ""}
-      ${entradasRepetidas ? `<p class="sub" style="margin:8px 0 0">${entradasRepetidas === 1 ? "Uma entrada lançada pelo site já estava" : `${entradasRepetidas} entradas lançadas pelo site já estavam`} no projeto Financeiro e não contou de novo.</p>` : ""}
-      ${!cx.entradas.length ? `<div class="note"><b>Nenhuma entrada em ${esc(m.rotulo)}.</b> ${aoLancarEntrada ? "Lance o salário ou outro recebimento pelo botão Lançar entrada." : "As receitas entram pelo projeto Financeiro."}</div>` : ""}
-      ${cx.entradas.some(e => e.r && e.r.origem === "site" && e.r.id && !e.r.recebimento) ? '<div class="note"><b>Como é cada recebimento?</b> Escolha em cada entrada se você trabalha o mês e recebe depois (como o salário) ou recebe antes e usa no mês (como o ticket). Com isso, o painel prevê os próximos meses.</div>' : ""}`;
+`;
   }
 
 
@@ -2026,6 +2081,20 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   // Só os números, sem desenhar nada na página (visão do casal)
   // Gastos lançados no site marcados como a pagar com a data até hoje (vencidos ou para hoje)
   const aPagarVencidos = () => D.meses.flatMap(m => m.lancamentos).filter(l => aPagar(l) && l.data && l.data <= hojeIso);
+  // Preferências do caixa mudaram (saldos, gastos a pagar, fixos, previsões, categorias e decisões das entradas)
+  function atualizarCaixaBase(c) {
+    SALDOS = {...((c && c.saldos) || {})};
+    APAGAR = new Set((c && c.aPagar) || []);
+    OCULTOS = new Set((c && c.fixosOcultos) || []);
+    CAT_ENT = {...((c && c.categoriasEntrada) || {})};
+    IGN_ENT = new Set((c && c.categoriasEntradaIgnoradas) || []);
+    const uniao = {...((c && c.uniaoEntradas) || {})};
+    const mudouUniao = JSON.stringify(uniao) !== JSON.stringify(UNIAO);
+    UNIAO = uniao;
+    lerMetas(c);
+    if (mudouUniao) mesclarSite();
+    memoCaixa.clear();
+  }
   // A outra pessoa do casal (o painel dela só para cálculo): renda do mês (divisão das caixinhas), gastos ligados às
   // caixinhas e o aporte do mês (previsto × feito)
   function definirParceiroBase(p) {
@@ -2035,7 +2104,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     memoCaixa.clear();
   }
   if (somenteCalculo) return {meses: () => D.meses.map(m => ({chave: m.chave, rotulo: m.rotulo})), resumo, detalhe, investimentos: D.investimentos || null, pendentes, aPagarVencidos,
-    aporteDoMes, receitasDoMes, estadoCaixinhas, definirParceiro: definirParceiroBase, metas: {investimento_mensal: INV || 0, investimento_nome: INV_NOME || "", cartao_mensal: META}};
+    aporteDoMes, receitasDoMes, estadoCaixinhas, entradasResumo, atualizarCaixa: atualizarCaixaBase, definirParceiro: definirParceiroBase, metas: {investimento_mensal: INV || 0, investimento_nome: INV_NOME || "", cartao_mensal: META}};
 
   iniciarAbas();
 
@@ -2093,6 +2162,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     seguro("alertas", () => alertas(atual, c));
     seguro("g-termometro", () => renderTermometro(atual));
     seguro("hero", () => renderHero(atual));
+    seguro("entradas-mes", () => renderEntradasMes(atual));
     if (MOV && $id("dlg-mov") && $id("dlg-mov").open) seguro(null, renderMov);
     seguro("gastos-mes", () => renderGastosMes(atual));
     seguro("compras-mes", () => renderComprasMes(atual));
@@ -2151,6 +2221,33 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const ab = e.target.closest("[data-abrir-mov]");
     if (ab) abrirMov(ab.dataset.abrirMov === "investimento" ? "saidas" : ab.dataset.abrirMov, ab.dataset.abrirMov === "investimento" ? "investimento" : null);
   });
+  // Quadro Entradas do mês: abrir a linha, dar como recebida, editar, apagar, como é o recebimento, a categoria (pílula),
+  // as sugestões de categoria e a decisão sobre a entrada do site igual a uma do projeto
+  const ENT_BOX = $id("entradas-mes");
+  if (ENT_BOX) {
+    ligarEntradas(ENT_BOX);
+    ENT_BOX.addEventListener("click", e => {
+      const rec = e.target.closest("[data-receber-ent]");
+      if (rec) receberEntrada(HERO_ENT[Number(rec.dataset.receberEnt)], atual.chave);
+      const ed = e.target.closest("[data-editar-ent]");
+      if (ed) editarEntrada(HERO_ENT[Number(ed.dataset.editarEnt)], atual.chave);
+      const apagar = e.target.closest("[data-apagar-entrada]");
+      if (apagar && aoApagarEntrada) aoApagarEntrada(apagar.dataset.apagarEntrada);
+      if (e.target.closest("[data-lancar-entrada]") && aoLancarEntrada) aoLancarEntrada();
+      const ok = e.target.closest("[data-sug-ok]");
+      if (ok && aoCategoriaEntrada) aoCategoriaEntrada({chave: ok.dataset.sugOk, categoria: ok.dataset.sugCat});
+      const nao = e.target.closest("[data-sug-nao]");
+      if (nao && aoCategoriaEntrada) aoCategoriaEntrada({chave: nao.dataset.sugNao, ignorar: true});
+      const un = e.target.closest("[data-uniao]");
+      if (un && aoUnirEntradas) aoUnirEntradas(un.dataset.uniao, un.dataset.uniaoDec);
+    });
+    ENT_BOX.addEventListener("change", e => {
+      if (e.target.matches("[data-cat-ent]") && aoCategoriaEntrada) aoCategoriaEntrada({chave: e.target.dataset.catEnt, categoria: e.target.value});
+      if (!aoMudarRecebimento) return;
+      if (e.target.matches("[data-recebimento]")) aoMudarRecebimento(e.target.dataset.recebimento, {recebimento: e.target.value});
+      if (e.target.matches("[data-repete]")) aoMudarRecebimento(e.target.dataset.repete, {repete: e.target.checked});
+    });
+  }
   // Dois cliques numa linha do balanço abrem a janela do grupo (menos nos campos e botões da linha)
   $id("hero").addEventListener("dblclick", e => {
     if (e.target.closest("button, a, input, select, label, summary, form")) return;
@@ -2351,13 +2448,10 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     },
     // Depois de informar ou apagar o saldo do início de um mês
     atualizarCaixa(c) {
-      SALDOS = {...((c && c.saldos) || {})};
-      APAGAR = new Set((c && c.aPagar) || []);
-      OCULTOS = new Set((c && c.fixosOcultos) || []);
-      lerMetas(c);
-      memoCaixa.clear();
+      atualizarCaixaBase(c);
       if (COM_MESES) seguro(null, render);
     },
+    entradasResumo,
     // Depois de mudar o plano de aportes (Cadastros): degraus de quem é o painel e os do casal
     atualizarPlano(degrausDono, casal = null) {
       PLANO = Array.isArray(degrausDono) ? degrausDono : [];

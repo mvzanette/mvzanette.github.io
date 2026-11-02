@@ -4,6 +4,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config-area.js";
 import { criarArmazem } from "./dados.js";
 import { GRUPOS, MODULOS, moduloDaPagina, pode } from "./modulos.js";
 import { esc } from "./ui.js";
+import { prepararTema } from "./tema.js";
 
 export const PAGINA_LOGIN = new URL("../area-restrita.html", import.meta.url).href;
 export const PAGINA_INICIO = new URL("index.html", import.meta.url).href;
@@ -67,6 +68,7 @@ export async function abrirPagina(pagina) {
   $("#usuario").textContent = perfil.nome || usuario.email || "";
   $("#area-top").hidden = false;
   $("#btn-sair").addEventListener("click", () => sair(armazem));
+  prepararTema();
 
   if (armazem.modo === "demo") {
     $("#aviso-demo").hidden = false;

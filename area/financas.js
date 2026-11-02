@@ -2518,6 +2518,27 @@ async function iniciar() {
     planoAporte: planos ? planoDoDono(planos) : null,
     planoCasal: planos ? { degraus: planos, pessoas: pessoasPlano } : null,
     caixinhas: caixinhas ? { lista: caixinhasDoDono(caixinhas), perfilId: dono.id } : null,
+    // Categoria de uma entrada (pela descrição, vale para as próximas) ou sugestão dispensada; decisão sobre a entrada do
+    // site igual a uma do projeto. Ficam nas preferências do caixa do painel.
+    aoCategoriaEntrada: async ({ chave, categoria = null, ignorar = false }) => {
+      const c = (prefs && prefs.caixa) || {};
+      try {
+        if (ignorar) await salvarPrefs({ caixa: { categoriasEntradaIgnoradas: [...new Set([...(c.categoriasEntradaIgnoradas || []), chave])] } });
+        else await salvarPrefs({ caixa: { categoriasEntrada: { ...(c.categoriasEntrada || {}), [chave]: categoria } } });
+        avisar(ignorar ? "Sugestão dispensada." : "Categoria salva. Vale também para as próximas entradas com a mesma descrição.");
+      } catch (err) {
+        avisar("Não foi possível salvar: " + err.message);
+      }
+    },
+    aoUnirEntradas: async (idEntrada, decisao) => {
+      const c = (prefs && prefs.caixa) || {};
+      try {
+        await salvarPrefs({ caixa: { uniaoEntradas: { ...(c.uniaoEntradas || {}), [idEntrada]: decisao } } });
+        avisar(decisao === "site" ? "Pronto: vale a entrada do site no lugar da do projeto (o total do mês não mudou)." : "Pronto: as duas entradas contam.");
+      } catch (err) {
+        avisar("Não foi possível salvar: " + err.message);
+      }
+    },
   });
   if (caixinhas) {
     caixinhasUI = prepararCaixinhas({

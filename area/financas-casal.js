@@ -13,6 +13,7 @@ import { lerCategorias } from "./financas-classificacao.js";
 import { CLASSES, INDEXADORES, TIPOS, rendeuNoMes, registroAte, resumir, serieMensal, ultimoMes } from "./financas-investimentos.js";
 import { textoPrevistoFeito } from "./financas-plano.js";
 import { desenharOndeInvestir } from "./financas-onde-investir.js";
+import { CATEGORIAS_ENTRADA, htmlEntradas, ligarEntradas, marcadores } from "./financas-entradas.js";
 import { $, esc } from "./ui.js";
 
 const brl = (v) => Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -201,7 +202,7 @@ export async function mostrarCasal({ armazem, pessoas }) {
     $("#casal-kpis").innerHTML = kpis.map(([k, t, v, s]) => `<button type="button" class="kpi kpi-botao casal-kpi" data-casal-kpi="${k}" aria-haspopup="dialog">
         <span class="kpi-rotulo">${esc(t)}</span><strong class="kpi-valor${k === "saldo" && saldo < 0 ? " neg" : ""}">${v}</strong><small>${esc(s || "")}</small><span class="casal-kpi-ver">ver de onde vem</span></button>`).join("");
     desenharCaixinhas();
-    desenharEntradas(entradas);
+    desenharEntradas();
     desenharGastos(gastos);
     $("#casal-links").innerHTML = lidos.map((p) => `<a class="btn btn-claro" href="${esc(p.link)}">Abrir o painel de ${esc(p.curto)}</a>`).join("");
     const dlg = $("#dlg-casal");
@@ -227,24 +228,48 @@ export async function mostrarCasal({ armazem, pessoas }) {
       <p class="dica">Para guardar, atualizar o saldo ou criar uma caixinha, abra a aba Caixinhas no painel de cada um.</p>`;
   }
 
-  // Entradas dos dois numa lista só
-  function desenharEntradas(entradas) {
-    const total = soma(entradas, (e) => e.valor);
-    const rec = soma(entradas.filter((e) => !e.previsto), (e) => e.valor);
-    const porPessoa = lidos.map((p) => [p, soma(entradas.filter((e) => e.p === p), (e) => e.valor)]);
-    const ordem = [...entradas].sort((a, b) => String(a.data || "9").localeCompare(String(b.data || "9")) || b.valor - a.valor);
-    $("#casal-entradas").innerHTML = `
-      <div class="casal-bloco-topo"><h2>Entradas do casal em ${esc(meses.get(atual) || "")}</h2><span class="num">${brl(total)}</span></div>
-      <p class="sub">Recebido ${brl(rec)} · previsto ${brl(total - rec)}${total ? ` · ${porPessoa.map(([p, v]) => `${esc(p.curto)} ${brl(v)} (${pct(v / total, 0)})`).join(" · ")}` : ""}</p>
-      ${ordem.length ? `<div class="tabela-wrap"><table class="tabela casal-unif">
-        <thead><tr><th>Data</th><th>Entrada</th><th>De quem</th><th>Situação</th><th class="r">Valor</th></tr></thead>
-        <tbody>${ordem.map((e) => `<tr><td class="num">${dBR(e.data)}</td><td>${esc(e.desc)}<small>${esc([e.tipo, e.ref ? `trabalho de ${rotuloMes(e.ref)}` : "", e.origem].filter(Boolean).join(" · "))}</small></td>
-          <td>${esc(e.p.curto)}</td><td>${e.previsto ? '<span class="etiqueta etiqueta-prev">prevista</span>' : '<span class="etiqueta etiqueta-ok">recebida</span>'}</td><td class="r num">${n2(e.valor)}</td></tr>`).join("")}</tbody>
-        <tfoot>${porPessoa.map(([p, v]) => `<tr><th colspan="4">${esc(p.curto)}</th><td class="r num">${n2(v)}</td></tr>`).join("")}<tr class="casal-saldo"><th colspan="4">Casal</th><td class="r num">${n2(total)}</td></tr></tfoot>
-      </table></div>
-      <p class="dica">Para dar uma entrada prevista como recebida, abra o painel de quem recebe: no balanço do mês, o botão ✓ Recebida.</p>`
-      : `<p class="sem">Nenhuma entrada neste mês.</p>`}`;
+  // Entradas dos dois num bloco só (o mesmo do painel de cada um): renda recebida sem reembolsos, previsto, o que falta
+  // entrar, a média dos três meses anteriores, a barra por categoria e a lista com o marcador de quem recebe
+  function desenharEntradas() {
+    const comR = lidos.filter((p) => p.painel).map((p) => ({ p, r: p.painel.entradasResumo(atual) }));
+    const marcas = marcadores(lidos.map((p) => p.curto));
+    const marcaDe = (p) => marcas[lidos.indexOf(p)];
+    const soma2 = (f) => Math.round(comR.reduce((t, x) => t + f(x.r), 0) * 100) / 100;
+    const porCategoria = Object.fromEntries(CATEGORIAS_ENTRADA.map((c) => [c.id, soma2((r) => r.porCategoria[c.id] || 0)]));
+    const comMedia = comR.filter((x) => x.r.media > 0);
+    const pend = comR.filter((x) => x.r.pares.length);
+    const d = {
+      rotulo: meses.get(atual) || rotuloMes(atual),
+      recebido: soma2((r) => r.recebido), previsto: soma2((r) => r.previsto), falta: soma2((r) => r.falta), reembolsos: soma2((r) => r.reembolsos), porCategoria,
+      media: comMedia.length === comR.length ? soma2((r) => r.media) : 0, mesesMedia: (comMedia[0] || { r: {} }).r.mesesMedia || "",
+      itens: comR.flatMap(({ p, r }) => r.itens.map((x) => ({ ...x, i: null, editavel: true, dono: p.id, quem: { marca: marcaDe(p), nome: p.curto },
+        detalhes: `<div class="sub">${esc([x.data ? `${x.st === "previsto" ? "previsto para" : "recebido em"} ${dataBR(x.data)}` : x.st === "previsto" ? "previsto no mês" : "recebido no mês, sem data",
+          x.e.ref ? `trabalho de ${rotuloMes(x.e.ref)}` : "", x.e.prevista ? "repete todo mês" : x.e.r && x.e.r.origem === "site" ? "lançada no site" : "do projeto Financeiro", `de ${p.curto}`].filter(Boolean).join(" · "))}</div>
+          <p class="dica">Para dar como recebida, editar ou apagar, abra o painel de ${esc(p.curto)}.</p>` }))),
+      alertas: comR.flatMap((x) => x.r.alertas),
+      sugestoes: comR.flatMap(({ p, r }) => r.sugestoes.map((sg) => ({ ...sg, dono: p.id, quem: marcaDe(p) }))),
+      pares: [],
+      pessoas: comR.map(({ p, r }) => ({ marca: marcaDe(p), nome: p.curto, recebido: r.recebido, previsto: r.previsto })),
+      notas: pend.length ? [`<p class="ent-nota"><b>Para confirmar:</b> ${pend.map((x) => `${x.r.pares.length} ${x.r.pares.length === 1 ? "entrada parece repetida" : "entradas parecem repetidas"} no painel de ${esc(x.p.curto)}`).join("; ")}. Abra o painel para decidir.</p>`] : [],
+    };
+    $("#casal-entradas").innerHTML = htmlEntradas(d);
   }
+  // Categoria de uma entrada (ou sugestão dispensada) nas preferências do painel da pessoa
+  async function mudarCategoriaEntrada(dono, { chave, categoria = null, ignorar = false }) {
+    const p = lidos.find((x) => x.id === dono);
+    if (!p || !p.painel) return;
+    const c = (p.prefs && p.prefs.caixa) || {};
+    const caixa = ignorar ? { ...c, categoriasEntradaIgnoradas: [...new Set([...(c.categoriasEntradaIgnoradas || []), chave])] }
+      : { ...c, categoriasEntrada: { ...(c.categoriasEntrada || {}), [chave]: categoria } };
+    try {
+      p.prefs = await armazem.financas.salvarPreferencias(p.id, { caixa });
+      p.painel.atualizarCaixa((p.prefs && p.prefs.caixa) || caixa);
+      desenhar();
+    } catch (e) {
+      $("#fin-status").textContent = "Não foi possível salvar a categoria: " + e.message;
+    }
+  }
+
 
   // Gastos pagos no mês dos dois: resumo (essencial e por conta) e três visões
   function desenharGastos(gastos) {
@@ -560,6 +585,19 @@ export async function mostrarCasal({ armazem, pessoas }) {
     $("#casal-tabela").innerHTML = '<tbody><tr><td class="vazio">Os painéis ainda não têm meses para mostrar.</td></tr></tbody>';
     return;
   }
+  // Entradas: abrir a linha, trocar a categoria (pílula) e as sugestões de categoria de cada pessoa
+  const boxEnt = $("#casal-entradas");
+  ligarEntradas(boxEnt);
+  boxEnt.addEventListener("change", (e) => {
+    const sel = e.target.closest("[data-cat-ent]");
+    if (sel) mudarCategoriaEntrada(sel.dataset.catDono, { chave: sel.dataset.catEnt, categoria: sel.value });
+  });
+  boxEnt.addEventListener("click", (e) => {
+    const ok = e.target.closest("[data-sug-ok]");
+    if (ok) mudarCategoriaEntrada(ok.dataset.catDono, { chave: ok.dataset.sugOk, categoria: ok.dataset.sugCat });
+    const nao = e.target.closest("[data-sug-nao]");
+    if (nao) mudarCategoriaEntrada(nao.dataset.catDono, { chave: nao.dataset.sugNao, ignorar: true });
+  });
   $("#casal-meses").addEventListener("click", (e) => {
     const b = e.target.closest("[data-mes]");
     if (!b) return;

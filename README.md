@@ -298,6 +298,22 @@ A classificação fica no site e continua valendo depois de cada importação (o
 - **Carteira conjunta:** projeção conservadora por padrão (11% ao ano, líquida de IR e em dinheiro de hoje; a taxa de 2026 fica como opção), com saldo de hoje e aportes em colunas separadas; aviso quando o rendimento do ano não bate com a soma por classe; selo "atualizado há N dias"; os aportes lançados no caixa (categoria Investimentos) aparecem no quadro de aportes com o previsto do mês.
 - **Cartão:** pontos de atenção com os de prioridade alta e média no topo e as compras parceladas acima de R$ 1.000; o resto fica recolhido, contado por tipo. "Tarifas, juros e IOF" soma a categoria Tarifas e encargos. A próxima parcela aparece como "2 de 12", e um gráfico mostra quanto das próximas faturas já está comprometido.
 
+### Entradas do mês
+
+Na Visão geral, logo abaixo do Balanço (que fica só com a linha "Entradas"), o quadro **Entradas do mês** (`area/financas-entradas.js`, o mesmo na visão do casal):
+
+- **Resumo:** a renda recebida em número grande; ao lado, o previsto e o que falta entrar; a comparação da renda prevista do mês (o recebido e o que falta entrar) com a média dos três meses anteriores ("↑ 8% acima da média" em verde, "↓ 12% abaixo" em vermelho, "na média" em cinza quando a diferença é menor que 5%); e uma barra por categoria com a legenda.
+- **Categorias com cor fixa:** Salário (verde), 13º / bônus / férias (azul), Reembolso ou transferência (cinza) e Dinheiro / outros (amarelo). A categoria é a escolhida pela pessoa na pílula da entrada, lembrada pela descrição (vale para as próximas com a mesma descrição); sem escolha, a do tipo (salário ou o resto). Fica em `financas_preferencias.caixa.categoriasEntrada`; o tipo salário/outro da entrada não muda.
+- **Sugestões que a pessoa confirma:** pelo nome (13, décimo, bônus, férias, PLR; reembolso, transferência, consórcio, devolução, estorno) ou por uma entrada que volta a sair no mês como pagamento recorrente do mesmo valor. "Agora não" dispensa a sugestão.
+- **Renda sem reembolsos:** reembolsos e transferências ficam fora da renda, em cinza ("+ R$ X em reembolsos/transferências"); o saldo do Balanço continua contando o dinheiro que entrou na conta.
+- **Lista:** uma linha por entrada (data · descrição · pílula · valor), em "Recebido" e "Previsto, ainda não caiu" (cinza, valor em itálico, relógio); os detalhes e os botões (✓ Recebida, editar, apagar, como é o recebimento, repete) aparecem ao tocar na linha. No casal, o marcador de cada pessoa (a inicial; com iniciais iguais, o nome mais longo ganha a primeira letra diferente) e o subtotal de cada um.
+- **Avisos:** entrada sem data em vermelho-claro com "Informar a data"; mês sem entradas: "Nenhuma entrada lançada ainda"; entrada que repete e ainda não caiu mais de 3 dias depois do dia habitual: "Salário de … ainda não caiu (costuma cair dia X)".
+- **Entrada do site igual a uma do projeto Financeiro** (mesmo valor no mês): continua contando só a do projeto até a pessoa decidir — "Usar a do site no lugar" (o total não muda; serve, por exemplo, para dar a data a um recebimento que veio sem data) ou "São diferentes: contar as duas". A decisão fica em `financas_preferencias.caixa.uniaoEntradas`.
+
+### Modo claro e modo escuro
+
+No topo da área restrita, o seletor **Claro | Escuro** muda a aparência de todas as páginas, e a escolha fica lembrada neste navegador (`area/tema.js`; cada página aplica a escolha já no `<head>`, sem piscar). No modo escuro, a faixa preta do topo e as outras faixas pretas continuam pretas; as cores fixas dos estilos viraram variáveis com o mesmo valor do modo claro (`--c-…` em `area.css`), redefinidas no modo escuro, e o texto principal tem contraste de pelo menos 4,5:1. As cores continuam sempre acompanhadas de texto ou ícone (↑ ↓ ✓ relógio).
+
 ### Plano de aportes com datas
 
 Em **Cadastros → Plano de aportes**, cada pessoa do casal tem degraus: destino (ex.: conta conjunta), valor por mês e o mês a partir do qual vale. O valor de um mês é, em cada destino, o do degrau com a maior data "a partir de" até aquele mês; os destinos somam e valor zero pausa um destino. Os dois veem e alteram os degraus dos dois (mesma regra de acesso das finanças). Do primeiro degrau em diante, o plano vale no lugar do "Investimento mensal" das Previsões do mês (que continua para quem não tem plano e para os meses antes do plano):
