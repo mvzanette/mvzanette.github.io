@@ -59,7 +59,12 @@ export function calcular(cx, movimentos, hoje = hojeISO()) {
   const meta = Number(cx.meta) || 0;
   const mesesAte = mesesEntre(mes, alvo);
   const meses = Math.max(1, mesesAte);
-  const porMes = saldoInicio >= meta - 0.005 ? 0 : centavos((meta - saldoInicio) / meses);
+  // Aporte mensal fixo (opcional): guarda esse valor todo mês, sem passar do que falta; sem ele, divide o que falta
+  const fixo = Number(cx.aporte_mensal) > 0 ? centavos(cx.aporte_mensal) : 0;
+  const faltaInicio = centavos(meta - saldoInicio);
+  const porMes = faltaInicio <= 0.005 ? 0 : fixo ? Math.min(fixo, faltaInicio) : centavos(faltaInicio / meses);
+  // Com o fixo, quanto ela deve ter na data alvo (para avisar se não chega na meta)
+  const naData = fixo ? centavos(saldoInicio + fixo * meses) : null;
   const total = Math.max(1, mesesEntre(ini, alvo));
   const passados = Math.min(total, Math.max(0, mesesEntre(ini, mes)));
   const esperado = centavos((meta * passados) / total);
@@ -67,7 +72,7 @@ export function calcular(cx, movimentos, hoje = hojeISO()) {
   const situacao = completa ? "completa" : saldo + 0.005 < esperado ? "atrasada" : "em dia";
   return {
     saldo, meta, falta: centavos(Math.max(0, meta - saldo)), depMes, pagMes, saldoInicio, porMes, faltaNoMes: centavos(Math.max(0, porMes - depMes)),
-    meses, mesesAte, esperado, situacao, progresso: meta > 0 ? Math.min(1, Math.max(0, saldo / meta)) : 0,
+    meses, mesesAte, esperado, situacao, fixo, naData, naoChega: fixo > 0 && naData + 0.005 < meta, progresso: meta > 0 ? Math.min(1, Math.max(0, saldo / meta)) : 0,
     alerta: situacao === "atrasada" && mesesAte <= 3, vencida: String(cx.data_alvo) < hoje && !completa, movimentos: daqui,
   };
 }
@@ -77,7 +82,34 @@ export function calcular(cx, movimentos, hoje = hojeISO()) {
 export function valorNoMes(cx, chave, conta, mesAtual) {
   if (cx.ativa === false || chave < mesAtual || !conta) return 0;
   if (chave === mesAtual || chave < String(cx.data_alvo).slice(0, 7)) return conta.porMes;
-  return cx.tipo === "recorrente" ? centavos(Number(cx.meta) / 12) : 0;
+  return cx.tipo === "recorrente" ? (Number(cx.aporte_mensal) > 0 ? centavos(cx.aporte_mensal) : centavos(Number(cx.meta) / 12)) : 0;
+}
+
+// Aporte inicial de cada pessoa (o que cada um já tinha posto antes de lançar no site): { perfil_id: valor }
+export const aportesIniciais = (cx) => {
+  const a = cx && cx.aportes_iniciais && typeof cx.aportes_iniciais === "object" ? cx.aportes_iniciais : {};
+  return Object.fromEntries(Object.entries(a).map(([k, v]) => [k, centavos(v)]).filter(([, v]) => v > 0));
+};
+const temAportes = (cx) => cx.dono === "casal" && Object.keys(aportesIniciais(cx)).length > 0;
+
+// Quanto a pessoa já pôs na caixinha neste ciclo antes do mês: o aporte inicial informado mais os depósitos dela
+// desde o início do ciclo (com data antes do mês, para a parte ficar estável no mês, como o "por mês")
+export function aportadoAntes(cx, movimentos, perfilId, mes) {
+  const ini = String(cx.inicio || "").slice(0, 10);
+  const dep = (movimentos || []).filter((m) => m.caixinha_id === cx.id && m.deposito && m.perfil_id === perfilId && m.data >= ini && m.data.slice(0, 7) < mes);
+  return centavos((aportesIniciais(cx)[perfilId] || 0) + dep.reduce((t, m) => t + m.valor, 0));
+}
+
+// Parte de cada pessoa no "por mês" de uma caixinha do casal com aporte inicial informado: a parte de cada um na meta
+// (pela divisão) menos o que cada um já pôs; quem pôs mais no começo guarda menos por mês, até os dois chegarem na sua
+// parte. Sem aporte inicial informado (ou só uma pessoa), fica a divisão de sempre (base: { perfil_id: fração }).
+export function partesComAportes(cx, base, movimentos, mes) {
+  const ids = Object.keys(base);
+  if (ids.length < 2 || !temAportes(cx)) return base;
+  const meta = Number(cx.meta) || 0;
+  const devido = Object.fromEntries(ids.map((id) => [id, Math.max(0, meta * base[id] - aportadoAntes(cx, movimentos, id, mes))]));
+  const soma = ids.reduce((t, id) => t + devido[id], 0);
+  return soma > 0.005 ? Object.fromEntries(ids.map((id) => [id, devido[id] / soma])) : base;
 }
 
 // Parte de uma pessoa (perfilId) na caixinha: a dela só dela; a do casal, 50/50, pela renda do mês dos dois (sem a
@@ -123,13 +155,14 @@ export function prepararCaixinhas({ painel, pessoas, dono, salvar, guardar, edit
       ].join("");
       return `<tr class="cx-linha${c.alerta ? " cx-alerta" : ""}">
         <td><b>${esc(x.cx.nome)}</b> <span class="chip ${cls}">${st}</span>
-          <div class="sub">${esc([x.cx.tipo === "recorrente" ? "repete todo ano" : "meta única", casal ? textoDivisao(x.cx, nomeDe) : "", x.cx.saldo_em ? `saldo informado em ${dataBR(x.cx.saldo_em)}` : ""].filter(Boolean).join(" · "))}</div>
+          <div class="sub">${esc([x.cx.tipo === "recorrente" ? "repete todo ano" : "meta única", casal ? textoDivisao(x.cx, nomeDe) : "", c.fixo ? `aporte fixo de ${brl(c.fixo)}/mês` : "",
+            casal && x.cx.dono === "casal" && Object.keys(aportesIniciais(x.cx)).length ? `aporte inicial: ${pessoas.map((p) => `${p.nome} ${brl(aportesIniciais(x.cx)[p.id] || 0)}`).join(", ")}` : "", x.cx.saldo_em ? `saldo informado em ${dataBR(x.cx.saldo_em)}` : ""].filter(Boolean).join(" · "))}</div>
           <div class="cx-barra" role="img" aria-label="${Math.round(c.progresso * 100)}% da meta"><span style="width:${(c.progresso * 100).toFixed(1)}%"></span>${c.esperado > 0 && c.esperado < x.cx.meta ? `<i style="left:${((c.esperado / x.cx.meta) * 100).toFixed(1)}%" title="Esperado hoje: ${brl(c.esperado)}"></i>` : ""}</div>
           <div class="cx-acoes">${acoes}</div></td>
         <td class="r num">${brl(c.saldo)}<div class="sub">de ${brl(x.cx.meta)} · ${Math.round(c.progresso * 100)}%</div></td>
         <td class="r num">${c.falta > 0 ? brl(c.falta) : "—"}</td>
         <td class="num">${dataBR(x.cx.data_alvo)}<div class="sub">${c.vencida ? "data passou" : c.mesesAte <= 0 ? "este mês" : `${c.mesesAte} ${c.mesesAte === 1 ? "mês" : "meses"}`}</div></td>
-        <td class="r num">${c.porMes > 0 ? brl(c.porMes) : "—"}${c.depMes > 0 ? `<div class="sub">guardou ${brl(c.depMes)} no mês</div>` : ""}</td>
+        <td class="r num">${c.porMes > 0 ? brl(c.porMes) : "—"}${c.naoChega ? `<div class="sub neg">assim chega a ${brl(c.naData)} na data</div>` : ""}${c.depMes > 0 ? `<div class="sub">guardou ${brl(c.depMes)} no mês</div>` : ""}</td>
         ${pessoas.map((p) => { const v = x.porPessoa[p.id] || 0; return `<td class="r num">${v > 0.004 ? brl(v) : "—"}${x.feitoPessoa[p.id] > 0 ? `<div class="sub">guardou ${brl(x.feitoPessoa[p.id])}</div>` : ""}</td>`; }).join("")}
         <td></td></tr>`;
     };
@@ -137,7 +170,7 @@ export function prepararCaixinhas({ painel, pessoas, dono, salvar, guardar, edit
       <div class="scroll"><table class="cx-tabela"><thead>${cab}</thead><tbody>${linhas.map(linha).join("")}</tbody>
         <tfoot><tr><th>Total</th><td class="r num">${brl(tot((x) => x.conta.saldo))}<div class="sub">de ${brl(tot((x) => Number(x.cx.meta)))}</div></td><td class="r num">${brl(tot((x) => x.conta.falta))}</td><td></td>
           <td class="r num">${brl(tot((x) => x.conta.porMes))}</td>${pessoas.map((p) => `<td class="r num">${brl(tot((x) => x.porPessoa[p.id] || 0))}</td>`).join("")}<td></td></tr></tfoot></table></div>
-      <details class="como"><summary>Como é calculado?</summary><p><b>Por mês</b> = (meta − saldo no começo de ${esc(rotuloMes(mes))}) ÷ meses até a data alvo. <b>Atrasada</b>: o saldo está abaixo do esperado pelo tempo (a meta proporcional aos meses desde o início da caixinha). O <b>saldo</b> é o informado mais os depósitos e menos os gastos pagos com a caixinha lançados depois da data dele. Nas do casal, a parte de cada um é metade, pela renda do mês (as entradas de cada um) ou um percentual fixo. O depósito sai do caixa na linha “(−) Caixinhas” do balanço e entra na previsão dos próximos meses e na sobra da lista de desejos; não é gasto. O gasto pago com a caixinha não entra nos gastos do mês, só tira do saldo dela.</p></details>`
+      <details class="como"><summary>Como é calculado?</summary><p><b>Por mês</b> = (meta − saldo no começo de ${esc(rotuloMes(mes))}) ÷ meses até a data alvo. <b>Atrasada</b>: o saldo está abaixo do esperado pelo tempo (a meta proporcional aos meses desde o início da caixinha). O <b>saldo</b> é o informado mais os depósitos e menos os gastos pagos com a caixinha lançados depois da data dele. Com o <b>aporte mensal fixo</b>, o por mês é esse valor (sem passar do que falta), e o site avisa se assim não chega na meta até a data. Nas do casal, a parte de cada um é metade, pela renda do mês (as entradas de cada um) ou um percentual fixo; com o <b>aporte inicial</b> de cada um informado, a parte do por mês é proporcional ao que falta a cada um para chegar na sua parte da meta (a parte da meta menos o aporte inicial e os depósitos dele desde o início da caixinha). O depósito sai do caixa na linha “(−) Caixinhas” do balanço e entra na previsão dos próximos meses e na sobra da lista de desejos; não é gasto. O gasto pago com a caixinha não entra nos gastos do mês, só tira do saldo dela.</p></details>`
       : `<p class="muted" style="margin:0">Nenhuma caixinha ainda. Crie uma para cada gasto futuro (IPTU, IPVA, seguro, viagem): o site diz quanto guardar por mês e se ela está em dia.</p>`;
     // Movimentos recentes (depois da data do saldo) de cada caixinha
     const movs = linhas.flatMap((x) => x.conta.movimentos.map((m) => ({ ...m, cx: x.cx }))).sort((a, b) => b.data.localeCompare(a.data));
@@ -163,13 +196,25 @@ export function prepararCaixinhas({ painel, pessoas, dono, salvar, guardar, edit
     const doCasal = form.elements.dono.value === "casal";
     form.querySelector("[data-cx-divisao]").hidden = !doCasal;
     form.querySelector("[data-cx-parte]").hidden = !doCasal || form.elements.divisao.value !== "fixo";
+    form.querySelector("[data-cx-aportes]").hidden = !doCasal || !casal;
   }
+  // Na criação, o saldo de hoje acompanha a soma dos aportes iniciais enquanto não for digitado à mão
+  let saldoDigitado = false;
+  const somaAportes = () => centavos(pessoas.reduce((t, p, i) => t + (numeroDigitado(form.elements[`aporte_${i}`].value) || 0), 0));
+  form.addEventListener("input", (e) => {
+    if (e.target.name === "saldo") saldoDigitado = !!e.target.value;
+    else if (/^aporte_\d$/.test(e.target.name) && !editando && !saldoDigitado) { const t = somaAportes(); form.elements.saldo.value = t > 0 ? valorBR(t) : ""; }
+  });
   function abrir(cx = null) {
     editando = cx;
     form.reset();
     erro("#erro-caixinha", "");
     $("#titulo-caixinha").textContent = cx ? `Editar: ${cx.nome}` : "Nova caixinha";
     form.querySelector("[data-cx-dono]").hidden = !casal;
+    saldoDigitado = false;
+    const ini = cx ? aportesIniciais(cx) : {};
+    $("#cx-aportes-campos").innerHTML = pessoas.map((p, i) => `<label class="c3">Aportado por ${esc(p.nome)} (R$)<input name="aporte_${i}" inputmode="decimal" autocomplete="off" placeholder="0,00" value="${ini[p.id] ? valorBR(ini[p.id]) : ""}"></label>`).join("");
+    form.elements.aporte_mensal.value = cx && Number(cx.aporte_mensal) > 0 ? valorBR(cx.aporte_mensal) : "";
     form.elements.nome.value = cx ? cx.nome : "";
     form.elements.dono.value = cx ? cx.dono : casal ? "casal" : "pessoal";
     form.elements.tipo.value = cx ? cx.tipo : "recorrente";
@@ -197,11 +242,20 @@ export function prepararCaixinhas({ painel, pessoas, dono, salvar, guardar, edit
     const saldo = editando ? null : numeroDigitado(form.elements.saldo.value) || 0;
     if (saldo != null && saldo < 0) return erro("#erro-caixinha", "O saldo não pode ser negativo.");
     const parte = numeroDigitado(form.elements.parte.value);
+    const mensal = form.elements.aporte_mensal.value.trim() ? numeroDigitado(form.elements.aporte_mensal.value) : null;
+    if (mensal != null && !(mensal > 0)) return erro("#erro-caixinha", "Confira o aporte mensal (ex.: 250,00) ou deixe em branco.");
+    const aportes = {};
+    for (const [i, p] of pessoas.entries()) {
+      const bruto = form.elements[`aporte_${i}`].value.trim();
+      const v = bruto ? numeroDigitado(bruto) : 0;
+      if (v == null || v < 0) return erro("#erro-caixinha", `Confira o aporte inicial de ${p.nome} (ex.: 1.000,00).`);
+      if (v > 0) aportes[p.id] = centavos(v);
+    }
     const agora = new Date().toISOString();
     const dados = editando
       ? { ...editando, nome: form.elements.nome.value, dono: casal ? form.elements.dono.value : "pessoal", tipo: form.elements.tipo.value, meta, data_alvo: form.elements.data_alvo.value,
-        divisao: form.elements.divisao.value, parte }
-      : { perfil_id: dono, nome: form.elements.nome.value, dono: casal ? form.elements.dono.value : "pessoal", tipo: form.elements.tipo.value, meta, data_alvo: form.elements.data_alvo.value,
+        divisao: form.elements.divisao.value, parte, aporte_mensal: mensal, aportes_iniciais: aportes }
+      : { aporte_mensal: mensal, aportes_iniciais: aportes, perfil_id: dono, nome: form.elements.nome.value, dono: casal ? form.elements.dono.value : "pessoal", tipo: form.elements.tipo.value, meta, data_alvo: form.elements.data_alvo.value,
         divisao: form.elements.divisao.value, parte, saldo, saldo_em: form.elements.saldo_em.value || hojeISO(), saldo_atualizado: agora, inicio: hojeISO(), ativa: true };
     const botao = form.querySelector("[type=submit]");
     botao.disabled = true;
@@ -306,7 +360,7 @@ export function prepararCaixinhas({ painel, pessoas, dono, salvar, guardar, edit
       const novo = maisUmAno(l.cx.data_alvo);
       if (!confirm(`Pagou ${l.cx.nome}? O saldo volta a zero e a data alvo passa para ${dataBR(novo)}. Se ainda não lançou o pagamento, lance o gasto com “Pago com: caixinha ${l.cx.nome}” (ele não entra nos gastos do mês).`)) return;
       try {
-        await salvar({ ...l.cx, saldo: 0, saldo_em: hojeISO(), saldo_atualizado: new Date().toISOString(), inicio: hojeISO(), data_alvo: novo });
+        await salvar({ ...l.cx, saldo: 0, saldo_em: hojeISO(), saldo_atualizado: new Date().toISOString(), inicio: hojeISO(), data_alvo: novo, aportes_iniciais: {} });
         desenhar();
         avisar(`${l.cx.nome}: novo ciclo até ${dataBR(novo)}.`);
       } catch (err) {

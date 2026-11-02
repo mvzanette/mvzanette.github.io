@@ -7,7 +7,7 @@ import { outrasPessoas } from "./financas-importar.js";
 import { chavesFatura, chavesGastos, efetivo, lerCategorias, nomeConta, partesDe, textoPartes } from "./financas-classificacao.js";
 import { ordemFatura } from "./financas-previa.js";
 import { mudancas, primeiroMes, rotuloMes as rotuloPlano, textoPrevistoFeito, vigenteNoMes } from "./financas-plano.js";
-import { calcular as calcularCaixinha, ehDeposito, movimentosDe, parteDe, valorNoMes } from "./financas-caixinhas.js";
+import { calcular as calcularCaixinha, ehDeposito, movimentosDe, aportesIniciais, parteDe, partesComAportes, valorNoMes } from "./financas-caixinhas.js";
 import { CATEGORIAS_ENTRADA, categoriaPadrao, chaveEntrada, htmlEntradas, ligarEntradas, sugerirCategoria } from "./financas-entradas.js";
 
 const MESES_PADRAO = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
@@ -578,7 +578,12 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     return CXS.filter(cx => cx.ativa !== false).map(cx => {
       const conta = contas.get(cx.id);
       const total = valorNoMes(cx, chave, conta, hojeKey);
-      const parte = parteDe(cx, PERFIL_ID, rEu, rOutro);
+      // Até a data alvo, a parte do mês atual (descontado o aporte inicial de cada um); depois dela, a divisão de sempre
+      const outroId = PARCEIRO && PARCEIRO.id ? PARCEIRO.id : null;
+      const base = parteDe(cx, PERFIL_ID, rEu, rOutro);
+      const parte = outroId && (chave === hojeKey || chave < String(cx.data_alvo).slice(0, 7))
+        ? (partesComAportes(cx, {[PERFIL_ID]: parteDe(cx, PERFIL_ID, receitasDoMes(hojeKey), rendaOutro(hojeKey)), [outroId]: parteDe(cx, outroId, rendaOutro(hojeKey), receitasDoMes(hojeKey))}, movs, hojeKey)[PERFIL_ID] ?? base)
+        : base;
       const minha = Math.round(total * parte * 100) / 100;
       const feito = Math.round(sum(movs.filter(x => x.caixinha_id === cx.id && x.deposito && x.perfil_id === PERFIL_ID && x.data.slice(0, 7) === chave), x => x.valor) * 100) / 100;
       return {cx, conta, total, parte, minha, feito, falta: Math.max(0, Math.round((minha - feito) * 100) / 100)};
@@ -1102,7 +1107,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     // Previsto × feito do mês (plano de aportes): quanto já foi lançado contra o previsto
     const aporteMes = aporteDoMes(m.chave);
     const caixinhasLinhas = cx.saidas.filter(x => x.tipo === "caixinha").map(s => linha(esc(s.desc), s.l ? `depósito lançado${s.data ? ` em ${dBR(s.data)}` : ""} · ${esc(s.forma || "")}`
-      : `sua parte do que guardar no mês${s.cx && s.cx.dono === "casal" ? ` (${Math.round((s.parte || 0) * 100)}%)` : ""}, menos o já guardado`, s.valor, s.st, "caixinha"));
+      : `sua parte do que guardar no mês${s.cx && s.cx.dono === "casal" ? ` (${Math.round((s.parte || 0) * 100)}%${Object.keys(aportesIniciais(s.cx)).length ? ", descontado o aporte inicial de cada um" : ""})` : ""}, menos o já guardado`, s.valor, s.st, "caixinha"));
     if (investimentos.length && comPlano(m.chave) && !passado) investimentos.unshift(`<tr class="cx-aporte"><td colspan="3">Aporte de ${esc(m.rotulo)}: ${esc(textoPrevistoFeito(aporteMes.feito, aporteMes.previsto))}</td></tr>`);
     const somaSt = (tipos, st) => Math.round(sum(cx.saidas.filter(x => tipos.includes(x.tipo) && x.st === st), x => x.valor) * 100) / 100;
     const GASTOS = ["fatura", "dia", "fixo"];
@@ -1205,7 +1210,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
       sub = s.meta ? (s.plano ? "previsto no plano de aportes (Cadastros)" : "previsão de investimento do mês (Cadastros)") : "";
       if (s.meta && aoEditarMetas) acoes.push(botaoMov("metas", i, "Alterar a previsão"));
     } else if (s.tipo === "caixinha") {
-      sub = `sua parte do que guardar no mês${s.cx && s.cx.dono === "casal" ? ` (${Math.round((s.parte || 0) * 100)}%)` : ""} · aba Caixinhas`;
+      sub = `sua parte do que guardar no mês${s.cx && s.cx.dono === "casal" ? ` (${Math.round((s.parte || 0) * 100)}%${Object.keys(aportesIniciais(s.cx)).length ? ", descontado o aporte inicial de cada um" : ""})` : ""} · aba Caixinhas`;
     }
     return `<tr class="${s.st === "previsto" || s.aPagar ? "mov-prev" : ""}"><td class="num">${s.data ? dBR(s.data) : "—"}</td>
       <td>${esc(s.desc)}${l && ef(l).complemento ? `<div class="compl">${esc(ef(l).complemento)}</div>` : ""}<div class="sub">${sub}</div></td>
@@ -2069,9 +2074,10 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const linhas = ativas.map(cx => {
       const conta = contas.get(cx.id);
       const porPessoa = {}, feitoPessoa = {};
+      const base = Object.fromEntries(ids.map(id => { const outro = ids.find(x => x !== id); return [id, parteDe(cx, id, renda[id], outro ? renda[outro] : null)]; }));
+      const partes = partesComAportes(cx, base, movs, hojeKey);
       for (const id of ids) {
-        const outro = ids.find(x => x !== id);
-        porPessoa[id] = Math.round(conta.porMes * parteDe(cx, id, renda[id], outro ? renda[outro] : null) * 100) / 100;
+        porPessoa[id] = Math.round(conta.porMes * partes[id] * 100) / 100;
         feitoPessoa[id] = Math.round(sum(movs.filter(x => x.caixinha_id === cx.id && x.deposito && x.perfil_id === id && x.data.slice(0, 7) === hojeKey), x => x.valor) * 100) / 100;
       }
       return {cx, conta, porPessoa, feitoPessoa};
