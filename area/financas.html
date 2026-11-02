@@ -318,9 +318,20 @@
       </div>
 
       <div id="view-inv" role="tabpanel" aria-labelledby="tab-inv" hidden>
-        <div class="cj oi" id="oi-raiz" hidden><div class="wrap"><header class="oi-topo"><span class="eyebrow">Investimentos</span><h1>Onde investir cada aporte</h1></header><div id="oi-app"></div></div></div>
+        <!-- Primeiro o lançamento (Novo investimento, Atualizar saldos) e o resumo; o resto em grupos que começam fechados -->
         <div class="fin" id="inv-pessoal-raiz" hidden><div class="wrap inv-pessoal" id="inv-pessoal"></div></div>
-        <div class="cj" id="cj-raiz"><div class="wrap" id="cj-app"></div></div>
+        <div class="cj oi" id="oi-raiz" hidden>
+          <details class="grupo-inv">
+            <summary><span class="grupo-inv-tit"><b>Onde investir cada aporte</b><span>Comparar ofertas depois do IR, o que rende mais em cada prazo, para onde vai o aporte e quanto pode virar</span></span></summary>
+            <div class="wrap"><div id="oi-app"></div></div>
+          </details>
+        </div>
+        <div class="cj" id="cj-raiz">
+          <details class="grupo-inv">
+            <summary><span class="grupo-inv-tit"><b>Carteira conjunta</b><span>Onde está o dinheiro, projeção, aportes e parecer sobre a carteira</span></span></summary>
+            <div class="wrap" id="cj-app"></div>
+          </details>
+        </div>
       </div>
     </div>
   </main>
