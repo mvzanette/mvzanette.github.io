@@ -215,6 +215,10 @@ export function prepararCaixinhas({ painel, pessoas, dono, salvar, guardar, edit
     saldoDigitado = false;
     const ini = cx ? aportesIniciais(cx) : {};
     $("#cx-aportes-campos").innerHTML = pessoas.map((p, i) => `<label class="c3">Aportado por ${esc(p.nome)} (R$)<input name="aporte_${i}" inputmode="decimal" autocomplete="off" placeholder="0,00" value="${ini[p.id] ? valorBR(ini[p.id]) : ""}"></label>`).join("");
+    // Na edição: o saldo de hoje como referência do valor inicial (a soma dos aportes iniciais costuma ser ele)
+    const hojeTem = cx ? (LINHAS.find((x) => x.cx.id === cx.id) || {}).conta : null;
+    $("#cx-aportes-hoje").textContent = hojeTem ? `Hoje ela tem ${brl(hojeTem.saldo)}. Se esse é o valor inicial, a soma dos dois deve dar isso. O aporte inicial não é lançado como depósito: não sai do caixa de ninguém no mês.` : "";
+    $("#cx-aportes-hoje").hidden = !hojeTem;
     form.elements.aporte_mensal.value = cx && Number(cx.aporte_mensal) > 0 ? valorBR(cx.aporte_mensal) : "";
     form.elements.nome.value = cx ? cx.nome : "";
     form.elements.dono.value = cx ? cx.dono : casal ? "casal" : "pessoal";
