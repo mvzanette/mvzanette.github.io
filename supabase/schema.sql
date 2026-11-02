@@ -1347,6 +1347,11 @@ create table if not exists public.caixinhas (
 create index if not exists caixinhas_perfil_idx on public.caixinhas (perfil_id);
 -- Momento em que o saldo foi informado: um depósito ou gasto do mesmo dia lançado depois dele soma (ou tira) do saldo
 alter table public.caixinhas add column if not exists saldo_atualizado timestamptz;
+-- Aporte mensal fixo (opcional): quanto guardar todo mês, no lugar de dividir o que falta pelos meses até a data
+alter table public.caixinhas add column if not exists aporte_mensal numeric(12, 2) check (aporte_mensal is null or aporte_mensal > 0);
+-- Aporte inicial de cada pessoa nas do casal ({ perfil_id: valor }): o que cada um já tinha posto antes de lançar no site
+alter table public.caixinhas add column if not exists aportes_iniciais jsonb not null default '{}'::jsonb
+  check (jsonb_typeof(aportes_iniciais) = 'object');
 
 drop trigger if exists caixinhas_atualizado_em on public.caixinhas;
 create trigger caixinhas_atualizado_em before update on public.caixinhas

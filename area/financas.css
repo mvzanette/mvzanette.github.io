@@ -1020,3 +1020,5 @@
 .fin .ent-grupo, .casal .ent-grupo { font: 700 0.78rem/1.3 var(--font-head); letter-spacing: 0.06em; text-transform: uppercase; }
 .ent-linha { grid-template-columns: minmax(48px, max-content) minmax(0, 1fr) auto auto; }
 @media (max-width: 560px) { .ent-linha { grid-template-columns: minmax(44px, max-content) minmax(0, 1fr) auto; } }
+.fin .caixa-tabela .cx-sugestao td { font-size: 0.85rem; color: var(--muted); padding-top: 4px; }
+.fin .caixa-tabela .cx-sugestao .btn.mini { margin-left: 6px; }
