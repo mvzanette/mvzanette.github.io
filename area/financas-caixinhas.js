@@ -50,7 +50,8 @@ export function calcular(cx, movimentos, hoje = hojeISO()) {
   const mes = hoje.slice(0, 7);
   const alvo = String(cx.data_alvo).slice(0, 7);
   const ini = String(cx.inicio || cx.criado_em || hoje).slice(0, 7);
-  const daqui = (movimentos || []).filter((m) => m.caixinha_id === cx.id && depoisDoSaldo(cx, m));
+  // Depósito com data futura é só previsto: entra no saldo quando a data chegar
+  const daqui = (movimentos || []).filter((m) => m.caixinha_id === cx.id && depoisDoSaldo(cx, m) && m.data <= hoje);
   const soma = (f) => centavos(daqui.filter(f).reduce((t, m) => t + m.valor, 0));
   const doMes = (m) => m.data.slice(0, 7) === mes;
   const saldo = centavos(Number(cx.saldo) + soma((m) => m.deposito) - soma((m) => !m.deposito));
@@ -170,7 +171,7 @@ export function prepararCaixinhas({ painel, pessoas, dono, salvar, guardar, edit
       <div class="scroll"><table class="cx-tabela"><thead>${cab}</thead><tbody>${linhas.map(linha).join("")}</tbody>
         <tfoot><tr><th>Total</th><td class="r num">${brl(tot((x) => x.conta.saldo))}<div class="sub">de ${brl(tot((x) => Number(x.cx.meta)))}</div></td><td class="r num">${brl(tot((x) => x.conta.falta))}</td><td></td>
           <td class="r num">${brl(tot((x) => x.conta.porMes))}</td>${pessoas.map((p) => `<td class="r num">${brl(tot((x) => x.porPessoa[p.id] || 0))}</td>`).join("")}<td></td></tr></tfoot></table></div>
-      <details class="como"><summary>Como é calculado?</summary><p><b>Por mês</b> = (meta − saldo no começo de ${esc(rotuloMes(mes))}) ÷ meses até a data alvo. <b>Atrasada</b>: o saldo está abaixo do esperado pelo tempo (a meta proporcional aos meses desde o início da caixinha). O <b>saldo</b> é o informado mais os depósitos e menos os gastos pagos com a caixinha lançados depois da data dele. Com o <b>aporte mensal fixo</b>, o por mês é esse valor (sem passar do que falta), e o site avisa se assim não chega na meta até a data. Nas do casal, a parte de cada um é metade, pela renda do mês (as entradas de cada um) ou um percentual fixo; com o <b>aporte inicial</b> de cada um informado, a parte do por mês é proporcional ao que falta a cada um para chegar na sua parte da meta (a parte da meta menos o aporte inicial e os depósitos dele desde o início da caixinha). O depósito sai do caixa na linha “(−) Caixinhas” do balanço e entra na previsão dos próximos meses e na sobra da lista de desejos; não é gasto. O gasto pago com a caixinha não entra nos gastos do mês, só tira do saldo dela.</p></details>`
+      <details class="como"><summary>Como é calculado?</summary><p><b>Por mês</b> = (meta − saldo no começo de ${esc(rotuloMes(mes))}) ÷ meses até a data alvo. <b>Atrasada</b>: o saldo está abaixo do esperado pelo tempo (a meta proporcional aos meses desde o início da caixinha). O <b>saldo</b> é o informado mais os depósitos e menos os gastos pagos com a caixinha lançados depois da data dele. Com o <b>aporte mensal fixo</b>, o por mês é esse valor (sem passar do que falta), e o site avisa se assim não chega na meta até a data. Nas do casal, a parte de cada um é metade, pela renda do mês (as entradas de cada um) ou um percentual fixo; com o <b>aporte inicial</b> de cada um informado, a parte do por mês é proporcional ao que falta a cada um para chegar na sua parte da meta (a parte da meta menos o aporte inicial e os depósitos dele desde o início da caixinha). O “por mês” é só sugestão: nada é debitado sozinho. Vale o que vocês lançarem em Guardar (o valor que quiserem; com data futura, fica previsto), que sai do caixa na linha “(−) Caixinhas” do balanço e entra na previsão dos próximos meses e na sobra da lista de desejos; não é gasto. O gasto pago com a caixinha não entra nos gastos do mês, só tira do saldo dela.</p></details>`
       : `<p class="muted" style="margin:0">Nenhuma caixinha ainda. Crie uma para cada gasto futuro (IPTU, IPVA, seguro, viagem): o site diz quanto guardar por mês e se ela está em dia.</p>`;
     // Movimentos recentes (depois da data do saldo) de cada caixinha
     const movs = linhas.flatMap((x) => x.conta.movimentos.map((m) => ({ ...m, cx: x.cx }))).sort((a, b) => b.data.localeCompare(a.data));
@@ -316,12 +317,32 @@ export function prepararCaixinhas({ painel, pessoas, dono, salvar, guardar, edit
       await guardar({ caixinha: guardarEm, valor: centavos(v), data: formG.elements.data.value, forma: formG.elements.forma.value });
       $("#dlg-cx-guardar").close();
       desenhar();
-      avisar(`${brl(v)} guardados em ${guardarEm.nome}. Saiu do caixa na linha “(−) Caixinhas”.`);
+      avisar(formG.elements.data.value > hojeISO() ? `${brl(v)} previstos para ${dataBR(formG.elements.data.value)} em ${guardarEm.nome}. Entram no saldo dela nessa data.` : `${brl(v)} guardados em ${guardarEm.nome}. Saiu do caixa na linha “(−) Caixinhas”.`);
     } catch (err) {
       erro("#erro-cx-guardar", "Não foi possível lançar: " + err.message);
     } finally {
       botao.disabled = false;
     }
+  });
+
+  // Guardar: o valor sugerido vem preenchido, mas é só sugestão (pode guardar mais, menos ou nada)
+  function abrirGuardar(cx, sugestao, feito = 0) {
+    guardarEm = cx;
+    formG.reset();
+    erro("#erro-cx-guardar", "");
+    $("#titulo-cx-guardar").textContent = `Guardar em: ${cx.nome}`;
+    $("#cx-guardar-dica").textContent = sugestao > 0 ? `Sugestão para ${rotuloMes(hojeISO().slice(0, 7))}: ${brl(sugestao)}${feito ? ` (já guardou ${brl(feito)})` : ""}. É só sugestão: guarde o valor que quiser.` : "A sugestão deste mês já foi guardada; dá para guardar mais se quiser.";
+    formG.elements.valor.value = sugestao > 0 ? valorBR(sugestao) : "";
+    formG.elements.data.value = hojeISO();
+    $("#dlg-cx-guardar").showModal();
+    formG.elements.valor.select();
+  }
+  // Botão "Vou guardar" na sugestão do balanço do mês (fora da aba)
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-cx-sugerido]");
+    if (!b) return;
+    const l = LINHAS.find((x) => x.cx.id === b.dataset.cxSugerido);
+    if (l) abrirGuardar(l.cx, Number(b.dataset.valor) || 0, l.feitoPessoa[dono] || 0);
   });
 
   // ---------- botões
@@ -350,11 +371,7 @@ export function prepararCaixinhas({ painel, pessoas, dono, salvar, guardar, edit
       erro("#erro-cx-guardar", "");
       $("#titulo-cx-guardar").textContent = `Guardar em: ${l.cx.nome}`;
       const minha = Math.max(0, (l.porPessoa[dono] || 0) - (l.feitoPessoa[dono] || 0));
-      $("#cx-guardar-dica").textContent = minha > 0 ? `Sua parte em ${rotuloMes(hojeISO().slice(0, 7))}: ${brl(minha)}${l.feitoPessoa[dono] ? ` (já guardou ${brl(l.feitoPessoa[dono])})` : ""}.` : "Sua parte deste mês já foi guardada.";
-      formG.elements.valor.value = minha > 0 ? valorBR(minha) : "";
-      formG.elements.data.value = hojeISO();
-      $("#dlg-cx-guardar").showModal();
-      formG.elements.valor.select();
+      abrirGuardar(l.cx, minha, l.feitoPessoa[dono] || 0);
     } else if (b.dataset.cxPaguei != null) {
       const l = x("cxPaguei");
       const novo = maisUmAno(l.cx.data_alvo);

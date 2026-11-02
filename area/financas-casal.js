@@ -219,8 +219,8 @@ export async function mostrarCasal({ armazem, pessoas }) {
     if (!linhas.length) return;
     const tot = (f) => soma(linhas, f);
     const atrasadas = linhas.filter((x) => x.conta.alerta);
-    box.innerHTML = `<div class="casal-bloco-topo"><h2>Caixinhas do casal</h2><span class="num">${brl(tot((x) => x.conta.saldo))} guardados · ${brl(tot((x) => x.conta.porMes))} por mês</span></div>
-      <p class="sub">Em ${esc(rotuloMes(hoje))}, cada um guarda: ${lidos.map((p) => { const deve = tot((x) => x.porPessoa[p.id] || 0), fez = tot((x) => x.feitoPessoa[p.id] || 0);
+    box.innerHTML = `<div class="casal-bloco-topo"><h2>Caixinhas do casal</h2><span class="num">${brl(tot((x) => x.conta.saldo))} guardados · ${brl(tot((x) => x.conta.porMes))} por mês sugeridos</span></div>
+      <p class="sub">Em ${esc(rotuloMes(hoje))}, a sugestão para cada um é: ${lidos.map((p) => { const deve = tot((x) => x.porPessoa[p.id] || 0), fez = tot((x) => x.feitoPessoa[p.id] || 0);
         return `<b>${esc(p.curto)}</b> ${brl(deve)}${fez > 0 ? ` (guardou ${brl(fez)}${deve - fez > 0.004 ? `, faltam ${brl(deve - fez)}` : " ✓"})` : ""}`; }).join(" · ")}.</p>
       <ul class="casal-cx">${linhas.map((x) => `<li><span>${esc(x.cx.nome)}<small>${brl(x.conta.saldo)} de ${brl(x.cx.meta)} · até ${dataBR(x.cx.data_alvo)}${x.conta.situacao === "atrasada" ? " · atrasada" : x.conta.situacao === "completa" ? " · completa" : ""}</small></span>
         <span class="casal-cx-barra" role="img" aria-label="${Math.round(x.conta.progresso * 100)}% da meta"><i style="width:${(x.conta.progresso * 100).toFixed(1)}%"></i></span><span class="num">${brl(x.conta.porMes)}/mês</span></li>`).join("")}</ul>
