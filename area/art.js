@@ -225,14 +225,63 @@ async function aplicarEmLote() {
 }
 
 const ORDEM = { vencida: 0, vencendo: 1, ativa: 2, "sem-data": 3, baixada: 4, arquivada: 5 };
+// Ordem padrão: situação e, dentro dela, o fim previsto
+function ordemPadrao(a, b) {
+  const sa = R.situacao(a, hoje), sb = R.situacao(b, hoje);
+  if (sa !== sb) return ORDEM[sa] - ORDEM[sb];
+  const fa = a.fim || "9999", fb = b.fim || "9999";
+  return R.encerrada(a) ? fb.localeCompare(fa) : fa.localeCompare(fb);
+}
+
+// Ordenação escolhida ao clicar no cabeçalho da tabela (cada clique alterna crescente/decrescente).
+// As datas ficam guardadas como aaaa-mm-dd, então comparar o texto já ordena por data (não pelo dd/mm/aaaa da tela).
+const ordemColuna = { coluna: null, crescente: true };
+const valorColuna = {
+  numero: (a) => a.numero,
+  crea: (a) => a.crea,
+  cliente: (a) => a.contratante,
+  para: (a) => (a.vinculo === "empresa" ? nomeEmpresa(a.empresa_id) || "Empresa removida" : a.vinculo === "particular" ? "Particular" : ""),
+  servico: (a) => a.observacao,
+  inicio: (a) => a.inicio,
+  fim: (a) => a.fim,
+  situacao: (a) => ORDEM[R.situacao(a, hoje)],
+};
+const comparaTexto = new Intl.Collator("pt-BR", { numeric: true, sensitivity: "base" }).compare;
+
 function ordenar(lista) {
+  const { coluna, crescente } = ordemColuna;
+  if (!coluna) return [...lista].sort(ordemPadrao);
+  const valor = valorColuna[coluna];
   return [...lista].sort((a, b) => {
-    const sa = R.situacao(a, hoje), sb = R.situacao(b, hoje);
-    if (sa !== sb) return ORDEM[sa] - ORDEM[sb];
-    const fa = a.fim || "9999", fb = b.fim || "9999";
-    return R.encerrada(a) ? fb.localeCompare(fa) : fa.localeCompare(fb);
+    const va = valor(a), vb = valor(b);
+    const vaziaA = va == null || va === "", vaziaB = vb == null || vb === "";
+    // Sem valor vai sempre para o fim, nos dois sentidos
+    if (vaziaA || vaziaB) return vaziaA === vaziaB ? ordemPadrao(a, b) : vaziaA ? 1 : -1;
+    const c = typeof va === "number" && typeof vb === "number" ? va - vb : comparaTexto(String(va), String(vb));
+    return (crescente ? c : -c) || ordemPadrao(a, b);
   });
 }
+
+function renderCabecalhoOrdem() {
+  $$("#tabela th[data-ordem]").forEach((th) => {
+    const ativa = th.dataset.ordem === ordemColuna.coluna;
+    th.setAttribute("aria-sort", ativa ? (ordemColuna.crescente ? "ascending" : "descending") : "none");
+    th.classList.toggle("ordem-ativa", ativa);
+    th.querySelector(".seta").textContent = ativa ? (ordemColuna.crescente ? "▲" : "▼") : "↕";
+    th.querySelector("button").title = ativa
+      ? `Ordenado ${ordemColuna.crescente ? "do menor para o maior" : "do maior para o menor"}. Clique para inverter.`
+      : "Clique para ordenar";
+  });
+}
+
+$$("#tabela th[data-ordem] button").forEach((btn) =>
+  btn.addEventListener("click", () => {
+    const coluna = btn.closest("th").dataset.ordem;
+    ordemColuna.crescente = ordemColuna.coluna === coluna ? !ordemColuna.crescente : true;
+    ordemColuna.coluna = coluna;
+    renderTabela();
+  })
+);
 
 // ---------------------------------------------------------------- início
 // O login, o menu e o aviso do modo demonstração ficam em sessao.js
@@ -341,6 +390,7 @@ function filtradas(paraAnalise = false) {
 
 function renderTabela() {
   const lista = ordenar(filtradas());
+  renderCabecalhoOrdem();
   // A seleção vale só para o que está na lista
   const visiveis = new Set(lista.filter((a) => !a.baixa_data).map((a) => a.id));
   [...selecionadas].forEach((id) => { if (!visiveis.has(id)) selecionadas.delete(id); });
