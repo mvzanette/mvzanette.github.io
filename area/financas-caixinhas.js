@@ -136,6 +136,9 @@ export function prepararCaixinhas({ painel, pessoas, dono, salvar, guardar, edit
   const nomeDe = (id) => (pessoas.find((p) => p.id === id) || {}).nome || "outra pessoa";
   const casal = pessoas.length > 1;
   let editando = null, saldoDe = null, guardarEm = null;
+  // Filtro da tabela (lembrado no navegador)
+  const CHAVE_FILTRO = "mz-area-caixinhas-filtro";
+  let filtro = (() => { try { return localStorage.getItem(CHAVE_FILTRO) || "todas"; } catch { return "todas"; } })();
 
   function desenhar() {
     const { linhas, arquivadas, mes } = painel.estadoCaixinhas();
@@ -143,38 +146,46 @@ export function prepararCaixinhas({ painel, pessoas, dono, salvar, guardar, edit
     $("#cx-alertas").innerHTML = alertas.map((x) => `<div class="alert bad" role="status"><span class="sev"></span><div><b>${esc(x.cx.nome)} está atrasada.</b>
       Faltam ${x.conta.mesesAte <= 0 ? "menos de um mês" : `${x.conta.mesesAte} ${x.conta.mesesAte === 1 ? "mês" : "meses"}`} para ${dataBR(x.cx.data_alvo)} e ela tem ${brl(x.conta.saldo)}; pelo tempo, deveria ter ${brl(x.conta.esperado)}.
       Para chegar a ${brl(x.cx.meta)}, guarde ${brl(x.conta.porMes)} por mês.</div></div>`).join("");
-    const tot = (f) => centavos(linhas.reduce((t, x) => t + f(x), 0));
+    // Filtro: todas, só as do casal ou só as individuais (com os índices da lista inteira nos botões)
+    const temDosDois = casal && linhas.some((x) => x.cx.dono === "casal") && linhas.some((x) => x.cx.dono !== "casal");
+    if (!temDosDois) filtro = "todas";
+    const vis = linhas.map((x, i) => ({ x, i })).filter(({ x }) => filtro === "todas" || (filtro === "casal") === (x.cx.dono === "casal"));
+    const tot = (f) => centavos(vis.reduce((t, { x }) => t + f(x), 0));
+    const pilulas = temDosDois ? `<div class="cx-filtro" role="group" aria-label="Mostrar">${[["todas", "Todas"], ["casal", "Do casal"], ["individual", "Individuais"]]
+      .map(([k, t]) => `<button type="button" class="pilula" data-cx-filtro="${k}" aria-pressed="${filtro === k}">${t} <span class="num">${k === "todas" ? linhas.length : linhas.filter((x) => (k === "casal") === (x.cx.dono === "casal")).length}</span></button>`).join("")}</div>` : "";
     const cab = `<tr><th>Caixinha</th><th class="r">Tem / Meta</th><th class="r">Falta</th><th>Até</th><th class="r">Por mês</th>${pessoas.map((p) => `<th class="r">${esc(p.nome)}</th>`).join("")}<th><span class="sr-only">Ações</span></th></tr>`;
-    const linha = (x, i) => {
+    const linha = ({ x, i }) => {
       const c = x.conta, [st, cls] = SITUACAO[c.situacao];
-      const acoes = [
-        `<button type="button" class="btn mini" data-cx-guardar="${i}">Guardar</button>`,
-        `<button type="button" class="btn sec mini" data-cx-saldo="${i}">Atualizar saldo</button>`,
-        x.cx.tipo === "recorrente" ? `<button type="button" class="btn sec mini" data-cx-paguei="${i}">Paguei</button>` : "",
-        `<button type="button" class="btn-link" data-cx-editar="${i}">Editar</button>`,
-        `<button type="button" class="btn-link" data-cx-arquivar="${i}">Arquivar</button>`,
+      const ini = aportesIniciais(x.cx);
+      const detalhes = [x.cx.tipo === "recorrente" ? "repete todo ano" : "meta única", casal ? textoDivisao(x.cx, nomeDe) : "", c.fixo ? `aporte fixo de ${brl(c.fixo)}/mês` : "",
+        casal && x.cx.dono === "casal" && Object.keys(ini).length ? `aporte inicial: ${pessoas.map((p) => `${p.nome} ${brl(ini[p.id] || 0)}`).join(", ")}` : "",
+        x.cx.saldo_em ? `saldo informado em ${dataBR(x.cx.saldo_em)}` : ""].filter(Boolean).join(" · ");
+      const curto = [x.cx.tipo === "recorrente" ? "anual" : "meta única", casal ? (x.cx.dono === "casal" ? "casal" : "individual") : "", c.fixo ? `fixo ${brl(c.fixo)}` : ""].filter(Boolean).join(" · ");
+      const menu = [
+        `<button type="button" data-cx-saldo="${i}">Atualizar saldo</button>`,
+        x.cx.tipo === "recorrente" ? `<button type="button" data-cx-paguei="${i}">Paguei (novo ciclo)</button>` : "",
+        `<button type="button" data-cx-editar="${i}">Editar</button>`,
+        `<button type="button" data-cx-arquivar="${i}">Arquivar</button>`,
       ].join("");
+      const barra = `<div class="cx-barra" role="img" aria-label="${Math.round(c.progresso * 100)}% da meta"><span style="width:${(c.progresso * 100).toFixed(1)}%"></span>${c.esperado > 0 && c.esperado < x.cx.meta ? `<i style="left:${((c.esperado / x.cx.meta) * 100).toFixed(1)}%" title="Esperado hoje: ${brl(c.esperado)}"></i>` : ""}</div>`;
       return `<tr class="cx-linha${c.alerta ? " cx-alerta" : ""}">
-        <td><b>${esc(x.cx.nome)}</b> <span class="chip ${cls}">${st}</span>
-          <div class="sub">${esc([x.cx.tipo === "recorrente" ? "repete todo ano" : "meta única", casal ? textoDivisao(x.cx, nomeDe) : "", c.fixo ? `aporte fixo de ${brl(c.fixo)}/mês` : "",
-            casal && x.cx.dono === "casal" && Object.keys(aportesIniciais(x.cx)).length ? `aporte inicial: ${pessoas.map((p) => `${p.nome} ${brl(aportesIniciais(x.cx)[p.id] || 0)}`).join(", ")}` : "", x.cx.saldo_em ? `saldo informado em ${dataBR(x.cx.saldo_em)}` : ""].filter(Boolean).join(" · "))}</div>
-          <div class="cx-barra" role="img" aria-label="${Math.round(c.progresso * 100)}% da meta"><span style="width:${(c.progresso * 100).toFixed(1)}%"></span>${c.esperado > 0 && c.esperado < x.cx.meta ? `<i style="left:${((c.esperado / x.cx.meta) * 100).toFixed(1)}%" title="Esperado hoje: ${brl(c.esperado)}"></i>` : ""}</div>
-          <div class="cx-acoes">${acoes}</div></td>
-        <td class="r num">${brl(c.saldo)}<div class="sub">de ${brl(x.cx.meta)} · ${Math.round(c.progresso * 100)}%</div></td>
+        <td class="cx-nome"><b>${esc(x.cx.nome)}</b> <span class="chip ${cls}">${st}</span><div class="sub" title="${esc(detalhes)}">${esc(curto)}</div></td>
+        <td class="r num">${brl(c.saldo)} <span class="sub">/ ${brl(x.cx.meta)}</span>${barra}</td>
         <td class="r num">${c.falta > 0 ? brl(c.falta) : "—"}</td>
         <td class="num">${dataBR(x.cx.data_alvo)}<div class="sub">${c.vencida ? "data passou" : c.mesesAte <= 0 ? "este mês" : `${c.mesesAte} ${c.mesesAte === 1 ? "mês" : "meses"}`}</div></td>
-        <td class="r num">${c.porMes > 0 ? brl(c.porMes) : "—"}${c.naoChega ? `<div class="sub neg">assim chega a ${brl(c.naData)} na data</div>` : ""}${c.depMes > 0 ? `<div class="sub">guardou ${brl(c.depMes)} no mês</div>` : ""}</td>
+        <td class="r num">${c.porMes > 0 ? brl(c.porMes) : "—"}${c.naoChega ? `<div class="sub neg" title="Com o aporte fixo, chega a ${brl(c.naData)} na data">chega a ${brl(c.naData)}</div>` : c.depMes > 0 ? `<div class="sub">guardou ${brl(c.depMes)}</div>` : ""}</td>
         ${pessoas.map((p) => { const v = x.porPessoa[p.id] || 0; return `<td class="r num">${v > 0.004 ? brl(v) : "—"}${x.feitoPessoa[p.id] > 0 ? `<div class="sub">guardou ${brl(x.feitoPessoa[p.id])}</div>` : ""}</td>`; }).join("")}
-        <td></td></tr>`;
+        <td class="cx-acoes-td"><div class="cx-acoes"><button type="button" class="btn mini" data-cx-guardar="${i}">Guardar</button>
+          <details class="cx-mais"><summary class="btn sec mini" aria-label="Mais ações de ${esc(x.cx.nome)}">⋯</summary><div class="cx-mais-menu">${menu}</div></details></div></td></tr>`;
     };
-    $("#cx-resumo").innerHTML = linhas.length ? `
-      <div class="scroll"><table class="cx-tabela"><thead>${cab}</thead><tbody>${linhas.map(linha).join("")}</tbody>
-        <tfoot><tr><th>Total</th><td class="r num">${brl(tot((x) => x.conta.saldo))}<div class="sub">de ${brl(tot((x) => Number(x.cx.meta)))}</div></td><td class="r num">${brl(tot((x) => x.conta.falta))}</td><td></td>
+    $("#cx-resumo").innerHTML = linhas.length ? `${pilulas}
+      <div class="scroll"><table class="cx-tabela"><thead>${cab}</thead><tbody>${vis.map(linha).join("")}</tbody>
+        <tfoot><tr><th>Total${filtro !== "todas" ? (filtro === "casal" ? " do casal" : " das individuais") : ""}</th><td class="r num">${brl(tot((x) => x.conta.saldo))} <span class="sub">/ ${brl(tot((x) => Number(x.cx.meta)))}</span></td><td class="r num">${brl(tot((x) => x.conta.falta))}</td><td></td>
           <td class="r num">${brl(tot((x) => x.conta.porMes))}</td>${pessoas.map((p) => `<td class="r num">${brl(tot((x) => x.porPessoa[p.id] || 0))}</td>`).join("")}<td></td></tr></tfoot></table></div>
       <details class="como"><summary>Como é calculado?</summary><p><b>Por mês</b> = (meta − saldo no começo de ${esc(rotuloMes(mes))}) ÷ meses até a data alvo. <b>Atrasada</b>: o saldo está abaixo do esperado pelo tempo (a meta proporcional aos meses desde o início da caixinha). O <b>saldo</b> é o informado mais os depósitos e menos os gastos pagos com a caixinha lançados depois da data dele. Com o <b>aporte mensal fixo</b>, o por mês é esse valor (sem passar do que falta), e o site avisa se assim não chega na meta até a data. Nas do casal, a parte de cada um é metade, pela renda do mês (as entradas de cada um) ou um percentual fixo; com o <b>aporte inicial</b> de cada um informado, a parte do por mês é proporcional ao que falta a cada um para chegar na sua parte da meta (a parte da meta menos o aporte inicial e os depósitos dele desde o início da caixinha). O “por mês” é só sugestão: nada é debitado sozinho. Vale o que vocês lançarem em Guardar (o valor que quiserem; com data futura, fica previsto), que sai do caixa na linha “(−) Caixinhas” do balanço e entra na previsão dos próximos meses e na sobra da lista de desejos; não é gasto. O gasto pago com a caixinha não entra nos gastos do mês, só tira do saldo dela.</p></details>`
       : `<p class="muted" style="margin:0">Nenhuma caixinha ainda. Crie uma para cada gasto futuro (IPTU, IPVA, seguro, viagem): o site diz quanto guardar por mês e se ela está em dia.</p>`;
     // Movimentos recentes (depois da data do saldo) de cada caixinha
-    const movs = linhas.flatMap((x) => x.conta.movimentos.map((m) => ({ ...m, cx: x.cx }))).sort((a, b) => b.data.localeCompare(a.data));
+    const movs = vis.map(({ x }) => x).flatMap((x) => x.conta.movimentos.map((m) => ({ ...m, cx: x.cx }))).sort((a, b) => b.data.localeCompare(a.data));
     $("#cx-movimentos").hidden = !movs.length;
     $("#cx-movimentos").innerHTML = movs.length ? `<h2>Depósitos e gastos pagos com as caixinhas</h2>
       <p class="sub" style="margin:-4px 0 10px">Os lançados depois da data do saldo de cada caixinha. Para depositar, use Guardar; para um gasto pago com o dinheiro da caixinha, lance o gasto com “Pago com: caixinha”.</p>
@@ -341,8 +352,20 @@ export function prepararCaixinhas({ painel, pessoas, dono, salvar, guardar, edit
     $("#dlg-cx-guardar").showModal();
     formG.elements.valor.select();
   }
-  // Botão "Vou guardar" na sugestão do balanço do mês (fora da aba)
+  // Menu ⋯ fica por cima da tabela (que rola na horizontal e cortaria o menu): posição fixa junto ao botão
+  raiz.addEventListener("toggle", (e) => {
+    const d = e.target;
+    if (!d.matches || !d.matches("details.cx-mais") || !d.open) return;
+    raiz.querySelectorAll("details.cx-mais[open]").forEach((o) => { if (o !== d) o.open = false; });
+    const r = d.querySelector("summary").getBoundingClientRect(), m = d.querySelector(".cx-mais-menu");
+    const alto = m.offsetHeight || 160, cabeBaixo = r.bottom + 4 + alto <= window.innerHeight;
+    Object.assign(m.style, { position: "fixed", right: `${Math.max(8, window.innerWidth - r.right)}px`, top: `${cabeBaixo ? r.bottom + 4 : Math.max(8, r.top - 4 - alto)}px` });
+  }, true);
+  window.addEventListener("scroll", () => raiz.querySelectorAll("details.cx-mais[open]").forEach((d) => { d.open = false; }), { passive: true });
+
+  // Botão "Vou guardar" na sugestão do balanço do mês (fora da aba); clicar fora fecha o menu ⋯ aberto
   document.addEventListener("click", (e) => {
+    raiz.querySelectorAll("details.cx-mais[open]").forEach((d) => { if (!d.contains(e.target)) d.open = false; });
     const b = e.target.closest("[data-cx-sugerido]");
     if (!b) return;
     const l = LINHAS.find((x) => x.cx.id === b.dataset.cxSugerido);
@@ -355,6 +378,14 @@ export function prepararCaixinhas({ painel, pessoas, dono, salvar, guardar, edit
     const b = e.target.closest("button");
     if (!b) return;
     const x = (k) => LINHAS[Number(b.dataset[k])];
+    const menu = b.closest("details.cx-mais");
+    if (menu) menu.open = false;
+    if (b.dataset.cxFiltro) {
+      filtro = b.dataset.cxFiltro;
+      try { localStorage.setItem(CHAVE_FILTRO, filtro); } catch { /* sem armazenamento: vale só nesta visita */ }
+      desenhar();
+      return;
+    }
     if (b.dataset.cxEditar != null) abrir(x("cxEditar").cx);
     else if (b.dataset.cxArquivar != null) arquivar(x("cxArquivar").cx);
     else if (b.dataset.cxSaldo != null) {
