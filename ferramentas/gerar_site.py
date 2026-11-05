@@ -1084,6 +1084,7 @@ def pagina_obrigado():
     <div>
       <h1>Solicitação recebida</h1>
       <p>Sua solicitação de proposta foi registrada e será respondida pelo e-mail ou telefone informado.</p>
+      <p>Enviamos também para o seu e-mail um convite para criar o seu acesso ao site: com ele você acompanha cada etapa do pedido e baixa os documentos do serviço. Se preferir, é só ignorar o convite.</p>
       <a class="btn btn-dark" href="index.html">Voltar ao site</a>
     </div>
   </main>
@@ -1119,6 +1120,9 @@ def pagina_privacidade():
         <h2>Compartilhamento</h2>
         <p>Os dados do formulário ficam guardados em banco de dados com acesso restrito (Supabase), e o aviso da solicitação é enviado por e-mail por serviço de envio (Web3Forms ou Resend). O site também carrega fontes do Google Fonts. Fora esses serviços técnicos necessários ao funcionamento do site, os dados não são compartilhados com terceiros.</p>
 
+        <h2>Acompanhamento pelo site</h2>
+        <p>Depois da solicitação, o e-mail informado recebe um convite opcional para criar uma senha e acompanhar o pedido na área do cliente, onde ficam as etapas do serviço, os documentos disponibilizados e o vencimento das ARTs acompanhadas. Quem cria o acesso pode receber, por e-mail, o aviso de vencimento das ARTs do seu serviço. Quem não quiser basta ignorar o convite.</p>
+
         <h2>Armazenamento</h2>
         <p>Os dados são mantidos pelo tempo necessário para o atendimento da solicitação e para o cumprimento de obrigações legais, e então eliminados.</p>
 
@@ -1128,7 +1132,7 @@ def pagina_privacidade():
         <h2>Direitos do titular</h2>
         <p>O titular pode solicitar, a qualquer momento, a confirmação do tratamento, o acesso, a correção ou a eliminação dos seus dados, pelo e-mail <a href="mailto:{EMAIL}" data-email>{EMAIL}</a>.</p>
 
-        <p><em>Última atualização: outubro de 2026.</em></p>
+        <p><em>Última atualização: novembro de 2026.</em></p>
       </div>
     </section>
   </main>

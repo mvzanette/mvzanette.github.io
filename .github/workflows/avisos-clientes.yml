@@ -1,0 +1,31 @@
+name: Avisos de ART para clientes
+
+# Todos os dias às 8h (Brasília): manda ao cliente o e-mail de vencimento das ARTs que ele acompanha (aviso ligado no
+# Controle de ART), pelo Gmail. Também pode ser executado manualmente em Actions → "Avisos de ART para clientes" → "Run workflow".
+on:
+  schedule:
+    - cron: "0 11 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  avisos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Instalar o envio de e-mail
+        run: npm install --no-save --no-package-lock nodemailer@6.9.16
+      - name: Verificar ARTs e avisar os clientes
+        run: node ferramentas/avisos-clientes.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GMAIL_USUARIO: ${{ secrets.GMAIL_USUARIO }}
+          GMAIL_SENHA_APP: ${{ secrets.GMAIL_SENHA_APP }}
+          ALERTA_LINK: ${{ vars.ALERTA_LINK }}
