@@ -646,6 +646,44 @@ a.modulo:hover {
   white-space: nowrap;
 }
 
+/* Cabeçalhos que ordenam a tabela (ARTs) */
+.tabela th.ordenavel {
+  padding: 0;
+}
+
+.tabela th.ordenavel button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 12px 14px;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tabela th.ordenavel button:hover,
+.tabela th.ordenavel button:focus-visible {
+  background: rgba(255, 255, 255, 0.12);
+  outline: none;
+}
+
+.tabela th.ordenavel .seta {
+  font-size: 0.7rem;
+  opacity: 0.45;
+}
+
+.tabela th.ordem-ativa .seta {
+  opacity: 1;
+  color: var(--yellow, #f5b800);
+}
+
 .tabela td {
   padding: 12px 14px;
   border-top: 1px solid var(--gray-200);
