@@ -50,7 +50,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   recorrentes: recorrentesSite = [], aoPagarRecorrente = null, aoDesmarcarRecorrente = null, aoEditarRecorrente = null, aoValorRecorrente = null,
   aoMudarPendencias = null, aoEditarGasto = null, aoPagarGasto = null, aoEditarMetas = null,
   aoEditarEntrada = null, aoReceberEntrada = null, outroAporte = null, investimentosCasal = null,
-  planoAporte = null, planoCasal = null, caixinhas = null, aoCategoriaEntrada = null, aoUnirEntradas = null }) {
+  planoAporte = null, planoCasal = null, caixinhas = null, aoCategoriaEntrada = null, aoUnirEntradas = null, comBancos = false }) {
   const D = completar(dados);
   let CATS = categorias || lerCategorias(null, dados);
   let AJ = new Map(ajustes.map(a => [a.chave, a]));
@@ -130,6 +130,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   // caixa como caixinha, não como gasto; o gasto pago com o dinheiro da caixinha não entra nos gastos nem no caixa
   let CXS = caixinhas && Array.isArray(caixinhas.lista) ? caixinhas.lista : [];
   const COM_CAIXINHAS = !!caixinhas;
+  const COM_BANCOS = !!comBancos;
   const PERFIL_ID = caixinhas ? caixinhas.perfilId : null;
   let MOV_OUTRO = []; // movimentos das caixinhas lançados no painel da outra pessoa do casal
   let memoCx = null;
@@ -1964,17 +1965,17 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
   }
 
   // ---------- Abas: visão geral, gastos do dia a dia, cartão e faturas, investimentos, lista de desejos ----------
-  const ABAS = ["geral", "gastos", "cartao", "investimentos", "caixinhas", "desejos", "cadastros"];
+  const ABAS = ["geral", "gastos", "cartao", "investimentos", "caixinhas", "bancos", "desejos", "cadastros"];
   function irPara(aba, rolar) {
     if (!COM_MESES && !["investimentos", "desejos", "cadastros"].includes(aba)) aba = "cartao";
     if (!ABAS.includes(aba) || (aba === "investimentos" && !CARTEIRA && !comInvestimentos) || (aba === "desejos" && !comDesejos) || (aba === "cadastros" && !aoEditarCategorias)
-      || (aba === "caixinhas" && !COM_CAIXINHAS)) aba = COM_MESES ? "geral" : "cartao";
+      || (aba === "caixinhas" && !COM_CAIXINHAS) || (aba === "bancos" && (!COM_BANCOS || !COM_MESES))) aba = COM_MESES ? "geral" : "cartao";
     document.querySelectorAll("#fin-abas [role=tab]").forEach(t => {
       const sel = t.dataset.aba === aba;
       t.setAttribute("aria-selected", String(sel));
       t.tabIndex = sel ? 0 : -1;
     });
-    ["geral", "gastos", "cartao", "caixinhas", "desejos", "cadastros"].forEach(k => { const v = $id("view-" + k); if (v) v.hidden = k !== aba; });
+    ["geral", "gastos", "cartao", "caixinhas", "bancos", "desejos", "cadastros"].forEach(k => { const v = $id("view-" + k); if (v) v.hidden = k !== aba; });
     $id("fin-root").hidden = aba === "investimentos";
     $id("view-inv").hidden = aba !== "investimentos";
     if (COM_MESES || CARTEIRA || comInvestimentos || comDesejos || aoEditarCategorias) {
@@ -1990,7 +1991,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     const barra = $id("fin-abas");
     const tabs = [...barra.querySelectorAll("[role=tab]")];
     // O seletor do topo (Marcos, Maria, Casal) já diz de quem é o painel: as abas não repetem o nome
-    const quem = {geral: "", gastos: "", cartao: OUTRA ? `com o de ${OUTRA.nome}` : "", investimentos: "", caixinhas: "", desejos: "Prioridades e projeção", cadastros: "Categorias e contas"};
+    const quem = {geral: "", gastos: "", cartao: OUTRA ? `com o de ${OUTRA.nome}` : "", investimentos: "", caixinhas: "", bancos: "Saldos e extratos", desejos: "Prioridades e projeção", cadastros: "Categorias e contas"};
     tabs.forEach(t => { const s = t.querySelector("small"); if (s) s.textContent = quem[t.dataset.aba]; });
     $id("tab-inv").hidden = !CARTEIRA && !comInvestimentos;
     // Aba Investimentos: os investimentos individuais de quem é o painel e, embaixo, a carteira conjunta do projeto
@@ -1998,6 +1999,7 @@ export function desenharFinancas({ dados, carteira = null, modo = "completo", no
     $id("cj-raiz").hidden = !CARTEIRA;
     $id("tab-desejos").hidden = !comDesejos;
     if ($id("tab-caixinhas")) $id("tab-caixinhas").hidden = !COM_CAIXINHAS || !COM_MESES;
+    if ($id("tab-bancos")) $id("tab-bancos").hidden = !COM_BANCOS || !COM_MESES;
     $id("tab-cadastros").hidden = !aoEditarCategorias;
     document.querySelectorAll("[data-dono]").forEach(el => { el.textContent = DONO; });
     if (!COM_MESES) {

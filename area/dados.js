@@ -200,6 +200,19 @@ function limparCaixinha(c) {
 const numerosCaixinha = (c) => ({ ...c, meta: Number(c.meta), saldo: Number(c.saldo), parte: c.parte == null ? null : Number(c.parte),
   aporte_mensal: c.aporte_mensal == null ? null : Number(c.aporte_mensal), aportes_iniciais: c.aportes_iniciais && typeof c.aportes_iniciais === "object" ? c.aportes_iniciais : {} });
 
+// Banco conectado (Meu Pluggy): o código da conexão (item_id, um UUID) e um apelido opcional
+function limparConexaoBanco(c) {
+  const item = String(c.item_id || "").trim().toLowerCase();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(item)) throw new Error("Cole o código da conexão (itemId) como aparece no painel do Pluggy: 36 letras e números, com hífens.");
+  return { ...(c.id ? { id: c.id } : {}), perfil_id: c.perfil_id, item_id: item, apelido: texto(c.apelido, 60) };
+}
+const CONEXAO_REPETIDA = "Essa conexão já está cadastrada (aqui ou no painel de outra pessoa).";
+const numerosContaBanco = (c) => ({ ...c, saldo: c.saldo == null ? null : Number(c.saldo), limite: c.limite == null ? null : Number(c.limite),
+  limite_disponivel: c.limite_disponivel == null ? null : Number(c.limite_disponivel) });
+const numerosMovimentoBanco = (m) => ({ ...m, valor: Number(m.valor), saldo_apos: m.saldo_apos == null ? null : Number(m.saldo_apos) });
+// Extrato lido pelo site: os últimos 13 meses
+const desdeMovimentos = () => { const d = new Date(); d.setMonth(d.getMonth() - 13); return d.toISOString().slice(0, 10); };
+
 // Lançamento dividido em mais de uma categoria: [{ valor, categoria, subcategoria, conta }], de duas a oito partes
 function limparPartes(lista) {
   if (!Array.isArray(lista) || lista.length < 2) return null;
@@ -422,6 +435,7 @@ function armazemDemo() {
   const DESEJOS = "mz-area-demo-financas-desejos";
   const PLANOS = "mz-area-demo-financas-planos";
   const CAIXINHAS = "mz-area-demo-financas-caixinhas";
+  const BANCOS = "mz-area-demo-bancos"; // { conexoes, contas, movimentos } (no demo, contas e movimentos só vêm de exemplo)
   const pdfsFinancas = []; // PDFs só durante a sessão
   const lerPerfis = () => lerJson(PERFIS, []);
   const eu = () => {
@@ -734,6 +748,40 @@ function armazemDemo() {
         else todas.push((c = { id: novoId(), criado_em: agora, ...linha, atualizado_em: agora }));
         gravarJson(CAIXINHAS, todas);
         return structuredClone(c);
+      },
+      // Bancos conectados: as conexões de quem é o painel, com as contas e o extrato que a rotina gravou
+      async bancos(perfilId) {
+        if (!acessoFinancas(perfilId)) return { conexoes: [], contas: [], movimentos: [] };
+        const b = lerJson(BANCOS, {});
+        const de = (lista) => (lista || []).filter((x) => x.perfil_id === perfilId);
+        return { conexoes: de(b.conexoes), contas: de(b.contas), movimentos: de(b.movimentos).sort((a, c) => c.data.localeCompare(a.data)) };
+      },
+      async salvarConexaoBanco(conexao) {
+        const linha = limparConexaoBanco(conexao);
+        exigirDono(linha.perfil_id);
+        const b = lerJson(BANCOS, {});
+        const lista = b.conexoes || [];
+        if (lista.some((x) => x.item_id === linha.item_id && x.id !== linha.id)) throw new Error(CONEXAO_REPETIDA);
+        let c = linha.id && lista.find((x) => x.id === linha.id);
+        if (c) Object.assign(c, { apelido: linha.apelido });
+        else lista.push((c = { id: novoId(), criado_em: new Date().toISOString(), ...linha }));
+        gravarJson(BANCOS, { ...b, conexoes: lista });
+        return structuredClone(c);
+      },
+      async apagarConexaoBanco(id) {
+        const b = lerJson(BANCOS, {});
+        const c = (b.conexoes || []).find((x) => x.id === id);
+        if (!c) return;
+        exigirDono(c.perfil_id);
+        const contas = (b.contas || []).filter((x) => x.conexao_id !== id);
+        const ids = new Set(contas.map((x) => x.id));
+        gravarJson(BANCOS, { conexoes: b.conexoes.filter((x) => x.id !== id), contas, movimentos: (b.movimentos || []).filter((m) => ids.has(m.conta_id)) });
+      },
+      async revisarMovimentos(ids) {
+        const b = lerJson(BANCOS, {});
+        const agora = new Date().toISOString(), conjunto = new Set(ids);
+        (b.movimentos || []).forEach((m) => { if (conjunto.has(m.id) && acessoFinancas(m.perfil_id)) m.revisado_em = agora; });
+        gravarJson(BANCOS, b);
       },
       // Quem usa as finanças (para dividir desejos): só o primeiro nome
       async pessoas() {
@@ -1095,6 +1143,43 @@ async function armazemSupabase(url, chave) {
         }
         if (error) throw new Error(error.code === "42501" || error.code === "PGRST116" ? "Sem permissão para alterar esta caixinha." : error.message);
         return numerosCaixinha(data);
+      },
+      async bancos(perfilId) {
+        const erro = (error) => new Error(/bancos_/.test(error.message || "") ? BANCO_DESATUALIZADO : error.message);
+        const [cx, ct] = await Promise.all([
+          sb.from("bancos_conexoes").select("*").eq("perfil_id", perfilId).order("criado_em"),
+          sb.from("bancos_contas").select("*").eq("perfil_id", perfilId),
+        ]);
+        if (cx.error) throw erro(cx.error);
+        if (ct.error) throw erro(ct.error);
+        // O extrato vem em páginas de 1000 (o limite de cada leitura)
+        const movimentos = [];
+        for (let de = 0; de < 20000; de += 1000) {
+          const { data, error } = await sb.from("bancos_movimentos").select("*").eq("perfil_id", perfilId).gte("data", desdeMovimentos())
+            .order("data", { ascending: false }).order("id").range(de, de + 999);
+          if (error) throw erro(error);
+          movimentos.push(...data.map(numerosMovimentoBanco));
+          if (data.length < 1000) break;
+        }
+        return { conexoes: cx.data || [], contas: (ct.data || []).map(numerosContaBanco), movimentos };
+      },
+      async salvarConexaoBanco(conexao) {
+        const { id, ...campos } = limparConexaoBanco(conexao);
+        const { data, error } = await (id ? sb.from("bancos_conexoes").update({ apelido: campos.apelido }).eq("id", id) : sb.from("bancos_conexoes").insert(campos)).select().single();
+        if (error) throw new Error(error.code === "23505" ? CONEXAO_REPETIDA : /bancos_conexoes/.test(error.message) && /exist|schema cache/.test(error.message) ? BANCO_DESATUALIZADO
+          : error.code === "42501" ? "Sem permissão para cadastrar bancos neste painel." : error.message);
+        return data;
+      },
+      async apagarConexaoBanco(id) {
+        const { error } = await sb.from("bancos_conexoes").delete().eq("id", id);
+        falhou(error);
+      },
+      async revisarMovimentos(ids) {
+        const agora = new Date().toISOString();
+        for (let i = 0; i < ids.length; i += 200) {
+          const { error } = await sb.from("bancos_movimentos").update({ revisado_em: agora }).in("id", ids.slice(i, i + 200));
+          falhou(error);
+        }
       },
       async pessoas() {
         const { data, error } = await sb.rpc("pessoas_financas");

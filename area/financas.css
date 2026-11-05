@@ -1034,3 +1034,25 @@
 @media (max-width: 560px) { .ent-linha { grid-template-columns: minmax(44px, max-content) minmax(0, 1fr) auto; } }
 .fin .caixa-tabela .cx-sugestao td { font-size: 0.85rem; color: var(--muted); padding-top: 4px; }
 .fin .caixa-tabela .cx-sugestao .btn.mini { margin-left: 6px; }
+
+/* ---------- Aba Bancos (bancos conectados pelo Open Finance) ---------- */
+.fin .bc-totais { display: flex; flex-wrap: wrap; gap: 12px 28px; margin: 0 0 12px; }
+.fin .bc-totais div { display: flex; flex-direction: column; gap: 2px; }
+.fin .bc-totais b { font-size: 1.25rem; }
+.fin .bc-tabela, .fin .bc-mov { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.fin .bc-tabela th, .fin .bc-tabela td, .fin .bc-mov th, .fin .bc-mov td { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.fin .bc-tabela .r, .fin .bc-mov .r { text-align: right; }
+.fin .bc-tabela tr.bc-grupo th, .fin .bc-tabela tr.bc-grupo td { padding-top: 14px; border-bottom: 2px solid var(--ink); }
+.fin .bc-mov thead th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+.fin .bc-mov .sub, .fin .bc-tabela .sub { font-size: 0.76rem; }
+.fin .bc-filtros { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; margin: 0 0 6px; }
+.fin .bc-filtros label { display: flex; flex-direction: column; gap: 3px; font-size: 0.76rem; color: var(--muted); min-width: 0; }
+.fin .bc-filtros select, .fin .bc-filtros input { font: inherit; font-size: 0.88rem; padding: 6px 8px; border: 1px solid var(--line); border-radius: 2px; background: var(--card, transparent); color: var(--ink); max-width: 100%; }
+.fin .bc-conexoes { list-style: none; margin: 0 0 12px; padding: 0; }
+.fin .bc-conexoes li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.fin .bc-con-acoes { display: flex; gap: 12px; align-items: flex-start; white-space: nowrap; }
+.fin .como ol { margin: 8px 0; padding-left: 20px; line-height: 1.5; }
+.extrato-bancos { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px; margin: 0 0 12px; border: 1px solid var(--line, #ddd); border-radius: 2px; }
+.extrato-bancos .sub { font-size: 0.84rem; }
+@media (max-width: 520px) { .fin .bc-conexoes li { flex-direction: column; } .fin .bc-filtros label { flex: 1 1 100%; } }
+.fin .bc-mov td:first-child, .fin .bc-mov th:first-child { width: 1%; white-space: nowrap; }
