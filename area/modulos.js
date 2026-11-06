@@ -99,6 +99,14 @@ export const MODULOS = [
     icone: svg('<path d="M12 2v20"/><path d="M17 6H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>'),
   },
   {
+    id: "veiculos",
+    grupo: "pessoal",
+    titulo: "Veículos pessoais",
+    descricao: "Manutenção preventiva por tempo, km ou horas, marcadores, histórico de serviços e peças, despesas e notas fiscais.",
+    pagina: "veiculos.html",
+    icone: svg('<path d="M5 17h14"/><path d="M3 17v-4l2-5a2 2 0 0 1 1.9-1.4h10.2A2 2 0 0 1 19 8l2 5v4"/><path d="M3 13h18"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/>'),
+  },
+  {
     id: "usuarios",
     grupo: "admin",
     titulo: "Usuários e permissões",
@@ -125,6 +133,7 @@ export const PERMISSOES = [
   { id: "empresas", titulo: "Finanças das empresas", detalhe: "Lançamentos com as empresas cadastradas: reembolsos, ARTs pagas por elas e valores a receber." },
   { id: "demandas", titulo: "Controle de demandas", detalhe: "Todas as solicitações de clientes, propostas e prazos." },
   { id: "financas", titulo: "Finanças pessoais", detalhe: "Gastos, cartão e investimentos: o painel do projeto Financeiro da própria pessoa." },
+  { id: "veiculos", titulo: "Veículos pessoais", detalhe: "Os veículos da própria pessoa: preventivas, marcadores, serviços, despesas e notas, com avisos por e-mail." },
   { id: "pedidos", titulo: "Meus pedidos (portal do cliente)", detalhe: "As demandas com o e-mail da pessoa ou do cliente dela na base: etapas e recado." },
   { id: "arquivos", titulo: "Arquivos e ARTs (portal do cliente)", detalhe: "Os arquivos disponibilizados para a pessoa e as ARTs que o cliente dela acompanha." },
 ];
@@ -188,6 +197,7 @@ export const TIPOS_TAREFA = [
   { id: "arts", titulo: "ARTs que precisam de baixa ou ação", detalhe: "Controle de ART", modulo: "art" },
   { id: "demandas", titulo: "Demandas em andamento", detalhe: "Controle de demandas", modulo: "demandas" },
   { id: "caixa", titulo: "Documentos do caixa a aprovar", detalhe: "caixa das empresas", modulo: "empresas" },
+  { id: "veiculos", titulo: "Preventivas e leituras dos veículos", detalhe: "vencidas, próximas e leituras de km/horas com mais de 3 meses", modulo: "veiculos" },
 ];
 
 export function recebeTarefa(perfil, id) {

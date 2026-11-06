@@ -171,14 +171,14 @@ alter table public.perfis add constraint perfis_casal_check check (casal_com is 
 -- Módulos que podem ser liberados (refeito a cada versão, para incluir os módulos novos)
 alter table public.perfis drop constraint if exists perfis_modulos_check;
 alter table public.perfis add constraint perfis_modulos_check
-  check (modulos <@ array['art', 'financeiro', 'demandas', 'financas', 'empresas', 'pedidos', 'arquivos']::text[]);
+  check (modulos <@ array['art', 'financeiro', 'demandas', 'financas', 'empresas', 'pedidos', 'arquivos', 'veiculos']::text[]);
 
 -- Tarefas pendentes que a pessoa recebe (janela ao entrar e avisos que abrem sozinhos nas páginas), escolhidas em
 -- Usuários e permissões → Tarefas pendentes. Vazio (null): todas as dos módulos liberados.
 alter table public.perfis add column if not exists tarefas text[];
 alter table public.perfis drop constraint if exists perfis_tarefas_check;
 alter table public.perfis add constraint perfis_tarefas_check
-  check (tarefas is null or tarefas <@ array['classificar', 'apagar', 'arts', 'demandas', 'caixa', 'caixinhas']::text[]);
+  check (tarefas is null or tarefas <@ array['classificar', 'apagar', 'arts', 'demandas', 'caixa', 'caixinhas', 'veiculos']::text[]);
 
 -- Histórico de acessos: página aberta, data e hora e tipo de aparelho (guarda 180 dias)
 create table if not exists public.acessos (
@@ -1714,3 +1714,216 @@ revoke all on function public.contato_convidar() from public, anon, authenticate
 drop trigger if exists contatos_por_ultimo_convite on public.contatos;
 create trigger contatos_por_ultimo_convite after insert on public.contatos
   for each row execute function public.contato_convidar();
+
+-- ================================================================ veículos pessoais
+-- Controle dos veículos de cada pessoa (carro, moto, trator, barco, gerador...): marcadores (leituras de km e horas),
+-- manutenção preventiva (por tempo, km ou horas, o que vencer primeiro), serviços e troca de peças, despesas e as notas
+-- fiscais anexadas. Os avisos aparecem no site (início, tarefas pendentes e no próprio módulo) e por e-mail
+-- (.github/workflows/alertas-veiculos.yml, todo dia às 7h30). As contas ficam em area/veiculos-regras.js.
+-- Quem vê: a própria pessoa (com o módulo "veiculos"), quem forma casal com ela (também com o módulo) e o administrador.
+create or replace function public.veiculos_acesso(alvo uuid) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select public.eh_adm() or (public.pode('veiculos') and exists (
+    select 1 from public.perfis eu
+    where eu.user_id = auth.uid() and eu.situacao = 'ativo'
+      and (eu.id = alvo
+        or (eu.papel = 'pessoal' and eu.casal_com = alvo
+          and exists (select 1 from public.perfis par where par.id = alvo and par.casal_com = eu.id and par.situacao = 'ativo'
+                        and 'veiculos' = any (par.modulos))))
+  ));
+$$;
+
+-- O mesmo para a pasta das notas e fotos (o nome da pasta é o id do perfil)
+create or replace function public.veiculos_acesso_pasta(pasta text) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select case when pasta ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then public.veiculos_acesso(pasta::uuid) else false end;
+$$;
+revoke all on function public.veiculos_acesso(uuid), public.veiculos_acesso_pasta(text) from public, anon;
+grant execute on function public.veiculos_acesso(uuid), public.veiculos_acesso_pasta(text) to authenticated, service_role;
+
+-- Veículos. medidor: km, horas (trator, barco, gerador, máquina) ou os dois
+create table if not exists public.veiculos (
+  id            uuid primary key default gen_random_uuid(),
+  perfil_id     uuid not null references public.perfis (id) on delete cascade,
+  nome          text not null check (char_length(nome) between 1 and 80),
+  tipo          text not null default 'carro' check (tipo in ('carro', 'moto', 'caminhonete', 'caminhao', 'trator', 'barco', 'gerador', 'maquina', 'outro')),
+  marca         text check (char_length(marca) <= 60),
+  modelo        text check (char_length(modelo) <= 80),
+  ano           text check (char_length(ano) <= 20),
+  placa         text check (char_length(placa) <= 20),
+  chassi        text check (char_length(chassi) <= 40),
+  renavam       text check (char_length(renavam) <= 30),
+  combustivel   text check (char_length(combustivel) <= 30),
+  medidor       text not null default 'km' check (medidor in ('km', 'horas', 'ambos')),
+  aquisicao     date,
+  observacao    text check (char_length(observacao) <= 2000),
+  ativo         boolean not null default true,
+  criado_em     timestamptz not null default now(),
+  atualizado_em timestamptz not null default now()
+);
+create index if not exists veiculos_perfil_idx on public.veiculos (perfil_id);
+
+-- Marcadores: leitura do hodômetro (km) e/ou do horímetro (horas) numa data. Pelo menos uma leitura a cada 3 meses.
+create table if not exists public.veiculos_marcadores (
+  id         uuid primary key default gen_random_uuid(),
+  perfil_id  uuid not null references public.perfis (id) on delete cascade,
+  veiculo_id uuid not null references public.veiculos (id) on delete cascade,
+  data       date not null,
+  km         numeric(12, 1) check (km >= 0),
+  horas      numeric(12, 1) check (horas >= 0),
+  observacao text check (char_length(observacao) <= 300),
+  criado_em  timestamptz not null default now(),
+  check (km is not null or horas is not null)
+);
+create index if not exists veiculos_marcadores_veiculo_idx on public.veiculos_marcadores (veiculo_id, data);
+
+-- Preventivas: o que fazer e a cada quanto (meses, km e/ou horas; vale o que vencer primeiro), com a antecedência do
+-- aviso. ultima_*: a última vez feita antes de usar o site (depois, vale o último serviço ligado a esta preventiva).
+create table if not exists public.veiculos_planos (
+  id              uuid primary key default gen_random_uuid(),
+  perfil_id       uuid not null references public.perfis (id) on delete cascade,
+  veiculo_id      uuid not null references public.veiculos (id) on delete cascade,
+  nome            text not null check (char_length(nome) between 1 and 120),
+  intervalo_meses numeric(6, 1) check (intervalo_meses > 0),
+  intervalo_km    numeric(12, 1) check (intervalo_km > 0),
+  intervalo_horas numeric(12, 1) check (intervalo_horas > 0),
+  aviso_dias      integer check (aviso_dias >= 0),
+  aviso_km        numeric(12, 1) check (aviso_km >= 0),
+  aviso_horas     numeric(12, 1) check (aviso_horas >= 0),
+  ultima_data     date,
+  ultima_km       numeric(12, 1) check (ultima_km >= 0),
+  ultima_horas    numeric(12, 1) check (ultima_horas >= 0),
+  observacao      text check (char_length(observacao) <= 1000),
+  ativo           boolean not null default true,
+  criado_em       timestamptz not null default now(),
+  atualizado_em   timestamptz not null default now(),
+  check (intervalo_meses is not null or intervalo_km is not null or intervalo_horas is not null)
+);
+create index if not exists veiculos_planos_veiculo_idx on public.veiculos_planos (veiculo_id);
+
+-- Serviços, troca de peças e despesas. tipo: preventiva · corretiva · peca (troca de peça) · despesa (combustível, IPVA,
+-- seguro...). planos: as preventivas que este serviço cumpriu (reiniciam a contagem). itens: [{ "descricao", "qtd", "valor" }]
+create table if not exists public.veiculos_servicos (
+  id          uuid primary key default gen_random_uuid(),
+  perfil_id   uuid not null references public.perfis (id) on delete cascade,
+  veiculo_id  uuid not null references public.veiculos (id) on delete cascade,
+  data        date not null,
+  tipo        text not null default 'preventiva' check (tipo in ('preventiva', 'corretiva', 'peca', 'despesa')),
+  categoria   text check (char_length(categoria) <= 60),
+  descricao   text not null check (char_length(descricao) between 1 and 200),
+  km          numeric(12, 1) check (km >= 0),
+  horas       numeric(12, 1) check (horas >= 0),
+  valor       numeric(12, 2) check (valor >= 0),
+  fornecedor  text check (char_length(fornecedor) <= 120),
+  nota        text check (char_length(nota) <= 60),
+  planos      uuid[] not null default '{}',
+  itens       jsonb not null default '[]'::jsonb check (jsonb_typeof(itens) = 'array'),
+  observacao  text check (char_length(observacao) <= 2000),
+  criado_em   timestamptz not null default now(),
+  atualizado_em timestamptz not null default now()
+);
+create index if not exists veiculos_servicos_veiculo_idx on public.veiculos_servicos (veiculo_id, data);
+
+-- Notas fiscais, fotos e documentos (do serviço ou do veículo: CRLV, manual, apólice). O arquivo fica no espaço "veiculos".
+create table if not exists public.veiculos_anexos (
+  id         uuid primary key default gen_random_uuid(),
+  perfil_id  uuid not null references public.perfis (id) on delete cascade,
+  veiculo_id uuid not null references public.veiculos (id) on delete cascade,
+  servico_id uuid references public.veiculos_servicos (id) on delete cascade,
+  nome       text not null check (char_length(nome) between 1 and 200),
+  descricao  text check (char_length(descricao) <= 200),
+  caminho    text not null check (char_length(caminho) <= 400),
+  tamanho    bigint,
+  tipo       text check (char_length(tipo) <= 120),
+  criado_em  timestamptz not null default now()
+);
+create index if not exists veiculos_anexos_veiculo_idx on public.veiculos_anexos (veiculo_id);
+
+-- Avisos já mandados por e-mail (a rotina diária não repete o mesmo aviso). Só o service_role grava.
+create table if not exists public.veiculos_avisos (
+  chave      text primary key check (char_length(chave) <= 300),
+  perfil_id  uuid references public.perfis (id) on delete cascade,
+  enviado_em timestamptz not null default now()
+);
+
+drop trigger if exists veiculos_atualizado_em on public.veiculos;
+create trigger veiculos_atualizado_em before update on public.veiculos
+  for each row execute function public.tocar_atualizado_em();
+drop trigger if exists veiculos_planos_atualizado_em on public.veiculos_planos;
+create trigger veiculos_planos_atualizado_em before update on public.veiculos_planos
+  for each row execute function public.tocar_atualizado_em();
+drop trigger if exists veiculos_servicos_atualizado_em on public.veiculos_servicos;
+create trigger veiculos_servicos_atualizado_em before update on public.veiculos_servicos
+  for each row execute function public.tocar_atualizado_em();
+
+-- O registro filho tem sempre o mesmo dono do veículo (ninguém pendura um registro no veículo de outra pessoa)
+create or replace function public.veiculos_mesmo_dono() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  select v.perfil_id into new.perfil_id from public.veiculos v where v.id = new.veiculo_id;
+  if new.perfil_id is null then raise exception 'Veículo não encontrado.'; end if;
+  return new;
+end $$;
+revoke all on function public.veiculos_mesmo_dono() from public, anon, authenticated;
+drop trigger if exists veiculos_marcadores_dono on public.veiculos_marcadores;
+create trigger veiculos_marcadores_dono before insert or update on public.veiculos_marcadores
+  for each row execute function public.veiculos_mesmo_dono();
+drop trigger if exists veiculos_planos_dono on public.veiculos_planos;
+create trigger veiculos_planos_dono before insert or update on public.veiculos_planos
+  for each row execute function public.veiculos_mesmo_dono();
+drop trigger if exists veiculos_servicos_dono on public.veiculos_servicos;
+create trigger veiculos_servicos_dono before insert or update on public.veiculos_servicos
+  for each row execute function public.veiculos_mesmo_dono();
+drop trigger if exists veiculos_anexos_dono on public.veiculos_anexos;
+create trigger veiculos_anexos_dono before insert or update on public.veiculos_anexos
+  for each row execute function public.veiculos_mesmo_dono();
+
+alter table public.veiculos enable row level security;
+alter table public.veiculos_marcadores enable row level security;
+alter table public.veiculos_planos enable row level security;
+alter table public.veiculos_servicos enable row level security;
+alter table public.veiculos_anexos enable row level security;
+alter table public.veiculos_avisos enable row level security;
+revoke all on public.veiculos, public.veiculos_marcadores, public.veiculos_planos, public.veiculos_servicos,
+  public.veiculos_anexos, public.veiculos_avisos from anon;
+grant select, insert, update, delete on public.veiculos, public.veiculos_marcadores, public.veiculos_planos,
+  public.veiculos_servicos, public.veiculos_anexos to authenticated, service_role;
+grant select, insert, update, delete on public.veiculos_avisos to service_role;
+revoke truncate, trigger, references on public.veiculos, public.veiculos_marcadores, public.veiculos_planos,
+  public.veiculos_servicos, public.veiculos_anexos, public.veiculos_avisos from authenticated;
+
+drop policy if exists "veiculos do proprio perfil" on public.veiculos;
+create policy "veiculos do proprio perfil" on public.veiculos
+  for all to authenticated using (public.veiculos_acesso(perfil_id)) with check (public.veiculos_acesso(perfil_id));
+drop policy if exists "marcadores do proprio perfil" on public.veiculos_marcadores;
+create policy "marcadores do proprio perfil" on public.veiculos_marcadores
+  for all to authenticated using (public.veiculos_acesso(perfil_id)) with check (public.veiculos_acesso(perfil_id));
+drop policy if exists "preventivas do proprio perfil" on public.veiculos_planos;
+create policy "preventivas do proprio perfil" on public.veiculos_planos
+  for all to authenticated using (public.veiculos_acesso(perfil_id)) with check (public.veiculos_acesso(perfil_id));
+drop policy if exists "servicos do proprio perfil" on public.veiculos_servicos;
+create policy "servicos do proprio perfil" on public.veiculos_servicos
+  for all to authenticated using (public.veiculos_acesso(perfil_id)) with check (public.veiculos_acesso(perfil_id));
+drop policy if exists "anexos do proprio perfil" on public.veiculos_anexos;
+create policy "anexos do proprio perfil" on public.veiculos_anexos
+  for all to authenticated using (public.veiculos_acesso(perfil_id)) with check (public.veiculos_acesso(perfil_id));
+
+-- Notas fiscais e fotos: PDF, imagem ou XML da NF-e, até 20 MB, uma pasta por pessoa (nome da pasta = id do perfil)
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('veiculos', 'veiculos', false, 20971520,
+        '{application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif,application/xml,text/xml}')
+on conflict (id) do update
+  set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "notas dos veiculos - ler" on storage.objects;
+create policy "notas dos veiculos - ler" on storage.objects
+  for select to authenticated
+  using (bucket_id = 'veiculos' and public.veiculos_acesso_pasta((storage.foldername(name))[1]));
+drop policy if exists "notas dos veiculos - enviar" on storage.objects;
+create policy "notas dos veiculos - enviar" on storage.objects
+  for insert to authenticated
+  with check (bucket_id = 'veiculos' and public.veiculos_acesso_pasta((storage.foldername(name))[1]));
+drop policy if exists "notas dos veiculos - apagar" on storage.objects;
+create policy "notas dos veiculos - apagar" on storage.objects
+  for delete to authenticated
+  using (bucket_id = 'veiculos' and public.veiculos_acesso_pasta((storage.foldername(name))[1]));
