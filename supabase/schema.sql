@@ -1654,6 +1654,10 @@ begin
   if auth.uid() is not null and not (public.pode('demandas') or public.pode('art')) then
     raise exception 'Sem permissão para convidar clientes.';
   end if;
+  -- Sem login, só o gatilho do formulário do site convida (nunca uma chamada direta pela internet)
+  if auth.uid() is null and coalesce(auth.role(), '') = 'anon' and pg_trigger_depth() = 0 then
+    raise exception 'Sem permissão para convidar clientes.';
+  end if;
   if v_email !~* '^[^@\s]+@[^@\s]+\.[^@\s]+$' then
     return 'email_invalido';
   end if;
