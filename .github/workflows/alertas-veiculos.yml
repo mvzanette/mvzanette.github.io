@@ -1,0 +1,32 @@
+name: Avisos dos veículos pessoais
+
+# Todos os dias às 7h30 (Brasília): manda por e-mail as preventivas dos veículos vencidas ou próximas (por tempo, km ou
+# horas) e as leituras de km/horas com mais de 3 meses, pelo Gmail. Também pode ser executado manualmente em
+# Actions → "Avisos dos veículos pessoais" → "Run workflow".
+on:
+  schedule:
+    - cron: "30 10 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  avisos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Instalar o envio de e-mail
+        run: npm install --no-save --no-package-lock nodemailer@6.9.16
+      - name: Verificar os veículos e avisar
+        run: node ferramentas/alertas-veiculos.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GMAIL_USUARIO: ${{ secrets.GMAIL_USUARIO }}
+          GMAIL_SENHA_APP: ${{ secrets.GMAIL_SENHA_APP }}
+          ALERTA_LINK: ${{ vars.ALERTA_LINK }}

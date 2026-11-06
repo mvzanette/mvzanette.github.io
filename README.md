@@ -363,6 +363,31 @@ Num grupo da aba **Investimentos**, logo abaixo dos investimentos individuais (e
 
 No **Classificar** de qualquer lançamento (fatura, gastos do dia a dia) e no **Lançar gasto / Editar gasto**, a opção **Dividir em mais de uma categoria** divide o valor em duas a oito partes, cada uma com valor, categoria, subcategoria e conta (ex.: uma compra no Mercado Livre com um item da casa e um pessoal). A primeira parte fica com o que falta para o total, e o site só salva quando a soma bate. Nas somas por categoria, por essencial e por conta (gastos pagos, gastos do dia a dia, análise da fatura, casal e páginas das empresas e da engenharia), cada parte entra na dela; a parcela de uma compra dividida segue a mesma proporção. As listas mostram o lançamento com a marca "dividido" e as partes. Fica em `financas_ajustes.partes` (lançamentos do projeto e das faturas) e em `financas_gastos.partes` (gastos lançados pelo site).
 
+## Veículos pessoais
+
+Página `area/veiculos.html` (grupo Pessoal; módulo `veiculos`, liberado para cada pessoa em Usuários e permissões). Cada pessoa
+vê os próprios veículos e os que foram compartilhados com ela (no cadastro do veículo, "Quem mais vê e lança neste veículo");
+o administrador vê todos. Quem recebe o compartilhamento lança leituras, serviços e despesas e recebe os avisos; só o dono
+altera o cadastro.
+
+- **Visão geral:** um card por veículo com a leitura atual, o uso médio por mês e as próximas preventivas; lista de avisos.
+- **Manutenção preventiva:** cada preventiva tem intervalo em meses, km e/ou horas e vence pelo que chegar primeiro. A última
+  vez vem do último serviço registrado com ela (antes disso, da data/km/horas informados no cadastro). Antecedência do aviso
+  configurável (padrão: 30 dias, 2.000 km ou metade do intervalo se ele for menor, e 10% do intervalo em horas). Com o ritmo de uso, o site também prevê a data da próxima.
+- **Marcadores:** leituras de hodômetro (km) e horímetro (horas). Pelo menos uma a cada 3 meses: aos 75 dias o site pede a
+  leitura, depois de 90 vira aviso vencido. Os km/horas anotados nos serviços também contam como leitura.
+- **Serviços e peças:** preventiva, corretiva e troca de peça, com peças e valores, oficina, nº da nota, preventivas cumpridas e
+  anexos (PDF, foto ou XML da NF-e, até 20 MB, espaço privado `veiculos`, uma pasta por pessoa).
+- **Despesas:** tudo o que tem valor (serviços e outras despesas: combustível, IPVA, seguro...), por categoria e por mês,
+  custo por km e planilha. Cada serviço ou despesa pode ser lançado também como gasto nas Finanças pessoais de quem lança
+  (categoria Transporte); editar ou excluir aqui atualiza o gasto de lá (`veiculos_servicos.gasto_id`).
+- **Avisos:** no Início (card e janela de tarefas pendentes, tipo "Preventivas e leituras dos veículos") e por e-mail pela rotina
+  `.github/workflows/alertas-veiculos.yml` (7h30, Gmail, mesmos secrets dos avisos de ART). Um e-mail por pessoa, só quando
+  surge aviso novo; o que está vencido volta uma vez por semana. As contas ficam em `area/veiculos-regras.js` (as mesmas na
+  tela e no e-mail). Teste sem banco: `node ferramentas/alertas-veiculos.mjs --teste`.
+- Banco: tabelas `veiculos`, `veiculos_marcadores`, `veiculos_planos`, `veiculos_servicos`, `veiculos_anexos` e
+  `veiculos_avisos` (no fim de `supabase/schema.sql`).
+
 ## Finanças das empresas
 
 Uma página para cada empresa com que você tem movimento financeiro (onde trabalha, ou que paga as ARTs que você tira), com entrada própria no menu e card no início. Os **nomes das empresas ficam só no banco**: o código do site é público e não cita nenhuma empresa. Cadastre, renomeie ou remova pelo botão **Empresas** da página.

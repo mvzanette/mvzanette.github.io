@@ -48,6 +48,35 @@ const TABELAS = {
   },
 };
 
+// Veículos pessoais (area/veiculos.html): o dono (perfil_id) de cada registro filho é sempre o do veículo (o banco confere)
+TABELAS.veiculos = {
+  colunas: ["id", "perfil_id", "nome", "tipo", "marca", "modelo", "ano", "placa", "chassi", "renavam", "combustivel", "medidor",
+    "aquisicao", "observacao", "ativo", "compartilhado_com"],
+  numeros: [],
+};
+TABELAS.veiculos_marcadores = { colunas: ["id", "perfil_id", "veiculo_id", "data", "km", "horas", "observacao"], numeros: ["km", "horas"] };
+TABELAS.veiculos_planos = {
+  colunas: ["id", "perfil_id", "veiculo_id", "nome", "intervalo_meses", "intervalo_km", "intervalo_horas", "aviso_dias", "aviso_km",
+    "aviso_horas", "ultima_data", "ultima_km", "ultima_horas", "observacao", "ativo"],
+  numeros: ["intervalo_meses", "intervalo_km", "intervalo_horas", "aviso_dias", "aviso_km", "aviso_horas", "ultima_km", "ultima_horas"],
+};
+TABELAS.veiculos_servicos = {
+  colunas: ["id", "perfil_id", "veiculo_id", "data", "tipo", "categoria", "descricao", "km", "horas", "valor", "fornecedor", "nota",
+    "planos", "itens", "observacao", "gasto_id"],
+  numeros: ["km", "horas", "valor"],
+};
+TABELAS.veiculos_anexos = {
+  colunas: ["id", "perfil_id", "veiculo_id", "servico_id", "nome", "descricao", "caminho", "tamanho", "tipo"],
+  numeros: ["tamanho"],
+};
+// Tipo do arquivo anexado aos veículos pelo nome, quando o navegador não informa (o banco aceita PDF, fotos e XML da NF-e)
+const TIPOS_ANEXO = { pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp",
+  heic: "image/heic", heif: "image/heif", xml: "application/xml" };
+export const tipoAnexo = (arquivo) => {
+  const ext = String(arquivo.name || "").split(".").pop().toLowerCase();
+  return TIPOS_ANEXO[ext] || (Object.values(TIPOS_ANEXO).includes(arquivo.type) ? arquivo.type : arquivo.type === "text/xml" ? "application/xml" : null);
+};
+
 // Configuração do caixa das empresas: quais empresas, saldo inicial e o saldo informado da conta do caixa
 const COLUNAS_CAIXA = ["empresas", "saldo_inicial", "data_inicial", "saldo_conta", "data_conta"];
 function limparConfigCaixa(c) {
@@ -75,7 +104,7 @@ const numeros = (nome, obj) => {
 
 // Cadastro de usuários: o que o administrador grava (o resto o banco preenche a cada acesso)
 const COLUNAS_PERFIL = ["email", "nome", "papel", "modulos", "situacao", "link_financas", "observacao", "casal_com", "tarefas"];
-const TAREFAS_VALIDAS = ["classificar", "apagar", "arts", "demandas", "caixa", "caixinhas"];
+const TAREFAS_VALIDAS = ["classificar", "apagar", "arts", "demandas", "caixa", "caixinhas", "veiculos"];
 const SEM_ADM = "É preciso manter pelo menos um administrador ativo.";
 export const BANCO_DESATUALIZADO =
   "O banco de dados precisa ser atualizado: rode de novo o arquivo supabase/schema.sql no SQL Editor do Supabase.";
@@ -850,6 +879,26 @@ function armazemDemo() {
     colecao(nome) {
       return colecoes[nome];
     },
+    // Notas fiscais e fotos dos veículos: na demonstração, só durante a sessão
+    veiculos: {
+      async pessoas() {
+        return lerPerfis().filter((p) => p.situacao === "ativo" && (p.papel === "adm" || (p.modulos || []).includes("veiculos")))
+          .map((p) => ({ id: p.id, nome: (p.nome || p.email).split(/[ @]/)[0] }));
+      },
+      async enviarAnexo(veiculoId, arquivo) {
+        if (!tipoAnexo(arquivo)) throw new Error("Tipo de arquivo não aceito. Envie PDF, foto (JPG, PNG, HEIC) ou o XML da nota.");
+        if (arquivo.size > 20 * 1024 * 1024) throw new Error("Arquivo grande demais (até 20 MB).");
+        const caminho = `${veiculoId}/${caminhoDocumento(arquivo.name)}`;
+        docsCaixa.set(caminho, URL.createObjectURL(arquivo));
+        return caminho;
+      },
+      async urlAnexo(caminho) {
+        return docsCaixa.get(caminho) || null;
+      },
+      async apagarAnexo(caminho) {
+        docsCaixa.delete(caminho);
+      },
+    },
     // Portal do cliente: o que o cliente logado vê (as mesmas regras de meus_pedidos e minhas_arts no banco)
     portal: {
       async pedidos() {
@@ -1298,10 +1347,37 @@ async function armazemSupabase(url, chave) {
         return data || [];
       },
     },
+    // Veículos: pessoas para compartilhar e as notas fiscais e fotos (pasta com o id do veículo; o banco confere quem pode)
+    veiculos: {
+      async pessoas() {
+        const { data, error } = await sb.rpc("pessoas_veiculos");
+        if (error) throw new Error(error.code === "PGRST202" || /pessoas_veiculos/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+        return data || [];
+      },
+      async enviarAnexo(veiculoId, arquivo) {
+        const tipo = tipoAnexo(arquivo);
+        if (!tipo) throw new Error("Tipo de arquivo não aceito. Envie PDF, foto (JPG, PNG, HEIC) ou o XML da nota.");
+        if (arquivo.size > 20 * 1024 * 1024) throw new Error("Arquivo grande demais (até 20 MB).");
+        const caminho = `${veiculoId}/${caminhoDocumento(arquivo.name)}`;
+        const { error } = await sb.storage.from("veiculos").upload(caminho, arquivo, { upsert: false, contentType: tipo });
+        if (error) throw new Error(/bucket/i.test(error.message) ? BANCO_DESATUALIZADO : /mime|type/i.test(error.message) ? "Tipo de arquivo não aceito." : error.message);
+        return caminho;
+      },
+      async urlAnexo(caminho, nome) {
+        const { data, error } = await sb.storage.from("veiculos").createSignedUrl(caminho, 600, nome ? { download: nome } : undefined);
+        falhou(error);
+        return data.signedUrl;
+      },
+      async apagarAnexo(caminho) {
+        const { error } = await sb.storage.from("veiculos").remove([caminho]);
+        falhou(error);
+      },
+    },
     colecao(nome) {
       return {
         async listar() {
           const { data, error } = await sb.from(nome).select("*");
+          if (error && nome.startsWith("veiculos") && (error.code === "42P01" || error.code === "PGRST205")) throw new Error(BANCO_DESATUALIZADO);
           falhou(error);
           return (data || []).map((x) => numeros(nome, x));
         },
