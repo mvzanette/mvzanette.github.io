@@ -2,11 +2,12 @@
 // (por tempo, km ou horas, o que vencer primeiro), serviços e troca de peças, despesas e notas fiscais anexadas.
 // As contas ficam em veiculos-regras.js (as mesmas da rotina de e-mails); o banco guarda só o que foi lançado.
 import { abrirPagina } from "./sessao.js";
+import { pode } from "./modulos.js";
 import * as V from "./veiculos-regras.js";
 import { $, $$, esc, moeda, avisar, opcoes, prepararDialogos, numeroDigitado, baixarCsv } from "./ui.js";
 
 let armazem, perfil;
-let veiculos = [], marcadores = [], planos = [], servicos = [], anexos = [], donos = new Map();
+let veiculos = [], marcadores = [], planos = [], servicos = [], anexos = [], donos = new Map(), pessoas = [];
 let quadros = [], alertas = [];
 let filtroVeiculo = ""; // "" = todos
 let aba = "geral";
@@ -43,8 +44,13 @@ function calcular() {
 const quadroDe = (id) => quadros.find((q) => q.veiculo.id === id);
 
 // Nome do dono (só aparece quando há veículos de mais de uma pessoa: o administrador ou o casal)
-const varios = () => new Set(veiculos.map((v) => v.perfil_id)).size > 1;
-const deQuem = (v) => (varios() && v.perfil_id !== perfil.id ? ` <small class="dica">de ${esc(donos.get(v.perfil_id) || "outra pessoa")}</small>` : "");
+const nomePessoa = (id) => donos.get(id) || "outra pessoa";
+const meu = (v) => v.perfil_id === perfil.id || perfil.papel === "adm";
+const deQuem = (v) => {
+  const outros = (v.compartilhado_com || []).filter((id) => id !== perfil.id);
+  const partes = [v.perfil_id !== perfil.id ? `de ${nomePessoa(v.perfil_id)}` : "", outros.length ? `com ${outros.map(nomePessoa).join(", ")}` : ""].filter(Boolean);
+  return partes.length ? ` <small class="dica">${esc(partes.join(" · "))}</small>` : "";
+};
 
 function renderTudo() {
   const vazio = !veiculos.length;
@@ -339,7 +345,7 @@ async function enviarArquivos(arquivos, { veiculo, servicoId = null }) {
   let falhas = 0;
   for (const arq of arquivos) {
     try {
-      const caminho = await armazem.veiculos.enviarAnexo(veiculo.perfil_id, arq);
+      const caminho = await armazem.veiculos.enviarAnexo(veiculo.id, arq);
       await col("veiculos_anexos").salvar({ perfil_id: veiculo.perfil_id, veiculo_id: veiculo.id, servico_id: servicoId, nome: arq.name.slice(0, 200),
         caminho, tamanho: arq.size, tipo: arq.type || null });
     } catch (err) {
@@ -352,6 +358,10 @@ async function enviarArquivos(arquivos, { veiculo, servicoId = null }) {
 async function apagarArquivosDe(filtro) {
   for (const a of anexos.filter(filtro)) await armazem.veiculos.apagarAnexo(a.caminho).catch(() => {});
 }
+
+// Compartilhar: só o dono (ou o administrador) escolhe, entre as pessoas que têm o módulo
+const podeCompartilhar = (v) => !v.id || meu(v);
+const pessoasParaCompartilhar = (v) => pessoas.filter((x) => x.id !== (v.perfil_id || perfil.id));
 
 // ---------------------------------------------------------------- diálogo: veículo
 function abrirVeiculo(id) {
@@ -380,11 +390,16 @@ function abrirVeiculo(id) {
         ${existente ? "" : `<label class="c3">Leitura de hoje: km<input name="km0" inputmode="decimal" placeholder="opcional"></label>
         <label class="c3">Leitura de hoje: horas<input name="horas0" inputmode="decimal" placeholder="opcional"></label>`}
       </div>
+      ${podeCompartilhar(v) ? `<fieldset class="bloco"><legend>Quem mais vê e lança neste veículo</legend>
+        <div class="opcoes veic-opcoes">${pessoasParaCompartilhar(v).map((x) => `<label><input type="checkbox" name="compartilhado_com" value="${esc(x.id)}"${(v.compartilhado_com || []).includes(x.id) ? " checked" : ""}> ${esc(x.nome)}</label>`).join("")
+          || '<span class="dica">Ninguém mais tem o módulo Veículos pessoais. Libere em Usuários e permissões.</span>'}</div>
+        <p class="dica">As pessoas marcadas veem o veículo, lançam leituras, serviços e despesas e recebem os avisos por e-mail. Só o dono altera o cadastro e o compartilhamento.</p></fieldset>`
+        : `<p class="dica">Veículo de ${esc(nomePessoa(v.perfil_id))}, compartilhado com você. Só o dono altera o cadastro.</p>`}
       ${existente ? blocoAnexos(docs, "Documentos do veículo", "CRLV, manual, apólice do seguro, nota de compra. As notas de cada serviço ficam no próprio serviço.")
         : '<p class="dica">Depois de salvar, anexe os documentos (CRLV, manual, apólice) e cadastre as preventivas.</p>'}
     </div>
     <div class="dlg-rodape">
-      ${existente ? '<button class="btn btn-perigo esquerda" type="button" id="btn-excluir-veiculo">Excluir</button>' : ""}
+      ${existente && meu(v) ? '<button class="btn btn-perigo esquerda" type="button" id="btn-excluir-veiculo">Excluir</button>' : ""}
       <button class="btn btn-claro" type="button" data-fechar>Cancelar</button>
       <button class="btn btn-primary" type="submit">Salvar</button>
     </div>
@@ -399,10 +414,11 @@ function abrirVeiculo(id) {
       dados[c] = String(f.get(c) || "").trim() || null;
     if (dados.placa) dados.placa = dados.placa.toUpperCase();
     dados.ativo = f.get("ativo") === "on";
+    if (podeCompartilhar(v)) dados.compartilhado_com = f.getAll("compartilhado_com").filter((id) => id !== dados.perfil_id);
     if (!dados.nome) return avisar("Informe o nome do veículo.");
     const km0 = numeroOuNull(f.get("km0")), h0 = numeroOuNull(f.get("horas0"));
     try {
-      const salvo = await col("veiculos").salvar(dados);
+      const salvo = existente && !meu(v) ? v : await col("veiculos").salvar(dados); // compartilhado: só anexa documentos
       if (!existente && (km0 != null || h0 != null)) await col("veiculos_marcadores").salvar({ perfil_id: salvo.perfil_id, veiculo_id: salvo.id, data: hoje, km: km0, horas: h0, observacao: "Leitura do cadastro" });
       const arquivos = existente ? [...(form.arquivos?.files || [])] : [];
       if (arquivos.length) await enviarArquivos(arquivos, { veiculo: salvo });
@@ -521,10 +537,10 @@ function abrirPlano(id, veiculoId = null) {
       <fieldset class="bloco"><legend>Avisar com antecedência</legend>
         <div class="campos">
           <label class="c2">Dias antes<input name="aviso_dias" inputmode="numeric" value="${esc(p.aviso_dias ?? "")}" placeholder="${V.AVISO_DIAS_PADRAO}"></label>
-          <label class="c2 campo-km">Km antes<input name="aviso_km" inputmode="decimal" value="${esc(num1(p.aviso_km))}" placeholder="10% do intervalo"></label>
+          <label class="c2 campo-km">Km antes<input name="aviso_km" inputmode="decimal" value="${esc(num1(p.aviso_km))}" placeholder="2.000 km"></label>
           <label class="c2 campo-horas">Horas antes<input name="aviso_horas" inputmode="decimal" value="${esc(num1(p.aviso_horas))}" placeholder="10% do intervalo"></label>
         </div>
-        <p class="dica">Em branco: ${V.AVISO_DIAS_PADRAO} dias e 10% do intervalo em km ou horas.</p>
+        <p class="dica">Em branco: ${V.AVISO_DIAS_PADRAO} dias, 2.000 km (ou metade do intervalo, se ele for menor que 4.000 km) e 10% do intervalo em horas.</p>
       </fieldset>
       <fieldset class="bloco"><legend>Última vez feita (antes de registrar aqui)</legend>
         <div class="campos">
@@ -610,6 +626,7 @@ function abrirServico(id, { veiculoId = null, planoId = null, despesa = false } 
   const s = existente ? { ...existente } : { veiculo_id: vid, data: hoje, tipo: despesa ? "despesa" : plano ? "preventiva" : "preventiva", planos: plano ? [plano.id] : [], itens: [],
     descricao: plano ? plano.nome : "", km: q0 && q0.atual && q0.atual.data === hoje ? q0.atual.km : null, horas: q0 && q0.atual && q0.atual.data === hoje ? q0.atual.horas : null };
   const docs = existente ? anexos.filter((a) => a.servico_id === s.id) : [];
+  const financas = pode(perfil, "financas") && !!armazem.financas;
   const dlg = $("#dlg-servico");
   dlg.innerHTML = `<form id="form-servico">
     <div class="dlg-cab"><h2 id="titulo-servico">${existente ? esc(s.descricao) : despesa ? "Nova despesa" : "Registrar serviço"}</h2><button class="btn-link" data-fechar type="button">Fechar</button></div>
@@ -635,6 +652,15 @@ function abrirServico(id, { veiculoId = null, planoId = null, despesa = false } 
         <button class="btn btn-claro" type="button" id="btn-item">Adicionar peça ou serviço</button>
         <p class="dica" id="soma-itens"></p></fieldset>
       <div class="campos veic-mt"><label class="c6">Observações<textarea name="observacao" rows="2" maxlength="2000">${esc(s.observacao)}</textarea></label></div>
+      ${financas ? `<fieldset class="bloco"><legend>Finanças pessoais</legend>
+        ${s.gasto_id ? '<label class="veic-check"><input type="checkbox" name="fin_lancar" checked> Lançado nas minhas Finanças pessoais (ao salvar, o gasto de lá é atualizado; desmarque para tirar)</label>'
+          : '<label class="veic-check"><input type="checkbox" name="fin_lancar"> Lançar também como gasto nas minhas Finanças pessoais</label>'}
+        <div class="campos veic-mt fin-campos">
+          <label class="c2">Pago com<select name="fin_forma">${opcoes([["pix", "Pix"], ["debito", "Débito"], ["cartao", "Cartão de crédito"], ["dinheiro", "Dinheiro"], ["outro", "Outro"]], s.gasto_forma || "pix")}</select></label>
+          <label class="c2 fin-parcelas">Parcelas no cartão<input name="fin_parcelas" inputmode="numeric" value="1"></label>
+          <label class="c2">Categoria lá<input value="Transporte" disabled></label>
+        </div>
+        <p class="dica">Entra como gasto na categoria Transporte (subcategoria pelo tipo: combustível, manutenção do carro, IPVA...).</p></fieldset>` : ""}
       ${blocoAnexos(docs, "Nota fiscal, fotos e documentos", "A nota, o orçamento, fotos da peça trocada ou o XML da NF-e.")}
     </div>
     <div class="dlg-rodape">
@@ -653,6 +679,10 @@ function abrirServico(id, { veiculoId = null, planoId = null, despesa = false } 
     $$(".campo-horas", form).forEach((x) => (x.hidden = !V.usaHoras(v)));
     $$(".so-despesa", form).forEach((x) => (x.hidden = !desp));
     $$(".nao-despesa", form).forEach((x) => (x.hidden = desp));
+    if (form.fin_lancar) {
+      $(".fin-campos", form).hidden = !form.fin_lancar.checked;
+      $(".fin-parcelas", form).hidden = form.fin_forma.value !== "cartao";
+    }
     const doVeiculo = planos.filter((p) => p.veiculo_id === v.id && (p.ativo !== false || marcados.has(p.id)));
     $("#planos-opcoes", form).innerHTML = doVeiculo.length ? `<div class="opcoes veic-opcoes">${doVeiculo.map((p) => {
       const st = (quadroDe(v.id).preventivas.find((x) => x.plano.id === p.id) || {}).estado;
@@ -667,7 +697,7 @@ function abrirServico(id, { veiculoId = null, planoId = null, despesa = false } 
   };
   form.addEventListener("change", (e) => {
     if (e.target.name === "planos") e.target.checked ? marcados.add(e.target.value) : marcados.delete(e.target.value);
-    if (e.target.name === "veiculo_id" || e.target.name === "tipo") ajustar();
+    if (["veiculo_id", "tipo", "fin_lancar", "fin_forma"].includes(e.target.name)) ajustar();
   });
   form.addEventListener("input", (e) => { if (e.target.name === "item_valor" || e.target.name === "valor") somar(); });
   $("#btn-item", form).addEventListener("click", () => { $("#itens", form).insertAdjacentHTML("beforeend", linhaItem()); $("#itens .veic-item:last-child input", form).focus(); });
@@ -694,7 +724,22 @@ function abrirServico(id, { veiculoId = null, planoId = null, despesa = false } 
     if (dados.planos.length && dados.km == null && dados.horas == null && planos.some((p) => dados.planos.includes(p.id) && (p.intervalo_km || p.intervalo_horas))
       && !confirm("Sem o km/horas do dia, a próxima troca por quilometragem ou horas não tem de onde contar. Salvar assim mesmo?")) return;
     const arquivos = [...(form.arquivos?.files || [])];
+    const lancar = !!(form.fin_lancar && form.fin_lancar.checked);
+    if (lancar && !(dados.valor > 0)) return avisar("Para lançar nas Finanças pessoais, informe o valor.");
     try {
+      // Finanças pessoais: o gasto antigo sai e entra um novo com os dados atuais (ou só sai, se desmarcou)
+      if (s.gasto_id && financas) {
+        await armazem.financas.apagarGasto(s.gasto_id).catch(() => {});
+        dados.gasto_id = null;
+      }
+      if (lancar) {
+        const forma = form.fin_forma.value;
+        const g = await armazem.financas.salvarGasto({ perfil_id: perfil.id, data: dados.data, valor: dados.valor, forma,
+          parcelas: forma === "cartao" ? form.fin_parcelas.value : 1, descricao: `${v.nome}: ${dados.descricao}`.slice(0, 120),
+          categoria: "Transporte", subcategoria: V.subcategoriaFinancas(dados), essencial: true,
+          observacao: [dados.fornecedor, dados.nota ? `NF ${dados.nota}` : ""].filter(Boolean).join(" · ") || null });
+        dados.gasto_id = g.id;
+      }
       const salvo = await col("veiculos_servicos").salvar(dados);
       const falhas = arquivos.length ? await enviarArquivos(arquivos, { veiculo: v, servicoId: salvo.id }) : 0;
       if (!falhas) avisar(desp ? "Despesa salva." : "Serviço registrado.");
@@ -708,6 +753,7 @@ function abrirServico(id, { veiculoId = null, planoId = null, despesa = false } 
     if (!confirm(`Excluir "${s.descricao}"${docs.length ? ` e ${docs.length} ${docs.length === 1 ? "arquivo anexado" : "arquivos anexados"}` : ""}?`)) return;
     try {
       await apagarArquivosDe((a) => a.servico_id === s.id);
+      if (s.gasto_id && financas && confirm("Apagar também o gasto lançado nas Finanças pessoais?")) await armazem.financas.apagarGasto(s.gasto_id).catch(() => {});
       await col("veiculos_servicos").remover(s.id);
       dlg.close();
       avisar("Excluído.");
@@ -733,10 +779,8 @@ async function iniciar() {
   if (!sessao) return;
   ({ armazem, perfil } = sessao);
   prepararDialogos();
-  if (perfil.papel === "adm" && armazem.usuarios) {
-    const lista = await armazem.usuarios.listar().catch(() => []);
-    donos = new Map(lista.map((u) => [u.id, (u.nome || u.email || "").split(" ")[0]]));
-  }
+  pessoas = await armazem.veiculos.pessoas().catch(() => []);
+  donos = new Map(pessoas.map((x) => [x.id, x.nome]));
   try {
     await recarregar();
   } catch (err) {

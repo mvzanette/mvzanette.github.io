@@ -1720,27 +1720,6 @@ create trigger contatos_por_ultimo_convite after insert on public.contatos
 -- manutenção preventiva (por tempo, km ou horas, o que vencer primeiro), serviços e troca de peças, despesas e as notas
 -- fiscais anexadas. Os avisos aparecem no site (início, tarefas pendentes e no próprio módulo) e por e-mail
 -- (.github/workflows/alertas-veiculos.yml, todo dia às 7h30). As contas ficam em area/veiculos-regras.js.
--- Quem vê: a própria pessoa (com o módulo "veiculos"), quem forma casal com ela (também com o módulo) e o administrador.
-create or replace function public.veiculos_acesso(alvo uuid) returns boolean
-language sql stable security definer set search_path = '' as $$
-  select public.eh_adm() or (public.pode('veiculos') and exists (
-    select 1 from public.perfis eu
-    where eu.user_id = auth.uid() and eu.situacao = 'ativo'
-      and (eu.id = alvo
-        or (eu.papel = 'pessoal' and eu.casal_com = alvo
-          and exists (select 1 from public.perfis par where par.id = alvo and par.casal_com = eu.id and par.situacao = 'ativo'
-                        and 'veiculos' = any (par.modulos))))
-  ));
-$$;
-
--- O mesmo para a pasta das notas e fotos (o nome da pasta é o id do perfil)
-create or replace function public.veiculos_acesso_pasta(pasta text) returns boolean
-language sql stable security definer set search_path = '' as $$
-  select case when pasta ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then public.veiculos_acesso(pasta::uuid) else false end;
-$$;
-revoke all on function public.veiculos_acesso(uuid), public.veiculos_acesso_pasta(text) from public, anon;
-grant execute on function public.veiculos_acesso(uuid), public.veiculos_acesso_pasta(text) to authenticated, service_role;
-
 -- Veículos. medidor: km, horas (trator, barco, gerador, máquina) ou os dois
 create table if not exists public.veiculos (
   id            uuid primary key default gen_random_uuid(),
@@ -1839,7 +1818,48 @@ create table if not exists public.veiculos_anexos (
 );
 create index if not exists veiculos_anexos_veiculo_idx on public.veiculos_anexos (veiculo_id);
 
--- Avisos já mandados por e-mail (a rotina diária não repete o mesmo aviso). Só o service_role grava.
+-- Compartilhado com (ids de perfis) e o gasto lançado nas Finanças pessoais a partir do serviço ou despesa
+alter table public.veiculos add column if not exists compartilhado_com uuid[] not null default '{}';
+alter table public.veiculos_servicos add column if not exists gasto_id uuid references public.financas_gastos (id) on delete set null;
+
+-- Quem vê: o dono (com o módulo "veiculos"), as pessoas com quem ele compartilhou o veículo (também com o módulo) e o
+-- administrador. Cadastrar, alterar e compartilhar o veículo: o dono e o administrador. Leituras, preventivas, serviços,
+-- despesas e notas: todos que veem o veículo.
+create or replace function public.veiculos_acesso(alvo uuid) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select public.eh_adm() or (public.pode('veiculos') and exists (
+    select 1 from public.perfis eu where eu.user_id = auth.uid() and eu.situacao = 'ativo' and eu.id = alvo));
+$$;
+
+create or replace function public.veiculo_visivel(p_veiculo uuid) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select public.eh_adm() or (public.pode('veiculos') and exists (
+    select 1 from public.veiculos v
+      join public.perfis eu on eu.user_id = auth.uid() and eu.situacao = 'ativo'
+     where v.id = p_veiculo and (v.perfil_id = eu.id or eu.id = any (v.compartilhado_com))));
+$$;
+
+-- O mesmo para a pasta das notas e fotos (o nome da pasta é o id do veículo)
+create or replace function public.veiculo_visivel_pasta(pasta text) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select case when pasta ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then public.veiculo_visivel(pasta::uuid) else false end;
+$$;
+
+-- Pessoas com quem dá para compartilhar um veículo: as que usam o módulo (só o primeiro nome)
+create or replace function public.pessoas_veiculos() returns table (id uuid, nome text)
+language sql stable security definer set search_path = '' as $$
+  select p.id, coalesce(nullif(split_part(p.nome, ' ', 1), ''), split_part(p.email, '@', 1))
+    from public.perfis p
+   where public.pode('veiculos') and p.situacao = 'ativo' and (p.papel = 'adm' or 'veiculos' = any (p.modulos))
+   order by 2;
+$$;
+
+revoke all on function public.veiculos_acesso(uuid), public.veiculo_visivel(uuid), public.veiculo_visivel_pasta(text),
+  public.pessoas_veiculos() from public, anon;
+grant execute on function public.veiculos_acesso(uuid), public.veiculo_visivel(uuid), public.veiculo_visivel_pasta(text),
+  public.pessoas_veiculos() to authenticated, service_role;
+
+-- Avisos já mandados por e-mail, por pessoa (a rotina diária não repete o mesmo aviso). Só o service_role grava.
 create table if not exists public.veiculos_avisos (
   chave      text primary key check (char_length(chave) <= 300),
   perfil_id  uuid references public.perfis (id) on delete cascade,
@@ -1893,22 +1913,36 @@ revoke truncate, trigger, references on public.veiculos, public.veiculos_marcado
   public.veiculos_servicos, public.veiculos_anexos, public.veiculos_avisos from authenticated;
 
 drop policy if exists "veiculos do proprio perfil" on public.veiculos;
-create policy "veiculos do proprio perfil" on public.veiculos
-  for all to authenticated using (public.veiculos_acesso(perfil_id)) with check (public.veiculos_acesso(perfil_id));
+drop policy if exists "veiculos - ver" on public.veiculos;
+create policy "veiculos - ver" on public.veiculos
+  for select to authenticated using (public.veiculos_acesso(perfil_id) or public.veiculo_visivel(id));
+drop policy if exists "veiculos - cadastrar" on public.veiculos;
+create policy "veiculos - cadastrar" on public.veiculos
+  for insert to authenticated with check (public.veiculos_acesso(perfil_id));
+drop policy if exists "veiculos - alterar" on public.veiculos;
+create policy "veiculos - alterar" on public.veiculos
+  for update to authenticated using (public.veiculos_acesso(perfil_id)) with check (public.veiculos_acesso(perfil_id));
+drop policy if exists "veiculos - excluir" on public.veiculos;
+create policy "veiculos - excluir" on public.veiculos
+  for delete to authenticated using (public.veiculos_acesso(perfil_id));
 drop policy if exists "marcadores do proprio perfil" on public.veiculos_marcadores;
-create policy "marcadores do proprio perfil" on public.veiculos_marcadores
-  for all to authenticated using (public.veiculos_acesso(perfil_id)) with check (public.veiculos_acesso(perfil_id));
+drop policy if exists "marcadores de quem ve o veiculo" on public.veiculos_marcadores;
+create policy "marcadores de quem ve o veiculo" on public.veiculos_marcadores
+  for all to authenticated using (public.veiculo_visivel(veiculo_id)) with check (public.veiculo_visivel(veiculo_id));
 drop policy if exists "preventivas do proprio perfil" on public.veiculos_planos;
-create policy "preventivas do proprio perfil" on public.veiculos_planos
-  for all to authenticated using (public.veiculos_acesso(perfil_id)) with check (public.veiculos_acesso(perfil_id));
+drop policy if exists "preventivas de quem ve o veiculo" on public.veiculos_planos;
+create policy "preventivas de quem ve o veiculo" on public.veiculos_planos
+  for all to authenticated using (public.veiculo_visivel(veiculo_id)) with check (public.veiculo_visivel(veiculo_id));
 drop policy if exists "servicos do proprio perfil" on public.veiculos_servicos;
-create policy "servicos do proprio perfil" on public.veiculos_servicos
-  for all to authenticated using (public.veiculos_acesso(perfil_id)) with check (public.veiculos_acesso(perfil_id));
+drop policy if exists "servicos de quem ve o veiculo" on public.veiculos_servicos;
+create policy "servicos de quem ve o veiculo" on public.veiculos_servicos
+  for all to authenticated using (public.veiculo_visivel(veiculo_id)) with check (public.veiculo_visivel(veiculo_id));
 drop policy if exists "anexos do proprio perfil" on public.veiculos_anexos;
-create policy "anexos do proprio perfil" on public.veiculos_anexos
-  for all to authenticated using (public.veiculos_acesso(perfil_id)) with check (public.veiculos_acesso(perfil_id));
+drop policy if exists "anexos de quem ve o veiculo" on public.veiculos_anexos;
+create policy "anexos de quem ve o veiculo" on public.veiculos_anexos
+  for all to authenticated using (public.veiculo_visivel(veiculo_id)) with check (public.veiculo_visivel(veiculo_id));
 
--- Notas fiscais e fotos: PDF, imagem ou XML da NF-e, até 20 MB, uma pasta por pessoa (nome da pasta = id do perfil)
+-- Notas fiscais e fotos: PDF, imagem ou XML da NF-e, até 20 MB, uma pasta por veículo (nome da pasta = id do veículo)
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('veiculos', 'veiculos', false, 20971520,
         '{application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif,application/xml,text/xml}')
@@ -1918,12 +1952,12 @@ on conflict (id) do update
 drop policy if exists "notas dos veiculos - ler" on storage.objects;
 create policy "notas dos veiculos - ler" on storage.objects
   for select to authenticated
-  using (bucket_id = 'veiculos' and public.veiculos_acesso_pasta((storage.foldername(name))[1]));
+  using (bucket_id = 'veiculos' and public.veiculo_visivel_pasta((storage.foldername(name))[1]));
 drop policy if exists "notas dos veiculos - enviar" on storage.objects;
 create policy "notas dos veiculos - enviar" on storage.objects
   for insert to authenticated
-  with check (bucket_id = 'veiculos' and public.veiculos_acesso_pasta((storage.foldername(name))[1]));
+  with check (bucket_id = 'veiculos' and public.veiculo_visivel_pasta((storage.foldername(name))[1]));
 drop policy if exists "notas dos veiculos - apagar" on storage.objects;
 create policy "notas dos veiculos - apagar" on storage.objects
   for delete to authenticated
-  using (bucket_id = 'veiculos' and public.veiculos_acesso_pasta((storage.foldername(name))[1]));
+  using (bucket_id = 'veiculos' and public.veiculo_visivel_pasta((storage.foldername(name))[1]));

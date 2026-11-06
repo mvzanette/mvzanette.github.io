@@ -51,7 +51,7 @@ const TABELAS = {
 // Veículos pessoais (area/veiculos.html): o dono (perfil_id) de cada registro filho é sempre o do veículo (o banco confere)
 TABELAS.veiculos = {
   colunas: ["id", "perfil_id", "nome", "tipo", "marca", "modelo", "ano", "placa", "chassi", "renavam", "combustivel", "medidor",
-    "aquisicao", "observacao", "ativo"],
+    "aquisicao", "observacao", "ativo", "compartilhado_com"],
   numeros: [],
 };
 TABELAS.veiculos_marcadores = { colunas: ["id", "perfil_id", "veiculo_id", "data", "km", "horas", "observacao"], numeros: ["km", "horas"] };
@@ -62,7 +62,7 @@ TABELAS.veiculos_planos = {
 };
 TABELAS.veiculos_servicos = {
   colunas: ["id", "perfil_id", "veiculo_id", "data", "tipo", "categoria", "descricao", "km", "horas", "valor", "fornecedor", "nota",
-    "planos", "itens", "observacao"],
+    "planos", "itens", "observacao", "gasto_id"],
   numeros: ["km", "horas", "valor"],
 };
 TABELAS.veiculos_anexos = {
@@ -881,10 +881,14 @@ function armazemDemo() {
     },
     // Notas fiscais e fotos dos veículos: na demonstração, só durante a sessão
     veiculos: {
-      async enviarAnexo(perfilId, arquivo) {
+      async pessoas() {
+        return lerPerfis().filter((p) => p.situacao === "ativo" && (p.papel === "adm" || (p.modulos || []).includes("veiculos")))
+          .map((p) => ({ id: p.id, nome: (p.nome || p.email).split(/[ @]/)[0] }));
+      },
+      async enviarAnexo(veiculoId, arquivo) {
         if (!tipoAnexo(arquivo)) throw new Error("Tipo de arquivo não aceito. Envie PDF, foto (JPG, PNG, HEIC) ou o XML da nota.");
         if (arquivo.size > 20 * 1024 * 1024) throw new Error("Arquivo grande demais (até 20 MB).");
-        const caminho = `${perfilId}/${caminhoDocumento(arquivo.name)}`;
+        const caminho = `${veiculoId}/${caminhoDocumento(arquivo.name)}`;
         docsCaixa.set(caminho, URL.createObjectURL(arquivo));
         return caminho;
       },
@@ -1343,13 +1347,18 @@ async function armazemSupabase(url, chave) {
         return data || [];
       },
     },
-    // Notas fiscais e fotos dos veículos: pasta com o id do dono do veículo (o banco confere quem pode)
+    // Veículos: pessoas para compartilhar e as notas fiscais e fotos (pasta com o id do veículo; o banco confere quem pode)
     veiculos: {
-      async enviarAnexo(perfilId, arquivo) {
+      async pessoas() {
+        const { data, error } = await sb.rpc("pessoas_veiculos");
+        if (error) throw new Error(error.code === "PGRST202" || /pessoas_veiculos/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+        return data || [];
+      },
+      async enviarAnexo(veiculoId, arquivo) {
         const tipo = tipoAnexo(arquivo);
         if (!tipo) throw new Error("Tipo de arquivo não aceito. Envie PDF, foto (JPG, PNG, HEIC) ou o XML da nota.");
         if (arquivo.size > 20 * 1024 * 1024) throw new Error("Arquivo grande demais (até 20 MB).");
-        const caminho = `${perfilId}/${caminhoDocumento(arquivo.name)}`;
+        const caminho = `${veiculoId}/${caminhoDocumento(arquivo.name)}`;
         const { error } = await sb.storage.from("veiculos").upload(caminho, arquivo, { upsert: false, contentType: tipo });
         if (error) throw new Error(/bucket/i.test(error.message) ? BANCO_DESATUALIZADO : /mime|type/i.test(error.message) ? "Tipo de arquivo não aceito." : error.message);
         return caminho;

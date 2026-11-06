@@ -6,7 +6,8 @@
 export const PRAZO_MARCADOR = 90; // dias: pelo menos uma leitura de km/horas a cada 3 meses
 export const AVISO_MARCADOR = 75; // a partir daqui o site já pede a leitura
 export const AVISO_DIAS_PADRAO = 30; // antecedência do aviso no tempo, quando a preventiva não diz
-export const AVISO_FRACAO_PADRAO = 0.1; // antecedência em km e horas: 10% do intervalo, quando a preventiva não diz
+export const AVISO_KM_PADRAO = 2000; // antecedência em km, quando a preventiva não diz (no máximo metade do intervalo)
+export const AVISO_FRACAO_PADRAO = 0.1; // antecedência em horas: 10% do intervalo, quando a preventiva não diz
 
 export const TIPOS_VEICULO = [
   ["carro", "Carro"], ["moto", "Moto"], ["caminhonete", "Caminhonete"], ["caminhao", "Caminhão"], ["trator", "Trator"],
@@ -112,7 +113,7 @@ export function ultimaDoPlano(plano, servicos = []) {
 }
 
 const ORDEM = { vencida: 3, proxima: 2, ok: 1, sem: 0 };
-export const avisoKm = (p) => n(p.aviso_km) ?? (n(p.intervalo_km) ? Math.round(n(p.intervalo_km) * AVISO_FRACAO_PADRAO) : null);
+export const avisoKm = (p) => n(p.aviso_km) ?? (n(p.intervalo_km) ? Math.min(AVISO_KM_PADRAO, Math.round(n(p.intervalo_km) / 2)) : null);
 export const avisoHoras = (p) => n(p.aviso_horas) ?? (n(p.intervalo_horas) ? Math.round(n(p.intervalo_horas) * AVISO_FRACAO_PADRAO * 10) / 10 : null);
 export const avisoDias = (p) => n(p.aviso_dias) ?? AVISO_DIAS_PADRAO;
 
@@ -261,4 +262,11 @@ export async function carregarAlertasVeiculos(armazem, hoje = hojeISO()) {
   const [veiculos, marcadores, planos, servicos] = await Promise.all(["veiculos", "veiculos_marcadores", "veiculos_planos", "veiculos_servicos"].map(ler));
   const quadros = veiculos.filter((v) => v.ativo !== false).map((v) => quadroVeiculo(v, { marcadores, planos, servicos, hoje }));
   return { quadros, alertas: alertasVeiculos(quadros, hoje) };
+}
+
+// Lançamento nas Finanças pessoais: categoria Transporte e a subcategoria mais próxima
+export function subcategoriaFinancas(s) {
+  if (s.tipo !== "despesa") return "Manutenção do carro";
+  return { "Combustível": "Combustível", "Estacionamento e pedágio": "Estacionamento", "Pneus": "Manutenção do carro",
+    "Lavagem e estética": "Manutenção do carro", "Acessórios": "Manutenção do carro" }[s.categoria] || s.categoria || "Manutenção do carro";
 }

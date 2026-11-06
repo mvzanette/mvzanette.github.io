@@ -30,16 +30,20 @@ async function rest(caminho, opcoes = {}) {
 
 const escapar = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
-// Avisos de cada pessoa: { perfil_id: { alertas, novos, quadros } } (novos = chaves ainda não enviadas)
+// Avisos de cada pessoa: { perfil_id: { alertas, novos, quadros } }. Cada veículo avisa o dono e as pessoas com quem ele
+// foi compartilhado; a chave guardada leva o id da pessoa (novos = chaves ainda não enviadas a ela).
 export function avisosPorPessoa({ veiculos, marcadores, planos, servicos, enviados = new Set(), dia = hoje }) {
   const porPessoa = new Map();
   for (const v of veiculos.filter((x) => x.ativo !== false)) {
-    if (!porPessoa.has(v.perfil_id)) porPessoa.set(v.perfil_id, []);
-    porPessoa.get(v.perfil_id).push(quadroVeiculo(v, { marcadores, planos, servicos, hoje: dia }));
+    const q = quadroVeiculo(v, { marcadores, planos, servicos, hoje: dia });
+    for (const pessoa of new Set([v.perfil_id, ...(v.compartilhado_com || [])])) {
+      if (!porPessoa.has(pessoa)) porPessoa.set(pessoa, []);
+      porPessoa.get(pessoa).push(q);
+    }
   }
   const r = new Map();
   for (const [perfilId, quadros] of porPessoa) {
-    const alertas = alertasVeiculos(quadros, dia);
+    const alertas = alertasVeiculos(quadros, dia).map((a) => ({ ...a, chave: `${perfilId}|${a.chave}` }));
     const novos = alertas.filter((a) => !enviados.has(a.chave));
     if (novos.length) r.set(perfilId, { alertas, novos, quadros });
   }
@@ -83,7 +87,7 @@ export function montarEmail(nome, { alertas, novos, quadros }) {
 
 async function principal() {
   if (TESTE) {
-    const v = { id: "v1", perfil_id: "p1", nome: "Carro de teste", medidor: "km", ativo: true };
+    const v = { id: "v1", perfil_id: "p1", nome: "Carro de teste", medidor: "km", ativo: true, compartilhado_com: ["p2"] };
     const t = { id: "v2", perfil_id: "p1", nome: "Trator de teste", medidor: "horas", ativo: true };
     const dados = {
       veiculos: [v, t],
@@ -94,7 +98,7 @@ async function principal() {
       servicos: [],
     };
     for (const [, x] of avisosPorPessoa(dados)) {
-      const m = montarEmail("Teste", x);
+      const m = montarEmail(x.quadros.length > 1 ? "Dono" : "Compartilhado", x);
       console.log(`Assunto: ${m.assunto}\n\n${m.texto}\n---\nChaves: ${x.novos.map((a) => a.chave).join(" | ")}`);
     }
     return;
