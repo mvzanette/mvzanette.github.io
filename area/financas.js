@@ -20,6 +20,7 @@ import { desenharOndeInvestir } from "./financas-onde-investir.js";
 import { categoriaDe, categoriasEscolhiveis, chavesFatura, chavesGastos, contasDisponiveis, juntarCategorias, lerCategorias, lerContas, normalizarCategoria, partesDe, semClassificacao } from "./financas-classificacao.js";
 import { aplicarFatura, herdarClassificacao, historicoDeCategorias, lerFaturaPdf, manterFaturasDoSite, montarFatura } from "./financas-faturas.js";
 import { decodificarExtrato, lerExtrato, MOTIVOS, saidasDoExtrato } from "./financas-extrato.js";
+import { leituraDosBancos, prepararBancos } from "./financas-bancos.js";
 import { aplicarPrevia, bancoDoCartao, faturaProvavel, lerFaturaParcial, montarPrevia, ordemFatura, rotuloFatura } from "./financas-previa.js";
 import { extrairLinhas } from "./pdf-texto.js";
 import { $, esc, avisar, opcoes, numeroDigitado, prepararDialogos, conferirPdf } from "./ui.js";
@@ -47,6 +48,8 @@ let faturaPdf = null; // fatura em PDF sendo processada: { caminho, nome, leitur
 let extrato = null; // extrato da conta sendo importado: { leitura, saidas, entradas }
 let recorrentes = []; // pagamentos recorrentes cadastrados no site (preferências do painel)
 let caixinhasUI = null; // aba Caixinhas (redesenha depois de lançar ou apagar um gasto)
+let bancos = null; // bancos conectados de quem é o painel: { conexoes, contas, movimentos } (sem as tabelas no banco, null)
+let bancosUI = null; // aba Bancos
 
 const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
 const brl = (v) => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -2122,7 +2125,23 @@ function abrirExtrato() {
   $("#btn-confirmar-extrato").disabled = true;
   $("#btn-confirmar-extrato").textContent = "Importar";
   erroExtrato("");
+  // Bancos conectados: as saídas do extrato que ainda não passaram pela importação
+  const doBanco = bancos ? leituraDosBancos(bancos) : null;
+  $("#extrato-bancos").hidden = !doBanco;
+  if (doBanco) {
+    const n = doBanco.movimentos.length;
+    $("#extrato-bancos-info").textContent = `${n} ${n === 1 ? "movimento novo" : "movimentos novos"} de ${dataBR(doBanco.inicio).slice(0, 5)} a ${dataBR(doBanco.fim).slice(0, 5)} (${doBanco.banco}). Sem arquivo.`;
+  }
   $("#dlg-extrato").showModal();
+}
+
+// Extrato dos bancos conectados: a mesma prévia do arquivo, com os movimentos ainda não revisados
+function usarExtratoDosBancos() {
+  const leitura = bancos ? leituraDosBancos(bancos) : null;
+  if (!leitura) return;
+  erroExtrato("");
+  extrato = { leitura, ...saidasDoExtrato(leitura, { historico: historicoPara("dono"), jaNoPainel: lancadosForaDoCartao() }) };
+  mostrarPreviaExtrato();
 }
 
 // O que já está no painel fora do cartão (do projeto e lançado pelo site), para não importar duas vezes
@@ -2145,6 +2164,10 @@ async function lerArquivoExtrato(arquivo) {
     erroExtrato(e.message);
     return;
   }
+  mostrarPreviaExtrato();
+}
+
+function mostrarPreviaExtrato() {
   $("#lista-extrato").innerHTML = extrato.saidas.map((s, i) => `<tr class="${s.marcado ? "" : "fora"}">
     <td><input type="checkbox" data-saida="${i}" ${s.marcado ? "checked" : ""} aria-label="Importar ${esc(s.descricao)}"></td>
     <td class="num">${esc(dataBR(s.data).slice(0, 5))}</td>
@@ -2169,27 +2192,37 @@ function resumoExtrato() {
     linha("Ficam de fora", `${saidas.length - marcadas.length} (desmarcadas)`),
   ].join("");
   const botao = $("#btn-confirmar-extrato");
-  botao.disabled = !marcadas.length;
-  botao.textContent = marcadas.length ? `Importar ${plural(marcadas.length, "gasto", "gastos")}` : "Importar";
+  // Do banco conectado, dá para só marcar como revisado (as saídas não voltam na próxima importação)
+  const doBanco = !!leitura.ids;
+  botao.disabled = !marcadas.length && !doBanco;
+  botao.textContent = marcadas.length ? `Importar ${plural(marcadas.length, "gasto", "gastos")}` : doBanco ? "Marcar como revisados" : "Importar";
 }
 
 async function confirmarExtrato() {
   const marcadas = extrato ? extrato.saidas.filter((s) => s.marcado) : [];
-  if (!marcadas.length) return;
+  const ids = extrato && extrato.leitura.ids;
+  if (!marcadas.length && !ids) return;
   const botao = $("#btn-confirmar-extrato");
   botao.disabled = true;
   botao.textContent = "Importando…";
   erroExtrato("");
   try {
-    const salvos = await armazem.financas.salvarGastos(marcadas.map((s) => ({
+    const salvos = marcadas.length ? await armazem.financas.salvarGastos(marcadas.map((s) => ({
       perfil_id: dono.id, data: s.data, descricao: s.descricao, valor: s.valor, forma: s.forma, parcelas: 1,
       categoria: s.categoria, subcategoria: s.subcategoria, conta: null, essencial: null, observacao: "",
-    })));
+    }))) : [];
     gastos.push(...salvos);
     painel.atualizarGastos(gastos);
+    // Do banco conectado: todos os movimentos da prévia ficam revisados (os desmarcados não voltam na próxima vez)
+    if (ids) {
+      await armazem.financas.revisarMovimentos(ids);
+      const agora = new Date().toISOString(), conjunto = new Set(ids);
+      bancos.movimentos.forEach((m) => { if (conjunto.has(m.id)) m.revisado_em = agora; });
+      if (bancosUI) bancosUI.atualizar(bancos);
+    }
     $("#dlg-extrato").close();
-    avisar(`${plural(salvos.length, "gasto importado", "gastos importados")} do extrato.`);
-    location.hash = "gastos";
+    avisar(salvos.length ? `${plural(salvos.length, "gasto importado", "gastos importados")} do extrato.` : "Movimentos marcados como revisados.");
+    if (salvos.length) location.hash = "gastos";
   } catch (e) {
     erroExtrato("Não foi possível importar: " + e.message);
     resumoExtrato();
@@ -2221,6 +2254,7 @@ function prepararExtrato() {
   });
   $("#btn-confirmar-extrato").addEventListener("click", confirmarExtrato);
   $("#btn-extrato").addEventListener("click", abrirExtrato);
+  $("#btn-extrato-bancos").addEventListener("click", usarExtratoDosBancos);
   $("#btn-lancar-topo").addEventListener("click", abrirLancamento);
 }
 
@@ -2479,6 +2513,8 @@ async function iniciar() {
   // Caixinhas: as de quem é o painel e as do casal (sem a tabela no banco, a aba fica escondida)
   let caixinhas = await armazem.financas.caixinhas(idsPlano).catch(() => null);
   const caixinhasDoDono = (lista) => (lista || []).filter((c) => c.dono === "casal" || c.perfil_id === dono.id);
+  // Bancos conectados (Open Finance): sem as tabelas no banco, a aba fica escondida
+  bancos = await armazem.financas.bancos(dono.id).catch(() => null);
   painel = desenharFinancas({
     dados: registro.dados,
     carteira: registro.investimentos,
@@ -2518,6 +2554,7 @@ async function iniciar() {
     planoAporte: planos ? planoDoDono(planos) : null,
     planoCasal: planos ? { degraus: planos, pessoas: pessoasPlano } : null,
     caixinhas: caixinhas ? { lista: caixinhasDoDono(caixinhas), perfilId: dono.id } : null,
+    comBancos: !!bancos,
     // Categoria de uma entrada (pela descrição, vale para as próximas) ou sugestão dispensada; decisão sobre a entrada do
     // site igual a uma do projeto. Ficam nas preferências do caixa do painel.
     aoCategoriaEntrada: async ({ chave, categoria = null, ignorar = false }) => {
@@ -2540,6 +2577,20 @@ async function iniciar() {
       }
     },
   });
+  if (bancos) {
+    bancosUI = prepararBancos({
+      bancos,
+      perfilId: dono.id,
+      salvar: async (c) => {
+        await armazem.financas.salvarConexaoBanco(c);
+        return (bancos = await armazem.financas.bancos(dono.id));
+      },
+      apagar: async (id) => {
+        await armazem.financas.apagarConexaoBanco(id);
+        return (bancos = await armazem.financas.bancos(dono.id));
+      },
+    });
+  }
   if (caixinhas) {
     caixinhasUI = prepararCaixinhas({
       painel,

@@ -129,9 +129,10 @@ export function saidasDoExtrato(leitura, { historico = new Map(), jaNoPainel = [
   const saidas = leitura.movimentos.filter((m) => m.valor < 0).map((m) => {
     const bruto = m.descricao;
     const descricao = limparDescricao(bruto);
-    const forma = /\bPIX\b/i.test(bruto) ? "pix" : /SAQUE/i.test(bruto) ? "dinheiro" : "debito";
-    const motivo = FATURA_CARTAO.test(bruto) ? "fatura" : INVESTIMENTO.test(bruto) ? "investimento" : CONTA_PROPRIA.test(bruto) ? "propria"
-      : repetido(m) ? "repetido" : null;
+    // Do Open Finance (bancos conectados) pode vir a forma e o motivo pela categoria do banco
+    const forma = m.forma || (/\bPIX\b/i.test(bruto) ? "pix" : /SAQUE/i.test(bruto) ? "dinheiro" : "debito");
+    const motivo = m.motivo || (FATURA_CARTAO.test(bruto) ? "fatura" : INVESTIMENTO.test(bruto) ? "investimento" : CONTA_PROPRIA.test(bruto) ? "propria"
+      : repetido(m) ? "repetido" : null);
     const c = categorizar(descricao, historico);
     return { data: m.data, valor: centavos(-m.valor), descricao, forma, categoria: c.cat, subcategoria: c.sub, motivo, marcado: !motivo };
   }).sort((a, b) => a.data.localeCompare(b.data));

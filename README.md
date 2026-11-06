@@ -330,6 +330,17 @@ Em **Cadastros → Plano de aportes**, cada pessoa do casal tem degraus: destino
 
 Fica na tabela `planos_aporte` (perfil_id de quem aporta, destino, valor, vigente_desde no dia 1).
 
+### Bancos conectados (saldos e extratos automáticos)
+
+A aba **Bancos** mostra os saldos das contas, as faturas e os limites dos cartões, os investimentos e o extrato de cada conta, lidos direto dos bancos pelo **Open Finance**, por meio do [Meu Pluggy](https://meu.pluggy.ai) (gratuito para uso pessoal, até 5 conexões). O Meu Pluggy atualiza os bancos uma vez por dia; a rotina do GitHub (`.github/workflows/bancos-pluggy.yml`, com `ferramentas/bancos-pluggy.mjs`) lê tudo às 7h e às 19h (Brasília) e grava no Supabase. Na primeira leitura de cada conexão vêm os últimos 12 meses; depois, os últimos 30 dias de novo (para pegar o que o banco confirmou). Movimentos pendentes só entram quando o banco confirma.
+
+- **Extrato:** filtro por conta, período (últimos 30 ou 90 dias, ou um mês) e busca, com o total de entradas e saídas e a planilha para baixar. Com uma conta escolhida, aparece o saldo depois de cada movimento.
+- **Importar extrato sem arquivo:** em **+ Mais → Importar extrato**, o botão **Usar o extrato dos bancos conectados** abre a mesma prévia do arquivo OFX com as saídas das contas que ainda não passaram pela importação (os cartões entram pela fatura). As regras são as mesmas (fatura do cartão, aplicações, transferências entre contas próprias e o que já está no painel vêm desmarcados), reforçadas pela categoria que o banco manda. Ao importar, todos os movimentos da prévia ficam **revisados** e não voltam; sem nada marcado, o botão vira **Marcar como revisados**. Nada vira gasto sozinho.
+- **Avisos:** conexão com erro, desatualizada ou com a autorização vencendo em 30 dias aparece em vermelho no alto da aba. A autorização vale um ano.
+- **Segurança:** o site só guarda o código de cada conexão (itemId), que sozinho não dá acesso a nada. As chaves do Pluggy ficam só nos secrets do GitHub; o navegador nunca as vê. Do número da conta fica só o final. O log da rotina é público e mostra só contagens.
+
+Ficam nas tabelas `bancos_conexoes` (o site cadastra, renomeia e remove), `bancos_contas` e `bancos_movimentos` (gravadas pela rotina; o site só lê e marca o "revisado"). Remover uma conexão apaga as contas e o extrato dela do site; os gastos já importados ficam.
+
 ### Caixinhas de provisão
 
 A aba **Caixinhas** guarda dinheiro para gastos futuros (IPTU, IPVA, seguro, viagem, casa). Cada caixinha tem nome, de quem é (só de quem cadastrou ou do casal), tipo (recorrente, que repete todo ano, ou meta única), meta, data alvo e saldo (informado de tempos em tempos em **Atualizar saldo**, como os saldos dos investimentos). Nas do casal, a divisão é 50/50, pela renda do mês de cada um (as entradas do mês nos dois painéis) ou um percentual fixo.
@@ -557,6 +568,18 @@ Todo dia às 3h17 (Brasília) o GitHub Actions (`.github/workflows/backup-aws.ym
 Se der erro, o GitHub avisa por e-mail. Enquanto nada da AWS estiver configurado, a rotina só registra "ainda não configurada" e não falha. Se algum arquivo guardado não baixar, a cópia é enviada assim mesmo, com a lista em `FALHAS.txt`, e a execução fica vermelha para avisar.
 
 **Abrir uma cópia:** no S3, baixe o `.7z` (*Download*) e abra com o 7-Zip (Windows) ou o Keka (Mac), usando a `BACKUP_SENHA`. Dentro há `banco-site.sql`, `logins.sql`, a pasta `planilhas/` (abre no Excel) e a pasta `arquivos/`, com os PDFs e anexos. O `LEIAME.txt` explica como restaurar num projeto novo do Supabase: rodar `logins.sql`, depois `banco-site.sql` e o `supabase/schema.sql`, e enviar a pasta `arquivos/`.
+
+### 5. Bancos conectados (Open Finance pelo Meu Pluggy, ~15 minutos)
+
+1. Rode de novo `supabase/schema.sql` no SQL Editor do Supabase (cria as tabelas dos bancos).
+2. Crie a conta em [meu.pluggy.ai](https://meu.pluggy.ai) e conecte os bancos (o próprio banco pede a autorização do Open Finance).
+3. Em [dashboard.pluggy.ai](https://dashboard.pluggy.ai), crie a conta de desenvolvedor. Em **Customization → Connectors**, ative o **MeuPluggy**. Em **Applications**, crie uma aplicação de desenvolvimento e copie o **Client ID** e o **Client Secret**.
+4. No GitHub: **Settings → Secrets and variables → Actions → New repository secret**: `PLUGGY_CLIENT_ID` e `PLUGGY_CLIENT_SECRET` (os `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` dos alertas já servem).
+5. Na aplicação do Pluggy, abra **Demo**, conecte o **MeuPluggy** com a sua conta e autorize cada banco. Em **Connected Items**, copie o **itemId** de cada banco.
+6. No site: **Finanças pessoais → Bancos → Conectar banco**, cole o itemId e dê um nome. Cada pessoa cadastra os dela no próprio painel (outra pessoa usa a conta Meu Pluggy dela e autoriza na mesma aplicação).
+7. Para ver na hora: **Actions → Bancos conectados → Run workflow**.
+
+Sem os secrets do Pluggy, a rotina só avisa que não está configurada e termina sem erro. Para renovar a autorização (a cada ano), repita o passo 5.
 
 ## Segurança e privacidade
 

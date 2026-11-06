@@ -1961,3 +1961,94 @@ drop policy if exists "notas dos veiculos - apagar" on storage.objects;
 create policy "notas dos veiculos - apagar" on storage.objects
   for delete to authenticated
   using (bucket_id = 'veiculos' and public.veiculo_visivel_pasta((storage.foldername(name))[1]));
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- Bancos conectados (Open Finance pelo Meu Pluggy, uso pessoal e gratuito). A pessoa conecta os bancos no Meu Pluggy,
+-- autoriza o aplicativo dela no painel do Pluggy e cadastra aqui o código de cada conexão (item_id). Uma rotina do
+-- GitHub Actions (ferramentas/bancos-pluggy.mjs), com as chaves guardadas só nos secrets, lê os saldos, os cartões,
+-- os investimentos e o extrato e grava nas tabelas abaixo. O site só lê; a única coisa que ele altera nos movimentos é
+-- a marca de "revisado" (quando as saídas do extrato viram gastos em Importar extrato).
+create table if not exists public.bancos_conexoes (
+  id                  uuid primary key default gen_random_uuid(),
+  perfil_id           uuid not null references public.perfis (id) on delete cascade,
+  item_id             text not null unique check (item_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'),
+  apelido             text check (apelido is null or length(trim(apelido)) between 1 and 60),
+  -- preenchidos pela rotina
+  banco               text,
+  situacao            text,
+  erro                text,
+  consentimento_ate   timestamptz,
+  banco_atualizado_em timestamptz,
+  sincronizado_em     timestamptz,
+  criado_em           timestamptz not null default now(),
+  criado_por          uuid default auth.uid() references auth.users (id) on delete set null
+);
+create index if not exists bancos_conexoes_perfil_idx on public.bancos_conexoes (perfil_id);
+
+-- Contas, cartões e investimentos de cada conexão (id: o do Pluggy). Do número da conta fica só o final.
+--   conta: saldo da conta · cartao: saldo = fatura atual, com limite e limite disponível · investimento: saldo aplicado
+create table if not exists public.bancos_contas (
+  id                text primary key,
+  conexao_id        uuid not null references public.bancos_conexoes (id) on delete cascade,
+  perfil_id         uuid not null references public.perfis (id) on delete cascade,
+  tipo              text not null check (tipo in ('conta', 'cartao', 'investimento')),
+  subtipo           text,
+  nome              text,
+  final             text,
+  saldo             numeric(14, 2),
+  limite            numeric(14, 2),
+  limite_disponivel numeric(14, 2),
+  vencimento        date,
+  dados_em          timestamptz,
+  atualizado_em     timestamptz not null default now()
+);
+create index if not exists bancos_contas_perfil_idx on public.bancos_contas (perfil_id);
+
+-- Extrato: um movimento por transação do banco (id: o do Pluggy). valor negativo = saída. Os pendentes não entram
+-- (o banco troca o id quando confirma). revisado_em: quando passou pela importação do extrato no site.
+create table if not exists public.bancos_movimentos (
+  id             text primary key,
+  conta_id       text not null references public.bancos_contas (id) on delete cascade,
+  perfil_id      uuid not null references public.perfis (id) on delete cascade,
+  data           date not null,
+  descricao      text not null,
+  descricao_banco text,
+  valor          numeric(14, 2) not null,
+  categoria      text,
+  saldo_apos     numeric(14, 2),
+  revisado_em    timestamptz,
+  criado_em      timestamptz not null default now()
+);
+create index if not exists bancos_movimentos_perfil_data_idx on public.bancos_movimentos (perfil_id, data desc);
+create index if not exists bancos_movimentos_conta_data_idx on public.bancos_movimentos (conta_id, data desc);
+
+-- Mesmo acesso das finanças. O site cadastra e apaga conexões (e muda o apelido), lê contas e movimentos e só marca
+-- os movimentos como revisados; o resto é gravado pela rotina, com a chave de serviço.
+alter table public.bancos_conexoes enable row level security;
+alter table public.bancos_contas enable row level security;
+alter table public.bancos_movimentos enable row level security;
+revoke all on public.bancos_conexoes, public.bancos_contas, public.bancos_movimentos from anon, authenticated;
+grant select, insert, update, delete on public.bancos_conexoes, public.bancos_contas, public.bancos_movimentos to service_role;
+grant select, delete on public.bancos_conexoes to authenticated;
+grant insert (perfil_id, item_id, apelido) on public.bancos_conexoes to authenticated;
+grant update (apelido) on public.bancos_conexoes to authenticated;
+grant select on public.bancos_contas to authenticated;
+grant select on public.bancos_movimentos to authenticated;
+grant update (revisado_em) on public.bancos_movimentos to authenticated;
+
+drop policy if exists "conexoes do proprio perfil" on public.bancos_conexoes;
+create policy "conexoes do proprio perfil" on public.bancos_conexoes
+  for all to authenticated
+  using (public.financas_acesso(perfil_id))
+  with check (public.financas_acesso(perfil_id));
+
+drop policy if exists "contas do proprio perfil" on public.bancos_contas;
+create policy "contas do proprio perfil" on public.bancos_contas
+  for select to authenticated
+  using (public.financas_acesso(perfil_id));
+
+drop policy if exists "movimentos do proprio perfil" on public.bancos_movimentos;
+create policy "movimentos do proprio perfil" on public.bancos_movimentos
+  for all to authenticated
+  using (public.financas_acesso(perfil_id))
+  with check (public.financas_acesso(perfil_id));

@@ -1,0 +1,34 @@
+name: Bancos conectados
+
+# Duas vezes por dia (7h e 19h, Brasília): lê no Pluggy (Open Finance, pelo Meu Pluggy) os saldos, cartões,
+# investimentos e extratos dos bancos cadastrados no site e grava no Supabase. O Meu Pluggy atualiza os dados dos
+# bancos uma vez a cada 24 horas. Também pode ser executado manualmente em Actions → "Bancos conectados" → "Run workflow".
+# Configuração: README, seção "Bancos conectados". O log é público: só mostra contagens.
+on:
+  schedule:
+    - cron: "0 10,22 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bancos-pluggy
+  cancel-in-progress: false
+
+jobs:
+  bancos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Ler os bancos e gravar no site
+        run: node ferramentas/bancos-pluggy.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          PLUGGY_CLIENT_ID: ${{ secrets.PLUGGY_CLIENT_ID }}
+          PLUGGY_CLIENT_SECRET: ${{ secrets.PLUGGY_CLIENT_SECRET }}
