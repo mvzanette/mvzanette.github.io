@@ -1,0 +1,20 @@
+<!--
+  E-mail de convite para o cliente acompanhar o pedido pelo site.
+  Onde colar: Supabase → Authentication → Emails → Templates → "Invite user".
+  Assunto (Subject):  Recebemos seu pedido – acompanhe pelo site
+  Corpo (Message body): todo o HTML abaixo desta nota.
+  {{ .ConfirmationURL }} é o link para criar a senha; {{ .Data.nome }} é o nome informado no formulário.
+-->
+<div style="font-family:Arial,sans-serif;font-size:15px;color:#1e2125;max-width:600px">
+  <div style="background:#16181b;color:#ffffff;padding:16px 20px;border-bottom:4px solid #f5b800">
+    <b>Marcos Zanette</b> · Engenharia Mecânica
+  </div>
+  <div style="padding:20px">
+    <p>Olá{{ if .Data.nome }}, {{ .Data.nome }}{{ end }}.</p>
+    <p>Recebemos a sua solicitação e vamos responder em até 1 dia útil, pelo e-mail ou WhatsApp informado.</p>
+    <p>Se quiser, você pode <b>acompanhar o pedido pelo site</b>: cada etapa (proposta, aprovação, execução e conclusão), os laudos e documentos do serviço para baixar e o vencimento das suas ARTs, com aviso por e-mail antes de vencer.</p>
+    <p><a href="{{ .ConfirmationURL }}" style="display:inline-block;background:#f5b800;color:#111214;padding:12px 20px;text-decoration:none;font-weight:bold">Criar meu acesso</a></p>
+    <p style="color:#59616a;font-size:13px">O link abre a página para você criar a sua senha; o usuário é este e-mail. Se não quiser acompanhar pelo site, é só ignorar esta mensagem: o seu pedido segue normalmente.</p>
+    <p style="color:#59616a;font-size:13px">Marcos Zanette – Engenheiro Mecânico · CREA/RNP 1420122860<br>WhatsApp (32) 99811-1414 · mvszanette@gmail.com</p>
+  </div>
+</div>

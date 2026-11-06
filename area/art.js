@@ -5,6 +5,7 @@ import * as R from "./regras.js";
 import { extrairLinhas } from "./pdf-texto.js";
 import { lerPdf } from "./leitores.js";
 import { conferirPdf } from "./ui.js";
+import { blocoAcompanhamento, configurarAcompanhamento } from "./art-cliente.js";
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -21,6 +22,7 @@ const descricaoTos = (a) => {
 let armazem;
 let arts = [];
 let empresas = []; // empresas cadastradas (os nomes vêm do banco)
+let baseClientes = []; // base de clientes (Clientes): quem acompanha cada ART pelo portal
 let tratados = new Set();
 // situacao vazia: em aberto (sem as baixadas e as arquivadas)
 const filtro = { busca: "", crea: "", situacao: "", para: "", cliente: "", ano: "", acao: "" };
@@ -300,7 +302,9 @@ async function iniciar() {
 }
 
 async function recarregar() {
-  [arts, tratados, empresas] = await Promise.all([armazem.listar(), armazem.tratados(), armazem.empresas.listar().catch(() => [])]);
+  [arts, tratados, empresas, baseClientes] = await Promise.all([armazem.listar(), armazem.tratados(), armazem.empresas.listar().catch(() => []),
+    armazem.colecao("clientes").listar().catch(() => [])]);
+  baseClientes.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
   const filtroPara = $("#filtro-para");
   filtroPara.innerHTML = [["", "Empresas e particulares"], ["empresas", "Todas as empresas"], ...empresas.map((e) => [`e:${e.id}`, e.nome]),
     ["particular", "Clientes particulares"], ["sem", "Não informado"]]
@@ -646,6 +650,8 @@ function abrirArt(id, opcoes = {}) {
         </div>
       </div>
 
+      ${existente ? blocoAcompanhamento(art, baseClientes) : ""}
+
       ${existente && s !== "baixada" && art.fim ? blocoAcao(art) : ""}
 
       ${existente ? `<div class="bloco"><h3>Baixa</h3>
@@ -733,9 +739,12 @@ function abrirArt(id, opcoes = {}) {
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     try {
-      if (await salvar()) {
+      const salvo = await salvar();
+      if (salvo) {
         dlg.close();
         avisar("ART salva.");
+        // ART nova: pergunta se algum cliente vai acompanhar
+        if (!existente) await perguntarAcompanhamento([salvo]);
       }
     } catch (err) {
       avisar("Erro ao salvar: " + err.message);
@@ -760,6 +769,13 @@ function abrirArt(id, opcoes = {}) {
     if (await salvar({ baixa_data: null, baixa_motivo: null })) {
       dlg.close();
       avisar("Baixa desfeita.");
+    }
+  });
+  $("#btn-acomp-cliente", dlg)?.addEventListener("click", async () => {
+    const atual = arts.find((a) => a.id === art.id) || art;
+    if (await configurarAcompanhamento({ armazem, lista: [atual], clientes: baseClientes })) {
+      await recarregar();
+      abrirArt(art.id);
     }
   });
   $("#btn-ver-pdf", dlg)?.addEventListener("click", async () => {
@@ -789,6 +805,11 @@ function abrirArt(id, opcoes = {}) {
   });
 
   dlg.showModal();
+}
+
+// Pergunta ao subir uma ART (manual ou importada): será acompanhada por algum cliente? Sim abre a configuração.
+async function perguntarAcompanhamento(lista) {
+  if (await configurarAcompanhamento({ armazem, lista, clientes: baseClientes, pergunta: true })) await recarregar();
 }
 
 // ---------------------------------------------------------------- importação
@@ -930,9 +951,13 @@ async function confirmarImportacao() {
       const salvo = salvos.find((s) => s.numero === c.art.numero);
       if (salvo) await armazem.salvar({ ...salvo, pdf_path: await armazem.enviarPdf(salvo, c.arquivo) });
     }
+    const numerosNovos = registros.filter((r) => !arts.some((a) => a.numero === r.numero)).map((r) => r.numero);
     $("#dlg-importar").close();
     await recarregar();
     avisar(`${registros.length} ART${registros.length > 1 ? "s importadas" : " importada"}.`);
+    // ARTs novas: pergunta se algum cliente vai acompanhar (uma pergunta para o lote)
+    const novasArts = arts.filter((a) => numerosNovos.includes(a.numero));
+    if (novasArts.length) await perguntarAcompanhamento(novasArts);
   } catch (e) {
     avisar("Erro na importação: " + e.message);
     atualizarBotaoImportar();

@@ -4,6 +4,7 @@ import { recebeTarefa } from "./modulos.js";
 import { dataBR, diasAte, hojeISO } from "./regras.js";
 import * as G from "./regras-gestao.js";
 import { $, esc, moeda, avisar, baixarCsv, opcoes, prepararDialogos, numeroDigitado } from "./ui.js";
+import { blocoArquivos, ligarArquivos, blocoConvite, ligarConvites } from "./portal-equipe.js";
 
 const hoje = hojeISO();
 const UFS = "AC AL AP AM BA CE DF ES GO MA MT MS MG PA PB PR PE PI RJ RN RS RO RR SC SP SE TO".split(" ");
@@ -11,15 +12,23 @@ let armazem, colecao;
 let demandas = [];
 let arts = [];
 let lancamentos = [];
+let clientes = [];
+let arquivos = [];
+let comConta = [];
 const filtro = { etapa: "abertas", busca: "", origem: "" };
 
 
 async function recarregar() {
-  [demandas, arts, lancamentos] = await Promise.all([
+  [demandas, arts, lancamentos, clientes, arquivos] = await Promise.all([
     colecao.listar(),
     armazem.listar(),
     armazem.colecao("lancamentos").listar(),
+    armazem.colecao("clientes").listar().catch(() => []),
+    armazem.portal.arquivos().catch(() => []),
   ]);
+  clientes.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  const emails = [...new Set([...demandas.map((d) => (d.email || "").toLowerCase()), ...clientes.flatMap((c) => c.emails || [])].filter(Boolean))];
+  comConta = await armazem.portal.emailsComConta(emails).catch(() => []);
   renderizar();
 }
 
@@ -98,6 +107,20 @@ function renderTabela() {
   $("#vazio").hidden = lista.length > 0;
 }
 
+// ---------------------------------------------------------------- portal do cliente (recado, convite e arquivos)
+// E-mails que acompanham a demanda: o dela e os do cliente da base ligado a ela
+const emailsDa = (d) => {
+  const c = clientes.find((x) => x.id === d.cliente_id);
+  return [...new Set([d.email && d.email.toLowerCase(), ...((c && c.emails) || [])].filter(Boolean))];
+};
+
+function blocoPortal(d) {
+  const lista = arquivos.filter((a) => a.demanda_id === d.id);
+  return `${blocoConvite(emailsDa(d), comConta, d.contato || d.cliente)}
+    ${d.convidado_em ? `<p class="dica">Último convite enviado em ${new Date(d.convidado_em).toLocaleDateString("pt-BR")}.</p>` : ""}
+    ${blocoArquivos(lista, { semDestino: !d.email && !d.cliente_id })}`;
+}
+
 // ---------------------------------------------------------------- demanda
 const nomeArt = (a) => `${a.numero}${a.contratante ? " – " + a.contratante : ""}`;
 const DATAS_ETAPA = { proposta: "proposta_em", aprovada: "aprovada_em", execucao: "aprovada_em", concluida: "concluida_em" };
@@ -153,10 +176,13 @@ function abrirDemanda(id, novo = {}) {
         ${data("aprovada_em", "Aprovada em")}
         ${data("concluida_em", "Concluída em")}
         <label class="c2">ART vinculada<select name="art_id"><option value="">Nenhuma</option>${opcoes(artsOrdenadas.map((a) => [a.id, nomeArt(a)]), d.art_id)}</select></label>
-        <label class="c6">Observações<textarea name="observacao" rows="4">${esc(d.observacao)}</textarea></label>
+        <label class="c4">Cliente da base<select name="cliente_id"><option value="">Nenhum</option>${opcoes(clientes.map((c) => [c.id, c.nome]), d.cliente_id)}</select></label>
+        <label class="c6">Observações (internas, o cliente não vê)<textarea name="observacao" rows="4">${esc(d.observacao)}</textarea></label>
+        <label class="c6">Recado para o cliente (aparece no acompanhamento dele, em Meus pedidos)<textarea name="nota_cliente" rows="2" maxlength="2000" placeholder="Ex.: Vistoria marcada para 12/11. O laudo sai em até 5 dias úteis.">${esc(d.nota_cliente)}</textarea></label>
       </div>
       <p class="dica">O prazo gera lembrete no painel e no e-mail diário: na véspera, no dia e uma vez por semana enquanto estiver atrasado.</p>
       ${existente ? blocoFinanceiro(d) : ""}
+      ${existente ? blocoPortal(d) : ""}
     </div>
     <div class="dlg-rodape">
       ${existente ? `<button class="btn btn-perigo esquerda" type="button" id="btn-excluir">Excluir</button>` : ""}
@@ -166,6 +192,12 @@ function abrirDemanda(id, novo = {}) {
   </form>`;
 
   const form = $("#form-demanda", dlg);
+  if (existente) {
+    const reabrir = async () => { await recarregar(); abrirDemanda(d.id); };
+    ligarArquivos(form, { armazem, lista: arquivos.filter((a) => a.demanda_id === d.id),
+      alvo: { email: d.email, cliente_id: d.cliente_id, demanda_id: d.id }, depois: reabrir });
+    ligarConvites(form, armazem, reabrir);
+  }
   // Ao mudar a etapa, registra a data correspondente se estiver em branco
   form.elements.etapa.addEventListener("change", (e) => {
     const campo = DATAS_ETAPA[e.target.value];
@@ -177,7 +209,7 @@ function abrirDemanda(id, novo = {}) {
     const f = new FormData(form);
     const dados = { ...d };
     for (const nome of ["titulo", "servico", "cliente", "contato", "email", "telefone", "cidade", "uf", "origem", "etapa",
-      "recebida_em", "proposta_em", "prazo", "aprovada_em", "concluida_em", "art_id", "observacao"]) {
+      "recebida_em", "proposta_em", "prazo", "aprovada_em", "concluida_em", "art_id", "observacao", "cliente_id", "nota_cliente"]) {
       const v = (f.get(nome) ?? "").toString().trim();
       dados[nome] = v === "" ? null : v;
     }
@@ -201,7 +233,7 @@ function abrirDemanda(id, novo = {}) {
     await recarregar();
   });
 
-  dlg.showModal();
+  if (!dlg.open) dlg.showModal();
 }
 
 // ---------------------------------------------------------------- acompanhamento (pop-up ao entrar)
