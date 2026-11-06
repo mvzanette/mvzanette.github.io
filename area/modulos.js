@@ -7,6 +7,7 @@ const svg = (caminhos) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true"
 // Profissional: as funções da engenharia e as finanças das empresas onde você trabalha. Pessoal: finanças
 // pessoais (gastos e investimentos de cada pessoa), separadas do controle financeiro da engenharia.
 export const GRUPOS = [
+  { id: "cliente", titulo: "Seus serviços" },
   { id: "profissional", titulo: "Profissional" },
   { id: "pessoal", titulo: "Pessoal" },
   { id: "admin", titulo: "Administração" },
@@ -62,12 +63,48 @@ export const MODULOS = [
     icone: svg('<path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h4"/>'),
   },
   {
+    // Base de clientes: aparece para quem tem o Controle de demandas ou o de ART
+    id: "clientes",
+    grupo: "profissional",
+    titulo: "Clientes",
+    descricao: "Cadastro dos clientes, com os e-mails de acesso ao portal, as solicitações, as ARTs acompanhadas e os arquivos.",
+    pagina: "clientes.html",
+    icone: svg('<path d="M3 21V5a2 2 0 0 1 2-2h8l6 6v12"/><circle cx="11" cy="12" r="2.5"/><path d="M7 18a4 4 0 0 1 8 0"/>'),
+  },
+  // Portal do cliente: o que é dele (as demandas com o e-mail dele, os arquivos e as ARTs que ele acompanha)
+  {
+    id: "pedidos",
+    grupo: "cliente",
+    titulo: "Meus pedidos",
+    descricao: "Acompanhe cada solicitação: proposta, aprovação, execução e conclusão.",
+    pagina: "pedidos.html",
+    portal: true,
+    icone: svg('<path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="m9 14 2 2 4-4"/>'),
+  },
+  {
+    id: "arquivos",
+    grupo: "cliente",
+    titulo: "Arquivos e ARTs",
+    descricao: "Baixe os laudos e documentos do seu serviço e veja o vencimento das ARTs que você acompanha.",
+    pagina: "arquivos.html",
+    portal: true,
+    icone: svg('<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>'),
+  },
+  {
     id: "financas",
     grupo: "pessoal",
     titulo: "Finanças pessoais",
     descricao: "Gastos do dia a dia, cartão e faturas e investimentos: o painel do projeto Financeiro, de cada pessoa.",
     pagina: "financas.html",
     icone: svg('<path d="M12 2v20"/><path d="M17 6H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>'),
+  },
+  {
+    id: "veiculos",
+    grupo: "pessoal",
+    titulo: "Veículos pessoais",
+    descricao: "Manutenção preventiva por tempo, km ou horas, marcadores, histórico de serviços e peças, despesas e notas fiscais.",
+    pagina: "veiculos.html",
+    icone: svg('<path d="M5 17h14"/><path d="M3 17v-4l2-5a2 2 0 0 1 1.9-1.4h10.2A2 2 0 0 1 19 8l2 5v4"/><path d="M3 13h18"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/>'),
   },
   {
     id: "usuarios",
@@ -96,6 +133,9 @@ export const PERMISSOES = [
   { id: "empresas", titulo: "Finanças das empresas", detalhe: "Lançamentos com as empresas cadastradas: reembolsos, ARTs pagas por elas e valores a receber." },
   { id: "demandas", titulo: "Controle de demandas", detalhe: "Todas as solicitações de clientes, propostas e prazos." },
   { id: "financas", titulo: "Finanças pessoais", detalhe: "Gastos, cartão e investimentos: o painel do projeto Financeiro da própria pessoa." },
+  { id: "veiculos", titulo: "Veículos pessoais", detalhe: "Os veículos da própria pessoa: preventivas, marcadores, serviços, despesas e notas, com avisos por e-mail." },
+  { id: "pedidos", titulo: "Meus pedidos (portal do cliente)", detalhe: "As demandas com o e-mail da pessoa ou do cliente dela na base: etapas e recado." },
+  { id: "arquivos", titulo: "Arquivos e ARTs (portal do cliente)", detalhe: "Os arquivos disponibilizados para a pessoa e as ARTs que o cliente dela acompanha." },
 ];
 
 export const PAPEIS = {
@@ -112,7 +152,7 @@ export const PAPEIS = {
   cliente: {
     titulo: "Cliente",
     descricao: "Clientes da engenharia. Nunca acessam os módulos profissionais.",
-    padrao: [],
+    padrao: ["pedidos", "arquivos"],
   },
 };
 
@@ -135,9 +175,12 @@ export function pode(perfil, modulo) {
   if (!perfil || perfil.situacao !== "ativo") return false;
   const m = MODULOS.find((x) => x.id === modulo);
   if (m && m.todos) return true;
+  // O portal do cliente só aparece para quem recebeu o módulo (o administrador não tem pedidos próprios)
+  if (m && m.portal) return perfil.papel !== "adm" && (perfil.modulos || []).includes(modulo);
   if (perfil.papel === "adm") return true;
   if (m && m.somenteAdm) return false;
   if (modulo === "painel") return DO_PAINEL.some((e) => pode(perfil, e));
+  if (modulo === "clientes") return ["demandas", "art"].some((e) => pode(perfil, e));
   return liberavel(perfil.papel, modulo) && (perfil.modulos || []).includes(modulo);
 }
 
@@ -154,6 +197,7 @@ export const TIPOS_TAREFA = [
   { id: "arts", titulo: "ARTs que precisam de baixa ou ação", detalhe: "Controle de ART", modulo: "art" },
   { id: "demandas", titulo: "Demandas em andamento", detalhe: "Controle de demandas", modulo: "demandas" },
   { id: "caixa", titulo: "Documentos do caixa a aprovar", detalhe: "caixa das empresas", modulo: "empresas" },
+  { id: "veiculos", titulo: "Preventivas e leituras dos veículos", detalhe: "vencidas, próximas e leituras de km/horas com mais de 3 meses", modulo: "veiculos" },
 ];
 
 export function recebeTarefa(perfil, id) {

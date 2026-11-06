@@ -1,0 +1,106 @@
+/* Área restrita – Veículos pessoais (complementa area.css) */
+.veic-vazio h2 { margin-top: 0; }
+.veic-passos { margin: 0 0 20px; padding-left: 20px; line-height: 1.7; }
+
+.veic-barra {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 20px;
+  margin-bottom: 14px;
+}
+.veic-barra .dica { flex: 1 1 380px; margin: 0; }
+.veic-barra-acoes { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-left: auto; }
+.veic-barra select { width: auto; min-width: 220px; }
+.veic .kpi-valor { font-size: 1.45rem; }
+.veic-quebra { height: 0; }
+
+/* Cards da visão geral: um por veículo */
+.veic-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px;
+  margin-bottom: 28px;
+}
+.veic-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 20px;
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-top: 4px solid var(--ok);
+}
+.veic-card.estado-proxima { border-top-color: var(--yellow); }
+.veic-card.estado-vencida { border-top-color: var(--erro); }
+.veic-card header { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.veic-card h3 { margin: 0; font-size: 1.15rem; color: var(--graphite-900); }
+.veic-card header p { margin: 2px 0 0; font-size: 0.85rem; color: var(--muted); }
+.veic-leitura { display: flex; flex-direction: column; padding: 10px 12px; background: var(--gray-100); }
+.veic-leitura strong { font: 700 1.35rem/1.2 var(--font-head); color: var(--graphite-900); }
+.veic-leitura span { font-size: 0.82rem; color: var(--muted); }
+.veic-prev { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.veic-prev li { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; font-size: 0.9rem; }
+.veic-prev li small { display: block; font-size: 0.78rem; color: var(--muted); }
+.veic-card footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: auto; padding-top: 4px; }
+.veic-card footer .btn { padding: 8px 14px; font-size: 0.78rem; }
+
+/* Avisos */
+.veic-alertas { list-style: none; margin: 0 0 20px; padding: 0; display: grid; gap: 10px; }
+.veic-alerta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px 20px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-left: 5px solid var(--yellow);
+}
+.veic-alerta.g-vencida { border-left-color: var(--erro); }
+.veic-alerta div { flex: 1 1 320px; }
+.veic-alerta p { margin: 4px 0 0; font-size: 0.9rem; color: var(--muted); }
+.veic-ok { padding: 14px 16px; background: var(--c-e8f5e9); border-left: 5px solid var(--ok); }
+
+/* Tabelas */
+.veic-tabela .veic-grupo th {
+  background: var(--gray-100);
+  color: var(--graphite-900);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+:root[data-tema="escuro"] .veic-tabela .veic-grupo th { background: #2b3036; color: #fff; }
+.veic-tabela tr.inativa td { opacity: 0.6; }
+.veic-tabela .etiqueta small { max-width: 260px; white-space: normal; }
+.veic-clipe { font-weight: 600; white-space: nowrap; }
+.veic-tipo-preventiva { border-color: var(--ok); color: var(--ok); }
+.veic-tipo-corretiva { border-color: var(--erro); color: var(--erro); }
+.veic-tipo-peca { border-color: var(--serie-1, #2a78d6); color: var(--serie-1, #2a78d6); }
+
+.veic-grade {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.veic-grade h3 { margin: 0 0 14px; font-size: 0.85rem; letter-spacing: 0.1em; text-transform: uppercase; }
+
+/* Diálogos */
+.veic-check { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+.veic-check input { width: auto; }
+.veic-mt { margin-top: 18px; }
+.veic-opcoes { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px 16px; }
+.veic-opcoes label { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-weight: 500; }
+.veic-opcoes input { width: auto; }
+.veic-item { display: grid; grid-template-columns: 1fr 80px 140px auto; gap: 8px; margin-bottom: 8px; align-items: center; }
+.veic-arquivos { display: grid; gap: 6px; margin-top: 10px; }
+.veic-arquivos small { font-weight: 400; color: var(--muted); }
+
+@media (max-width: 720px) {
+  .veic-cards, .veic-grade { grid-template-columns: 1fr; }
+  .veic-item { grid-template-columns: 1fr 64px 100px auto; }
+  .veic-barra select { min-width: 0; width: 100%; }
+}

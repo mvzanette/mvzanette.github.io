@@ -6,6 +6,8 @@ const COLUNAS = [
   "endereco", "contrato", "valor", "taxa", "celebrado", "inicio", "fim", "registrada", "atividades",
   "tos", "observacao", "chave", "tipo_servico", "baixa_data", "baixa_motivo", "anterior_id", "pdf_path", "notas",
   "vinculo", "empresa_id", "acao", "arquivada_em", "taxa_paga",
+  // Acompanhada por um cliente da base: aparece no portal dele e, com aviso_cliente, ele recebe o e-mail antes de vencer
+  "cliente_id", "acompanhada", "aviso_cliente", "aviso_dias", "aviso_emails",
 ];
 
 const somenteColunas = (art) => Object.fromEntries(COLUNAS.filter((c) => c in art).map((c) => [c, art[c] ?? null]));
@@ -13,15 +15,25 @@ const somenteColunas = (art) => Object.fromEntries(COLUNAS.filter((c) => c in ar
 const novoId = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()));
 
 // ART com todas as colunas e com id: várias ARTs (novas e já cadastradas) gravam juntas sem apagar campos
-const PADRAO_ART = { crea: "MG", atividades: [], tos: [] };
+const PADRAO_ART = { crea: "MG", atividades: [], tos: [], acompanhada: false, aviso_cliente: false, aviso_dias: 30, aviso_emails: [] };
 const linhaArt = (art) => ({ ...Object.fromEntries(COLUNAS.map((c) => [c, art[c] ?? PADRAO_ART[c] ?? null])), id: art.id || novoId() });
 
 // Demais tabelas da área restrita (financeiro e demandas): colunas gravadas e colunas numéricas
 const TABELAS = {
   demandas: {
     colunas: ["id", "titulo", "cliente", "contato", "email", "telefone", "cidade", "uf", "servico", "origem", "etapa",
-      "valor", "recebida_em", "proposta_em", "aprovada_em", "concluida_em", "prazo", "art_id", "observacao"],
+      "valor", "recebida_em", "proposta_em", "aprovada_em", "concluida_em", "prazo", "art_id", "observacao", "cliente_id", "nota_cliente"],
     numeros: ["valor"],
+  },
+  // Base de clientes (empresas e pessoas atendidas, com os e-mails de quem acompanha pelo site)
+  clientes: {
+    colunas: ["id", "nome", "documento", "emails", "telefone", "cidade", "uf", "observacao"],
+    numeros: [],
+  },
+  // Arquivos disponibilizados para os clientes baixarem (o arquivo fica no armazenamento "clientes")
+  arquivos_cliente: {
+    colunas: ["id", "email", "cliente_id", "demanda_id", "nome", "descricao", "caminho", "tamanho", "tipo"],
+    numeros: ["tamanho"],
   },
   lancamentos: {
     colunas: ["id", "tipo", "descricao", "categoria", "cliente", "valor", "competencia", "vencimento", "pago_em",
@@ -34,6 +46,35 @@ const TABELAS = {
       "documento_nome", "detalhes", "observacao"],
     numeros: ["valor"],
   },
+};
+
+// Veículos pessoais (area/veiculos.html): o dono (perfil_id) de cada registro filho é sempre o do veículo (o banco confere)
+TABELAS.veiculos = {
+  colunas: ["id", "perfil_id", "nome", "tipo", "marca", "modelo", "ano", "placa", "chassi", "renavam", "combustivel", "medidor",
+    "aquisicao", "observacao", "ativo", "compartilhado_com"],
+  numeros: [],
+};
+TABELAS.veiculos_marcadores = { colunas: ["id", "perfil_id", "veiculo_id", "data", "km", "horas", "observacao"], numeros: ["km", "horas"] };
+TABELAS.veiculos_planos = {
+  colunas: ["id", "perfil_id", "veiculo_id", "nome", "intervalo_meses", "intervalo_km", "intervalo_horas", "aviso_dias", "aviso_km",
+    "aviso_horas", "ultima_data", "ultima_km", "ultima_horas", "observacao", "ativo"],
+  numeros: ["intervalo_meses", "intervalo_km", "intervalo_horas", "aviso_dias", "aviso_km", "aviso_horas", "ultima_km", "ultima_horas"],
+};
+TABELAS.veiculos_servicos = {
+  colunas: ["id", "perfil_id", "veiculo_id", "data", "tipo", "categoria", "descricao", "km", "horas", "valor", "fornecedor", "nota",
+    "planos", "itens", "observacao", "gasto_id"],
+  numeros: ["km", "horas", "valor"],
+};
+TABELAS.veiculos_anexos = {
+  colunas: ["id", "perfil_id", "veiculo_id", "servico_id", "nome", "descricao", "caminho", "tamanho", "tipo"],
+  numeros: ["tamanho"],
+};
+// Tipo do arquivo anexado aos veículos pelo nome, quando o navegador não informa (o banco aceita PDF, fotos e XML da NF-e)
+const TIPOS_ANEXO = { pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp",
+  heic: "image/heic", heif: "image/heif", xml: "application/xml" };
+export const tipoAnexo = (arquivo) => {
+  const ext = String(arquivo.name || "").split(".").pop().toLowerCase();
+  return TIPOS_ANEXO[ext] || (Object.values(TIPOS_ANEXO).includes(arquivo.type) ? arquivo.type : arquivo.type === "text/xml" ? "application/xml" : null);
 };
 
 // Configuração do caixa das empresas: quais empresas, saldo inicial e o saldo informado da conta do caixa
@@ -63,7 +104,7 @@ const numeros = (nome, obj) => {
 
 // Cadastro de usuários: o que o administrador grava (o resto o banco preenche a cada acesso)
 const COLUNAS_PERFIL = ["email", "nome", "papel", "modulos", "situacao", "link_financas", "observacao", "casal_com", "tarefas"];
-const TAREFAS_VALIDAS = ["classificar", "apagar", "arts", "demandas", "caixa", "caixinhas"];
+const TAREFAS_VALIDAS = ["classificar", "apagar", "arts", "demandas", "caixa", "caixinhas", "veiculos"];
 const SEM_ADM = "É preciso manter pelo menos um administrador ativo.";
 export const BANCO_DESATUALIZADO =
   "O banco de dados precisa ser atualizado: rode de novo o arquivo supabase/schema.sql no SQL Editor do Supabase.";
@@ -397,7 +438,7 @@ function armazemDemo() {
         const existente = linha.id && lista.find((x) => x.id === linha.id);
         let r;
         if (existente) r = Object.assign(existente, linha);
-        else lista.push((r = { ...linha, id: linha.id || novoId() }));
+        else lista.push((r = { criado_em: new Date().toISOString(), ...linha, id: linha.id || novoId() }));
         gravarJson(chave, lista);
         return structuredClone(r);
       },
@@ -485,6 +526,18 @@ function armazemDemo() {
       const perfis = lerPerfis();
       const agora = new Date().toISOString();
       let p = perfis.find((x) => x.email === email);
+      // Mesma regra do banco: e-mail de um pedido, demanda ou cliente da base entra como cliente, já liberado
+      const doPortal = !p && algumAdm(perfis)
+        && ((await colecoes.demandas.listar()).some((d) => (d.email || "").toLowerCase() === email)
+          || (await colecoes.clientes.listar()).some((c) => (c.emails || []).includes(email)));
+      if (doPortal) {
+        p = {
+          id: novoId(), email, nome: null, papel: "cliente", modulos: ["pedidos", "arquivos"], situacao: "ativo", link_financas: null,
+          observacao: "Conta criada pelo convite do acompanhamento de pedidos.",
+          primeiro_acesso: null, ultimo_acesso: null, visita_anterior: null, acessos: 0, criado_em: agora,
+        };
+        perfis.push(p);
+      }
       if (!p) {
         const temAdm = algumAdm(perfis);
         p = {
@@ -873,6 +926,69 @@ function armazemDemo() {
     },
     colecao(nome) {
       return colecoes[nome];
+    },
+    // Notas fiscais e fotos dos veículos: na demonstração, só durante a sessão
+    veiculos: {
+      async pessoas() {
+        return lerPerfis().filter((p) => p.situacao === "ativo" && (p.papel === "adm" || (p.modulos || []).includes("veiculos")))
+          .map((p) => ({ id: p.id, nome: (p.nome || p.email).split(/[ @]/)[0] }));
+      },
+      async enviarAnexo(veiculoId, arquivo) {
+        if (!tipoAnexo(arquivo)) throw new Error("Tipo de arquivo não aceito. Envie PDF, foto (JPG, PNG, HEIC) ou o XML da nota.");
+        if (arquivo.size > 20 * 1024 * 1024) throw new Error("Arquivo grande demais (até 20 MB).");
+        const caminho = `${veiculoId}/${caminhoDocumento(arquivo.name)}`;
+        docsCaixa.set(caminho, URL.createObjectURL(arquivo));
+        return caminho;
+      },
+      async urlAnexo(caminho) {
+        return docsCaixa.get(caminho) || null;
+      },
+      async apagarAnexo(caminho) {
+        docsCaixa.delete(caminho);
+      },
+    },
+    // Portal do cliente: o que o cliente logado vê (as mesmas regras de meus_pedidos e minhas_arts no banco)
+    portal: {
+      async pedidos() {
+        const meu = (sessao.ler() || "").toLowerCase();
+        const clientes = new Set((await colecoes.clientes.listar()).filter((c) => (c.emails || []).includes(meu)).map((c) => c.id));
+        return (await colecoes.demandas.listar())
+          .filter((d) => (d.email || "").toLowerCase() === meu || clientes.has(d.cliente_id))
+          .map((d) => ({ ...d, valor: d.etapa === "recebida" ? null : d.valor, observacao: undefined, prazo: undefined,
+            art_numero: (estado.arts.find((a) => a.id === d.art_id) || {}).numero || null }))
+          .sort((a, b) => String(b.recebida_em).localeCompare(String(a.recebida_em)));
+      },
+      async arts() {
+        const meu = (sessao.ler() || "").toLowerCase();
+        const clientes = new Set((await colecoes.clientes.listar()).filter((c) => (c.emails || []).includes(meu)).map((c) => c.id));
+        return structuredClone(estado.arts.filter((a) => a.acompanhada && clientes.has(a.cliente_id) && !a.baixa_data && a.acao !== "arquivada"));
+      },
+      async arquivos() {
+        const meu = (sessao.ler() || "").toLowerCase();
+        const clientes = new Set((await colecoes.clientes.listar()).filter((c) => (c.emails || []).includes(meu)).map((c) => c.id));
+        const p = eu();
+        const equipe = p && p.papel === "adm";
+        return (await colecoes.arquivos_cliente.listar()).filter((a) => equipe || a.email === meu || clientes.has(a.cliente_id));
+      },
+      async enviarArquivo(arquivo) {
+        const caminho = `demo/${caminhoDocumento(arquivo.name)}`;
+        docsCaixa.set(caminho, URL.createObjectURL(arquivo));
+        return caminho;
+      },
+      async urlArquivo(caminho) {
+        return docsCaixa.get(caminho) || null;
+      },
+      async apagarArquivo(caminho) {
+        docsCaixa.delete(caminho);
+      },
+      async registrarDownload() {},
+      async convidar() {
+        return "demo";
+      },
+      async emailsComConta(emails) {
+        const perfis = lerPerfis();
+        return (emails || []).filter((e) => perfis.some((p) => p.email === e && p.user_id));
+      },
     },
     async limparTudo() {
       estado = { arts: [], tratados: [] };
@@ -1269,10 +1385,84 @@ async function armazemSupabase(url, chave) {
         falhou(error);
       },
     },
+    portal: {
+      async pedidos() {
+        const { data, error } = await sb.rpc("meus_pedidos");
+        if (error) throw new Error(/meus_pedidos/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+        return (data || []).map((d) => ({ ...d, valor: d.valor == null ? null : Number(d.valor) }));
+      },
+      async arts() {
+        const { data, error } = await sb.rpc("minhas_arts");
+        if (error) throw new Error(/minhas_arts/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+        return data || [];
+      },
+      async arquivos() {
+        const { data, error } = await sb.from("arquivos_cliente").select("*").order("criado_em", { ascending: false });
+        if (error) throw new Error(/arquivos_cliente/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+        return (data || []).map((a) => numeros("arquivos_cliente", a));
+      },
+      async enviarArquivo(arquivo) {
+        const caminho = caminhoDocumento(arquivo.name);
+        const { error } = await sb.storage.from("clientes").upload(caminho, arquivo, { upsert: false, contentType: arquivo.type || "application/octet-stream" });
+        if (error) throw new Error(/bucket/i.test(error.message) ? BANCO_DESATUALIZADO : /size|large/i.test(error.message) ? "Arquivo grande demais (até 50 MB)." : error.message);
+        return caminho;
+      },
+      // Link temporário (10 minutos); com o nome, o navegador baixa em vez de abrir
+      async urlArquivo(caminho, nome) {
+        const { data, error } = await sb.storage.from("clientes").createSignedUrl(caminho, 600, nome ? { download: nome } : undefined);
+        falhou(error);
+        return data.signedUrl;
+      },
+      async apagarArquivo(caminho) {
+        const { error } = await sb.storage.from("clientes").remove([caminho]);
+        falhou(error);
+      },
+      async registrarDownload(idArquivo) {
+        await sb.rpc("registrar_download", { p_id: idArquivo });
+      },
+      async convidar(email, nome) {
+        const { data, error } = await sb.rpc("convidar_cliente", { p_email: email, p_nome: nome || null });
+        if (error) throw new Error(/convidar_cliente/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+        return data;
+      },
+      async emailsComConta(emails) {
+        if (!emails.length) return [];
+        const { data, error } = await sb.rpc("emails_com_conta", { p_emails: emails });
+        if (error) return [];
+        return data || [];
+      },
+    },
+    // Veículos: pessoas para compartilhar e as notas fiscais e fotos (pasta com o id do veículo; o banco confere quem pode)
+    veiculos: {
+      async pessoas() {
+        const { data, error } = await sb.rpc("pessoas_veiculos");
+        if (error) throw new Error(error.code === "PGRST202" || /pessoas_veiculos/.test(error.message) ? BANCO_DESATUALIZADO : error.message);
+        return data || [];
+      },
+      async enviarAnexo(veiculoId, arquivo) {
+        const tipo = tipoAnexo(arquivo);
+        if (!tipo) throw new Error("Tipo de arquivo não aceito. Envie PDF, foto (JPG, PNG, HEIC) ou o XML da nota.");
+        if (arquivo.size > 20 * 1024 * 1024) throw new Error("Arquivo grande demais (até 20 MB).");
+        const caminho = `${veiculoId}/${caminhoDocumento(arquivo.name)}`;
+        const { error } = await sb.storage.from("veiculos").upload(caminho, arquivo, { upsert: false, contentType: tipo });
+        if (error) throw new Error(/bucket/i.test(error.message) ? BANCO_DESATUALIZADO : /mime|type/i.test(error.message) ? "Tipo de arquivo não aceito." : error.message);
+        return caminho;
+      },
+      async urlAnexo(caminho, nome) {
+        const { data, error } = await sb.storage.from("veiculos").createSignedUrl(caminho, 600, nome ? { download: nome } : undefined);
+        falhou(error);
+        return data.signedUrl;
+      },
+      async apagarAnexo(caminho) {
+        const { error } = await sb.storage.from("veiculos").remove([caminho]);
+        falhou(error);
+      },
+    },
     colecao(nome) {
       return {
         async listar() {
           const { data, error } = await sb.from(nome).select("*");
+          if (error && nome.startsWith("veiculos") && (error.code === "42P01" || error.code === "PGRST205")) throw new Error(BANCO_DESATUALIZADO);
           falhou(error);
           return (data || []).map((x) => numeros(nome, x));
         },

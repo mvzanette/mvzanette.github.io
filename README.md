@@ -111,7 +111,7 @@ Endereço: `area-restrita.html` (link discreto no rodapé do site; não aparece 
 
 ## Como funciona
 
-1. **Login** (`area-restrita.html`): usuário (e-mail) e senha. Tem "Esqueci a senha", que envia um link para criar uma senha nova.
+1. **Login** (`area-restrita.html`): usuário (e-mail) e senha. Tem "Esqueci a senha", que envia um link para criar uma senha nova. O link do convite do cliente também volta aqui, com a tela "Bem-vindo! Crie sua senha".
 2. **Início** (`area/index.html`): o índice da área, com saudação, data do último acesso e um card para cada módulo liberado ao perfil, em divisões:
    - **Profissional** (as funções da engenharia e as empresas onde você trabalha): Painel gerencial, Controle de ART, Controle financeiro, Finanças de cada empresa cadastrada e Controle de demandas;
    - **Pessoal**: Finanças pessoais (gastos e investimentos, de cada pessoa);
@@ -133,6 +133,9 @@ Módulos:
 | Profissional | Controle financeiro (da engenharia) | `area/financeiro.html` |
 | Profissional | Finanças das empresas (uma entrada por empresa) | `area/empresas.html` |
 | Profissional | Controle de demandas | `area/demandas.html` |
+| Profissional | Clientes (base de clientes) | `area/clientes.html` |
+| Seus serviços (cliente) | Meus pedidos | `area/pedidos.html` |
+| Seus serviços (cliente) | Arquivos e ARTs | `area/arquivos.html` |
 | Pessoal | Finanças pessoais | `area/financas.html` |
 | Administração | Usuários e permissões | `area/usuarios.html` |
 | Sua conta | Minha conta | `area/conta.html` |
@@ -162,7 +165,7 @@ Perfis de acesso:
 2. No Supabase, **Authentication → Users → Add user → Create new user**: o mesmo e-mail, uma senha provisória e **Auto Confirm User** marcado. O site mostra o botão que abre essa tela e uma mensagem pronta para enviar à pessoa (sem a senha, que vai em separado).
 3. No primeiro acesso, a pessoa troca a senha em **Minha conta**.
 
-**Se alguém esquecer a senha:** o "Esqueci a senha" só envia e-mail para quem faz parte da equipe do projeto no Supabase (o envio para outros endereços exige configurar um servidor de e-mail próprio, SMTP). Para os demais, exclua a conta da pessoa em **Authentication → Users** e crie de novo com o mesmo e-mail e uma senha provisória: o cadastro dela no site (perfil, módulos e histórico) se liga de novo sozinho no próximo acesso.
+**Se alguém esquecer a senha:** o "Esqueci a senha" só envia e-mail para quem faz parte da equipe do projeto no Supabase (o envio para outros endereços exige configurar um servidor de e-mail próprio, SMTP: depois de "Ligar o portal", passo 3, funciona para todos). Para os demais, exclua a conta da pessoa em **Authentication → Users** e crie de novo com o mesmo e-mail e uma senha provisória: o cadastro dela no site (perfil, módulos e histórico) se liga de novo sozinho no próximo acesso.
 
 ## Finanças pessoais
 
@@ -371,6 +374,31 @@ Num grupo da aba **Investimentos**, logo abaixo dos investimentos individuais (e
 
 No **Classificar** de qualquer lançamento (fatura, gastos do dia a dia) e no **Lançar gasto / Editar gasto**, a opção **Dividir em mais de uma categoria** divide o valor em duas a oito partes, cada uma com valor, categoria, subcategoria e conta (ex.: uma compra no Mercado Livre com um item da casa e um pessoal). A primeira parte fica com o que falta para o total, e o site só salva quando a soma bate. Nas somas por categoria, por essencial e por conta (gastos pagos, gastos do dia a dia, análise da fatura, casal e páginas das empresas e da engenharia), cada parte entra na dela; a parcela de uma compra dividida segue a mesma proporção. As listas mostram o lançamento com a marca "dividido" e as partes. Fica em `financas_ajustes.partes` (lançamentos do projeto e das faturas) e em `financas_gastos.partes` (gastos lançados pelo site).
 
+## Veículos pessoais
+
+Página `area/veiculos.html` (grupo Pessoal; módulo `veiculos`, liberado para cada pessoa em Usuários e permissões). Cada pessoa
+vê os próprios veículos e os que foram compartilhados com ela (no cadastro do veículo, "Quem mais vê e lança neste veículo");
+o administrador vê todos. Quem recebe o compartilhamento lança leituras, serviços e despesas e recebe os avisos; só o dono
+altera o cadastro.
+
+- **Visão geral:** um card por veículo com a leitura atual, o uso médio por mês e as próximas preventivas; lista de avisos.
+- **Manutenção preventiva:** cada preventiva tem intervalo em meses, km e/ou horas e vence pelo que chegar primeiro. A última
+  vez vem do último serviço registrado com ela (antes disso, da data/km/horas informados no cadastro). Antecedência do aviso
+  configurável (padrão: 30 dias, 2.000 km ou metade do intervalo se ele for menor, e 10% do intervalo em horas). Com o ritmo de uso, o site também prevê a data da próxima.
+- **Marcadores:** leituras de hodômetro (km) e horímetro (horas). Pelo menos uma a cada 3 meses: aos 75 dias o site pede a
+  leitura, depois de 90 vira aviso vencido. Os km/horas anotados nos serviços também contam como leitura.
+- **Serviços e peças:** preventiva, corretiva e troca de peça, com peças e valores, oficina, nº da nota, preventivas cumpridas e
+  anexos (PDF, foto ou XML da NF-e, até 20 MB, espaço privado `veiculos`, uma pasta por pessoa).
+- **Despesas:** tudo o que tem valor (serviços e outras despesas: combustível, IPVA, seguro...), por categoria e por mês,
+  custo por km e planilha. Cada serviço ou despesa pode ser lançado também como gasto nas Finanças pessoais de quem lança
+  (categoria Transporte); editar ou excluir aqui atualiza o gasto de lá (`veiculos_servicos.gasto_id`).
+- **Avisos:** no Início (card e janela de tarefas pendentes, tipo "Preventivas e leituras dos veículos") e por e-mail pela rotina
+  `.github/workflows/alertas-veiculos.yml` (7h30, Gmail, mesmos secrets dos avisos de ART). Um e-mail por pessoa, só quando
+  surge aviso novo; o que está vencido volta uma vez por semana. As contas ficam em `area/veiculos-regras.js` (as mesmas na
+  tela e no e-mail). Teste sem banco: `node ferramentas/alertas-veiculos.mjs --teste`.
+- Banco: tabelas `veiculos`, `veiculos_marcadores`, `veiculos_planos`, `veiculos_servicos`, `veiculos_anexos` e
+  `veiculos_avisos` (no fim de `supabase/schema.sql`).
+
 ## Finanças das empresas
 
 Uma página para cada empresa com que você tem movimento financeiro (onde trabalha, ou que paga as ARTs que você tira), com entrada própria no menu e card no início. Os **nomes das empresas ficam só no banco**: o código do site é público e não cita nenhuma empresa. Cadastre, renomeie ou remova pelo botão **Empresas** da página.
@@ -421,6 +449,37 @@ O dinheiro da engenharia que você faz por conta própria (autônomo). Os lança
 - **Informativo diário por e-mail:** todo dia às 7h (Brasília, antes do horário comercial), o banco manda para `mvszanette@gmail.com` o **INFORMATIVO DIÁRIO**, com as demandas em andamento (o mesmo conteúdo do acompanhamento) e as ARTs que pedem baixa ou ação (contagens, alertas do dia — 30 e 7 dias antes, no dia e uma vez por semana depois de vencida — e, para cada ART, o fim, a ação escolhida e o próximo passo). Chega enquanto houver demanda em andamento ou ART pedindo ação. O envio é agendado no próprio Supabase (`pg_cron`, tarefa `informativo-diario`). Pelo Resend (chave `resend_api_key` no Vault) vai em HTML, com um banner feito das fotos do site (`img/informativo/`, uma por dia) no alto e também anexado; sem ela, vai em texto pelo Web3Forms (chave `web3forms_key` no Vault). Para conferir sem enviar: `select public.informativo_diario(false);` no SQL Editor. Os alertas de ART por e-mail passaram a vir só daqui: a rotina "Alertas de ART" do GitHub continua sem as chaves e não envia nada.
 - **Prazos e lembretes:** o prazo aparece no painel e no acompanhamento.
 - Bloco **Financeiro** em cada demanda, com o que já foi recebido e o que falta receber, e **exportação em planilha**.
+
+## Base de clientes e portal do cliente
+
+**Base de clientes** (`area/clientes.html`, para quem tem o Controle de demandas ou o de ART): cada empresa ou pessoa atendida, com CPF/CNPJ, telefone, cidade e os **e-mails de acesso ao portal**. A ficha do cliente mostra quem já tem acesso (com o botão **Convidar para acompanhar** para os outros), as solicitações (as demandas ligadas a ele ou com um dos e-mails dele), as ARTs que ele acompanha e os arquivos enviados para ele. **Trazer das demandas** cria os clientes a partir das demandas que ainda não têm cliente da base (agrupadas pelo nome) e liga as demandas a eles. Demanda nova com o e-mail de um cliente da base (inclusive a do formulário do site) se liga sozinha a ele.
+
+**Convite depois do formulário:** cada pedido do site faz o banco mandar ao cliente o e-mail **"Recebemos seu pedido – acompanhe pelo site"**, com o botão **Criar meu acesso** (o convite do Supabase). Quem clica cria a senha na própria tela de login e entra como **Cliente**, já liberado, com **Meus pedidos** e **Arquivos e ARTs**. Quem não quiser ignora o e-mail. Para quem já tem acesso, o convite não sai de novo. O mesmo convite sai pelo botão na demanda e na ficha do cliente (por exemplo, para pedidos que chegaram pelo WhatsApp). O link vale 24 horas; vencido, a tela de login orienta a usar **Esqueci a senha**.
+
+**O que o cliente vê** (nunca os módulos profissionais, nem as observações internas, os prazos internos ou o financeiro):
+
+- **Meus pedidos:** cada demanda dele com a linha do tempo (pedido recebido, proposta enviada, aprovada, em execução, concluída, com as datas), o que esperar da etapa, o **recado para o cliente** escrito na demanda, o valor da proposta (a partir da proposta enviada), a ART do serviço e os arquivos do pedido.
+- **Arquivos e ARTs:** os arquivos disponibilizados para ele, para baixar, e as **ARTs ativas que ele acompanha** (número, local, início, fim previsto, situação e o PDF).
+
+**Na demanda (equipe):** campo **Cliente da base**, campo **Recado para o cliente** (as Observações continuam internas) e, embaixo, o acesso ao portal (quem tem acesso e o convite) e **Arquivos para o cliente baixar**: envie um ou vários arquivos (até 50 MB cada, qualquer tipo) com uma descrição; a lista mostra se o cliente já baixou, quantas vezes e quando. Na ficha do cliente dá para enviar arquivos que não são de uma demanda.
+
+**ART acompanhada pelo cliente:** ao cadastrar ou importar uma ART nova, o sistema pergunta **"Esta ART será acompanhada ou monitorada por algum cliente?"**. **Sim** abre a configuração: o cliente da base (sugerido pelo CNPJ ou pelo nome do contratante; dá para criar um novo ali mesmo), **Avisar o cliente por e-mail antes do vencimento** (ligado), quantos **dias antes do fim previsto** (30) e, se quiser, outros e-mails para o aviso (vazio: os do cliente). Na importação de várias ARTs, a pergunta vale para o lote. Depois, cada ART tem o bloco **Acompanhamento pelo cliente**, com o botão **Configurar acompanhamento**. A ART aparece no portal do cliente enquanto não for baixada nem arquivada.
+
+**Aviso de vencimento para o cliente:** a rotina do GitHub **Avisos de ART para clientes** (`ferramentas/avisos-clientes.mjs`, todo dia às 8h de Brasília) manda **um** e-mail pelo seu Gmail quando faltam os dias escolhidos (ou menos) para o fim previsto, com cópia oculta para você, e guarda a data do envio. Se o fim previsto mudar (prorrogação), o aviso volta a valer para a data nova. Para conferir sem banco e sem envio: `node ferramentas/avisos-clientes.mjs --teste`.
+
+### Ligar o portal (uma única vez, ~15 minutos)
+
+1. **Rode de novo o `supabase/schema.sql`** no SQL Editor do Supabase (cria a base de clientes, os arquivos, as ARTs acompanhadas e o convite).
+2. **Senha de app do Google:** em [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) (precisa da verificação em duas etapas ligada), crie uma senha de app com o nome "Site" e copie os 16 caracteres.
+3. **E-mail do Supabase pelo Gmail:** em **Authentication → Emails → SMTP Settings**, ligue *Enable custom SMTP* e preencha: *Sender email* `mvszanette@gmail.com`, *Sender name* `Marcos Zanette – Engenharia Mecânica`, *Host* `smtp.gmail.com`, *Port* `465`, *Username* `mvszanette@gmail.com`, *Password* a senha de app. Salve. (Isso também faz o **Esqueci a senha** funcionar para todos, não só para você.) Em **Authentication → Rate Limits**, suba *Rate limit for sending emails* para 30 por hora.
+4. **Texto do convite:** em **Authentication → Emails → Templates → Invite user**, cole o assunto e o corpo de `supabase/emails/convite-cliente.html`.
+5. **Chaves do convite no Vault:** em **Project Settings → API Keys**, copie a *secret key* (`sb_secret_…`) e rode no SQL Editor:
+   `select vault.create_secret('https://dhhwxzvcvzgvxejnyczn.supabase.co', 'supabase_url');`
+   `select vault.create_secret('sb_secret_…', 'service_role_key');`
+6. **Aviso das ARTs:** no GitHub, **Settings → Secrets and variables → Actions → New repository secret**: `GMAIL_USUARIO` = `mvszanette@gmail.com` e `GMAIL_SENHA_APP` = a senha de app. (`SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` já estão lá, da cópia de segurança.)
+7. **Teste:** faça um pedido pelo formulário do site com outro e-mail seu; o convite deve chegar em 1 minuto. Para o aviso de ART, rode a rotina em **Actions → Avisos de ART para clientes → Run workflow**.
+
+Sem os passos 3 a 5, o portal funciona para quem você cadastrar à mão (Usuários e permissões, perfil Cliente), só o convite não sai. Sem o passo 6, a rotina roda e não envia nada.
 
 ## Controle de ART
 

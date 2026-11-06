@@ -2471,3 +2471,35 @@ tr.marcada td { background: var(--c-fffbea); }
   --graphite-900: #16181b; --graphite-800: #1f2328; --graphite-700: #2b3036; --graphite-600: #3b4148; --text: #1e2125; --muted: #59616a;
 }
 :root[data-tema="escuro"] .cj.oi .oi-decisao .btn { color: #111214; }
+
+/* ---------------------------------------------------------------- portal do cliente */
+.campos .c1 { grid-column: span 1; }
+.ok-texto { color: var(--ok); font-weight: 700; }
+.btn-link.perigo { color: var(--c-b42318, #b42318); }
+.portal-lista { display: grid; gap: 18px; margin-top: 16px; }
+.pedido-cab { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.pedido-cab h2 { margin: 0 0 2px; font-size: 1.15rem; }
+.pedido-proximo { margin: 10px 0; font-weight: 500; }
+.pedido-dados { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 8px 0 0; }
+.pedido-dados dt { font-size: 0.78rem; color: var(--gray-500); }
+.pedido-dados dd { margin: 0; font-weight: 700; }
+.recado { border-left: 3px solid var(--yellow); background: var(--gray-100); padding: 10px 14px; margin: 10px 0; }
+.recado p { margin: 4px 0 0; }
+.linha-tempo { list-style: none; display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; padding: 0; margin: 14px 0 4px; counter-reset: passo; }
+.linha-tempo li { position: relative; padding-top: 14px; border-top: 4px solid var(--gray-300); font-size: 0.82rem; color: var(--gray-500); }
+.linha-tempo li span { display: block; font-weight: 700; }
+.linha-tempo li small { display: block; }
+.linha-tempo li.feito { border-top-color: var(--ok); color: var(--graphite-700); }
+.linha-tempo li.atual { border-top-color: var(--yellow); color: var(--text, var(--graphite-900)); }
+.linha-tempo.encerrada li { opacity: 0.6; }
+.lista-arquivos { list-style: none; padding: 0; margin: 8px 0 12px; display: grid; gap: 8px; }
+.lista-arquivos li { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+  border: 1px solid var(--gray-300); padding: 8px 12px; }
+.lista-arquivos small { display: block; }
+.acomp-cliente { display: grid; gap: 10px; }
+@media (max-width: 640px) {
+  .linha-tempo { grid-template-columns: 1fr; }
+  .linha-tempo li { padding-top: 6px; border-top: 0; border-left: 4px solid var(--gray-300); padding-left: 10px; }
+  .linha-tempo li.feito { border-left-color: var(--ok); }
+  .linha-tempo li.atual { border-left-color: var(--yellow); }
+}

@@ -47,6 +47,16 @@ export const tarefaCaixinhas = (lista, href = "financas.html#caixinhas") => ({
   texto: `${lista.map((x) => `${x.nome} (faltam ${Number(x.falta || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} até ${x.ate})`).join("; ")}. Faltam 3 meses ou menos para a data e o saldo está abaixo do esperado.`,
 });
 
+export const tarefaVeiculos = (alertas, href = "veiculos.html") => {
+  const venc = alertas.filter((a) => a.gravidade === "vencida").length;
+  return {
+    id: "veiculos", n: alertas.length, href, botao: "Ver os veículos",
+    resumo: plural(alertas.length, "aviso dos veículos", "avisos dos veículos") + (venc ? ` (${venc} ${venc === 1 ? "vencido" : "vencidos"})` : ""),
+    titulo: alertas.length === 1 ? "Aviso dos veículos" : "Avisos dos veículos",
+    texto: `${alertas.slice(0, 3).map((a) => a.titulo).join("; ")}${alertas.length > 3 ? "; …" : ""}. Preventivas vencidas ou próximas e leituras de km/horas com mais de 3 meses.`,
+  };
+};
+
 // Pendências do painel de finanças da pessoa, com o mesmo cálculo do painel: lançamentos a classificar e gastos
 // lançados como a pagar com a data já chegada
 export async function contarPendenciasFinancas(armazem, perfilId) {

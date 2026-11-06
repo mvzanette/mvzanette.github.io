@@ -6,7 +6,8 @@ import * as R from "./regras.js";
 import * as G from "./regras-gestao.js";
 import { resumoCaixa } from "./caixa-documentos.js";
 import { $, esc, moeda, moedaCurta } from "./ui.js";
-import { contarPendenciasFinancas, faixaTarefas, mostrarTarefas, tarefaAPagar, tarefaArts, tarefaCaixa, tarefaClassificar, tarefaDemandas } from "./tarefas.js";
+import { contarPendenciasFinancas, faixaTarefas, mostrarTarefas, tarefaAPagar, tarefaArts, tarefaCaixa, tarefaClassificar, tarefaDemandas, tarefaVeiculos } from "./tarefas.js";
+import { carregarAlertasVeiculos } from "./veiculos-regras.js";
 
 const hoje = R.hojeISO();
 const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
@@ -94,6 +95,16 @@ async function resumos(armazem, perfil, empresas) {
   }
   if (financas === null) r.financas = { texto: "Importe o arquivo do painel do projeto Financeiro", alerta: true };
   else if (financas) r.financas = { texto: financas.dados && financas.dados.gerado_em ? `Dados de ${financas.dados.gerado_em}` : "Dados importados" };
+  if (tem("veiculos")) {
+    const veic = await carregarAlertasVeiculos(armazem).catch(() => null);
+    if (veic) {
+      const venc = veic.alertas.filter((a) => a.gravidade === "vencida").length;
+      r.tarefas.push(tarefaVeiculos(veic.alertas));
+      r.veiculos = !veic.quadros.length ? { texto: "Cadastre o primeiro veículo", alerta: true }
+        : veic.alertas.length ? { texto: `${plural(veic.alertas.length, "aviso", "avisos")}${venc ? ` (${venc} ${venc === 1 ? "vencido" : "vencidos"})` : ""}`, alerta: true }
+        : { texto: `${plural(veic.quadros.length, "veículo em dia", "veículos em dia")}` };
+    }
+  }
   if (usuarios) {
     const pendentes = usuarios.filter((u) => u.situacao === "pendente").length;
     const ativos = usuarios.filter((u) => situacaoDe(u) === "ativo").length;

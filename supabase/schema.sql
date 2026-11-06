@@ -171,14 +171,14 @@ alter table public.perfis add constraint perfis_casal_check check (casal_com is 
 -- Módulos que podem ser liberados (refeito a cada versão, para incluir os módulos novos)
 alter table public.perfis drop constraint if exists perfis_modulos_check;
 alter table public.perfis add constraint perfis_modulos_check
-  check (modulos <@ array['art', 'financeiro', 'demandas', 'financas', 'empresas']::text[]);
+  check (modulos <@ array['art', 'financeiro', 'demandas', 'financas', 'empresas', 'pedidos', 'arquivos', 'veiculos']::text[]);
 
 -- Tarefas pendentes que a pessoa recebe (janela ao entrar e avisos que abrem sozinhos nas páginas), escolhidas em
 -- Usuários e permissões → Tarefas pendentes. Vazio (null): todas as dos módulos liberados.
 alter table public.perfis add column if not exists tarefas text[];
 alter table public.perfis drop constraint if exists perfis_tarefas_check;
 alter table public.perfis add constraint perfis_tarefas_check
-  check (tarefas is null or tarefas <@ array['classificar', 'apagar', 'arts', 'demandas', 'caixa', 'caixinhas']::text[]);
+  check (tarefas is null or tarefas <@ array['classificar', 'apagar', 'arts', 'demandas', 'caixa', 'caixinhas', 'veiculos']::text[]);
 
 -- Histórico de acessos: página aberta, data e hora e tipo de aparelho (guarda 180 dias)
 create table if not exists public.acessos (
@@ -548,6 +548,22 @@ begin
   if v_perfil.id is null and v_email <> '' then
     update public.perfis set user_id = v_uid
     where email = v_email and user_id is null
+    returning * into v_perfil;
+  end if;
+
+  -- Cliente que aceitou o convite enviado depois do formulário do site (ou pelo botão da demanda): o e-mail dele
+  -- está num pedido do site ou numa demanda, então o acesso já nasce liberado, só com o acompanhamento e os arquivos
+  if v_perfil.id is null and v_email <> '' and exists (select 1 from public.perfis where papel = 'adm' and situacao = 'ativo')
+     and (exists (select 1 from public.demandas where lower(email) = v_email)
+          or exists (select 1 from public.contatos where email = v_email)
+          or exists (select 1 from public.clientes where v_email = any (emails))) then
+    insert into public.perfis (user_id, email, nome, papel, modulos, situacao, observacao)
+    values (v_uid, v_email,
+      coalesce(nullif(auth.jwt() -> 'user_metadata' ->> 'nome', ''),
+               (select nome from public.contatos where email = v_email order by criado_em desc limit 1),
+               (select nome from public.clientes where v_email = any (emails) limit 1)),
+      'cliente', array['pedidos', 'arquivos'], 'ativo', 'Conta criada pelo convite do acompanhamento de pedidos.')
+    on conflict do nothing
     returning * into v_perfil;
   end if;
 
@@ -1384,6 +1400,567 @@ create policy "caixinhas do proprio perfil" on public.caixinhas
   for all to authenticated
   using (public.financas_acesso(perfil_id))
   with check (public.financas_acesso(perfil_id));
+
+-- ================================================================ base de clientes e portal do cliente
+-- Base de clientes: cada empresa ou pessoa atendida, com os e-mails de quem acompanha pelo site. As demandas, as ARTs
+-- acompanhadas e os arquivos se ligam ao cliente; o portal mostra a cada cliente o que é dele.
+--
+-- Depois do formulário do site, o banco manda ao cliente o convite do Supabase ("Invite user", com o texto de
+-- supabase/emails/convite-cliente.html) para criar a senha e acompanhar pela área restrita. Quem aceita entra como
+-- Cliente, com dois módulos: Meus pedidos (etapas de cada demanda e o recado do engenheiro) e Arquivos e ARTs (os
+-- arquivos disponibilizados para ele e as ARTs que ele acompanha, com o vencimento e o PDF).
+-- O convite precisa de: servidor de e-mail próprio no Supabase (Authentication → Emails → SMTP Settings, com o Gmail) e,
+-- no Vault, o endereço do projeto e a chave secreta (rodar uma vez no SQL Editor, com os valores no lugar):
+--   select vault.create_secret('https://….supabase.co', 'supabase_url', 'Endereço do projeto, para os convites');
+--   select vault.create_secret('sb_secret_…', 'service_role_key', 'Chave secreta, para os convites de clientes');
+-- Sem essas duas chaves nenhum convite sai (o resto funciona normalmente).
+
+create table if not exists public.clientes (
+  id            uuid primary key default gen_random_uuid(),
+  nome          text not null check (length(nome) between 1 and 160),
+  documento     text check (documento is null or length(documento) <= 30),
+  emails        text[] not null default '{}',
+  telefone      text check (telefone is null or length(telefone) <= 40),
+  cidade        text check (cidade is null or length(cidade) <= 80),
+  uf            text check (uf is null or uf ~ '^[A-Z]{2}$'),
+  observacao    text check (observacao is null or length(observacao) <= 2000),
+  criado_em     timestamptz not null default now(),
+  atualizado_em timestamptz not null default now()
+);
+create index if not exists clientes_emails_idx on public.clientes using gin (emails);
+
+create or replace function public.clientes_normalizar() returns trigger
+language plpgsql as $$
+begin
+  new.nome := btrim(new.nome);
+  new.documento := nullif(btrim(new.documento), '');
+  new.uf := nullif(upper(btrim(new.uf)), '');
+  new.emails := coalesce(array(select distinct lower(btrim(e)) from unnest(new.emails) as e
+                               where btrim(e) ~* '^[^@\s]+@[^@\s]+\.[^@\s]+$'), '{}');
+  return new;
+end $$;
+drop trigger if exists clientes_normalizar on public.clientes;
+create trigger clientes_normalizar before insert or update on public.clientes
+  for each row execute function public.clientes_normalizar();
+drop trigger if exists clientes_atualizado_em on public.clientes;
+create trigger clientes_atualizado_em before update on public.clientes
+  for each row execute function public.tocar_atualizado_em();
+
+alter table public.clientes enable row level security;
+revoke all on public.clientes from anon;
+grant select, insert, update, delete on public.clientes to authenticated, service_role;
+revoke truncate, trigger, references on public.clientes from authenticated;
+drop policy if exists "clientes - equipe" on public.clientes;
+create policy "clientes - equipe" on public.clientes
+  for all to authenticated
+  using ((select public.pode('demandas')) or (select public.pode('art')))
+  with check ((select public.pode('demandas')) or (select public.pode('art')));
+
+-- Clientes da base ligados ao e-mail de quem está logado
+create or replace function public.meus_clientes() returns setof uuid
+language sql stable security definer set search_path = '' as $$
+  select c.id from public.clientes c
+   where coalesce(auth.jwt() ->> 'email', '') <> '' and lower(auth.jwt() ->> 'email') = any (c.emails);
+$$;
+revoke all on function public.meus_clientes() from public, anon;
+grant execute on function public.meus_clientes() to authenticated, service_role;
+
+-- Demandas: cliente da base, recado que o cliente vê no acompanhamento e a data do último convite
+alter table public.demandas add column if not exists cliente_id uuid references public.clientes (id) on delete set null;
+alter table public.demandas add column if not exists nota_cliente text;
+alter table public.demandas drop constraint if exists demandas_nota_cliente_check;
+alter table public.demandas add constraint demandas_nota_cliente_check check (nota_cliente is null or length(nota_cliente) <= 2000);
+alter table public.demandas add column if not exists convidado_em timestamptz;
+create index if not exists demandas_email_idx on public.demandas (lower(email));
+
+-- Demanda nova (inclusive a do formulário do site) com o e-mail de um cliente da base: liga sozinha a ele
+create or replace function public.demanda_ligar_cliente() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if new.cliente_id is null and coalesce(btrim(new.email), '') <> '' then
+    select id into new.cliente_id from public.clientes where lower(btrim(new.email)) = any (emails) order by criado_em limit 1;
+  end if;
+  return new;
+end $$;
+drop trigger if exists demandas_ligar_cliente on public.demandas;
+create trigger demandas_ligar_cliente before insert on public.demandas
+  for each row execute function public.demanda_ligar_cliente();
+
+-- ARTs acompanhadas por um cliente: aparecem no portal dele (com o PDF) e, se marcado, ele recebe um e-mail
+-- aviso_dias antes do fim previsto (rotina diária do GitHub, ferramentas/avisos-clientes.mjs, pelo Gmail)
+alter table public.arts add column if not exists cliente_id uuid references public.clientes (id) on delete set null;
+alter table public.arts add column if not exists acompanhada boolean not null default false;
+alter table public.arts add column if not exists aviso_cliente boolean not null default false;
+alter table public.arts add column if not exists aviso_dias integer not null default 30;
+alter table public.arts drop constraint if exists arts_aviso_dias_check;
+alter table public.arts add constraint arts_aviso_dias_check check (aviso_dias between 1 and 365);
+alter table public.arts add column if not exists aviso_emails text[] not null default '{}';
+alter table public.arts add column if not exists aviso_enviado_em timestamptz;
+create index if not exists arts_cliente_idx on public.arts (cliente_id) where acompanhada;
+
+-- Mudou o fim previsto (prorrogação) ou o prazo do aviso: o aviso ao cliente volta a valer para a data nova
+create or replace function public.arts_rearmar_aviso() returns trigger
+language plpgsql as $$
+begin
+  if new.fim is distinct from old.fim or new.aviso_dias is distinct from old.aviso_dias
+     or (new.aviso_cliente and not old.aviso_cliente) then
+    new.aviso_enviado_em := null;
+  end if;
+  return new;
+end $$;
+drop trigger if exists arts_rearmar_aviso on public.arts;
+create trigger arts_rearmar_aviso before update on public.arts
+  for each row execute function public.arts_rearmar_aviso();
+
+-- Arquivos disponibilizados para cada cliente (pelo e-mail ou pelo cliente da base), ligados ou não a uma demanda
+create table if not exists public.arquivos_cliente (
+  id          uuid primary key default gen_random_uuid(),
+  email       text check (email is null or email ~* '^[^@\s]+@[^@\s]+\.[^@\s]+$'),
+  cliente_id  uuid references public.clientes (id) on delete cascade,
+  demanda_id  uuid references public.demandas (id) on delete set null,
+  nome        text not null check (length(nome) between 1 and 200),
+  descricao   text check (descricao is null or length(descricao) <= 500),
+  caminho     text not null unique,
+  tamanho     bigint,
+  tipo        text,
+  criado_em   timestamptz not null default now(),
+  baixado_em  timestamptz,
+  downloads   integer not null default 0,
+  check (email is not null or cliente_id is not null)
+);
+create index if not exists arquivos_cliente_email_idx on public.arquivos_cliente (email);
+create index if not exists arquivos_cliente_cliente_idx on public.arquivos_cliente (cliente_id);
+create index if not exists arquivos_cliente_demanda_idx on public.arquivos_cliente (demanda_id);
+
+create or replace function public.arquivos_cliente_normalizar() returns trigger
+language plpgsql as $$
+begin
+  new.email := nullif(lower(btrim(new.email)), '');
+  new.nome := btrim(new.nome);
+  new.descricao := nullif(btrim(new.descricao), '');
+  return new;
+end $$;
+drop trigger if exists arquivos_cliente_normalizar on public.arquivos_cliente;
+create trigger arquivos_cliente_normalizar before insert or update on public.arquivos_cliente
+  for each row execute function public.arquivos_cliente_normalizar();
+
+alter table public.arquivos_cliente enable row level security;
+revoke all on public.arquivos_cliente from anon;
+grant select, insert, update, delete on public.arquivos_cliente to authenticated, service_role;
+revoke truncate, trigger, references on public.arquivos_cliente from authenticated;
+
+-- O arquivo é do cliente logado? (pelo e-mail dele ou pelo cliente da base em que o e-mail dele está)
+create or replace function public.arquivo_e_meu(p_email text, p_cliente uuid) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select coalesce(auth.jwt() ->> 'email', '') <> ''
+     and (p_email = lower(auth.jwt() ->> 'email') or p_cliente in (select public.meus_clientes()));
+$$;
+revoke all on function public.arquivo_e_meu(text, uuid) from public, anon;
+grant execute on function public.arquivo_e_meu(text, uuid) to authenticated, service_role;
+
+-- Quem tem o Controle de demandas envia e apaga; o cliente só vê os dele
+drop policy if exists "arquivos do cliente - equipe" on public.arquivos_cliente;
+create policy "arquivos do cliente - equipe" on public.arquivos_cliente
+  for all to authenticated
+  using ((select public.pode('demandas')))
+  with check ((select public.pode('demandas')));
+
+drop policy if exists "arquivos do cliente - o proprio cliente" on public.arquivos_cliente;
+create policy "arquivos do cliente - o proprio cliente" on public.arquivos_cliente
+  for select to authenticated
+  using ((select public.pode('arquivos')) and public.arquivo_e_meu(email, cliente_id));
+
+-- Armazenamento privado dos arquivos (até 50 MB cada, qualquer tipo)
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('clientes', 'clientes', false, 52428800)
+on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit;
+
+drop policy if exists "arquivos dos clientes - equipe" on storage.objects;
+create policy "arquivos dos clientes - equipe" on storage.objects
+  for all to authenticated
+  using (bucket_id = 'clientes' and (select public.pode('demandas')))
+  with check (bucket_id = 'clientes' and (select public.pode('demandas')));
+
+drop policy if exists "arquivos dos clientes - o cliente baixa" on storage.objects;
+create policy "arquivos dos clientes - o cliente baixa" on storage.objects
+  for select to authenticated
+  using (bucket_id = 'clientes' and (select public.pode('arquivos'))
+    and exists (select 1 from public.arquivos_cliente a where a.caminho = name and public.arquivo_e_meu(a.email, a.cliente_id)));
+
+-- O cliente baixa o PDF das ARTs que acompanha (a função lê as ARTs por cima das regras de acesso, que ele não tem)
+create or replace function public.pdf_de_art_minha(p_caminho text) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select exists (select 1 from public.arts a
+                  where a.pdf_path = p_caminho and a.acompanhada and a.baixa_data is null and coalesce(a.acao, '') <> 'arquivada'
+                    and a.cliente_id in (select public.meus_clientes()));
+$$;
+revoke all on function public.pdf_de_art_minha(text) from public, anon;
+grant execute on function public.pdf_de_art_minha(text) to authenticated, service_role;
+
+drop policy if exists "pdfs das arts - o cliente baixa" on storage.objects;
+create policy "pdfs das arts - o cliente baixa" on storage.objects
+  for select to authenticated
+  using (bucket_id = 'arts' and (select public.pode('arquivos')) and public.pdf_de_art_minha(name));
+
+-- Pedidos do cliente logado: só as colunas que ele pode ver (sem observações nem prazos internos)
+drop function if exists public.meus_pedidos();
+create or replace function public.meus_pedidos()
+returns table (id uuid, titulo text, servico text, etapa text, valor numeric, recebida_em date, proposta_em date,
+               aprovada_em date, concluida_em date, nota_cliente text, atualizado_em timestamptz, art_numero text)
+language sql stable security definer set search_path = '' as $$
+  select d.id, d.titulo, d.servico, d.etapa, case when d.etapa <> 'recebida' then d.valor end, d.recebida_em, d.proposta_em,
+         d.aprovada_em, d.concluida_em, d.nota_cliente, d.atualizado_em, a.numero
+    from public.demandas d
+    left join public.arts a on a.id = d.art_id
+   where (select public.pode('pedidos'))
+     and coalesce(auth.jwt() ->> 'email', '') <> ''
+     and (lower(d.email) = lower(auth.jwt() ->> 'email') or d.cliente_id in (select public.meus_clientes()))
+   order by d.recebida_em desc, d.criado_em desc;
+$$;
+
+-- ARTs que o cliente logado acompanha (sem as baixadas e as arquivadas)
+drop function if exists public.minhas_arts();
+create or replace function public.minhas_arts()
+returns table (id uuid, numero text, crea text, local text, endereco text, observacao text, inicio date, fim date,
+               pdf_path text, aviso_cliente boolean, aviso_dias integer)
+language sql stable security definer set search_path = '' as $$
+  select a.id, a.numero, a.crea, a.local, a.endereco, a.observacao, a.inicio, a.fim, a.pdf_path, a.aviso_cliente, a.aviso_dias
+    from public.arts a
+   where (select public.pode('arquivos'))
+     and a.acompanhada and a.baixa_data is null and coalesce(a.acao, '') <> 'arquivada'
+     and a.cliente_id in (select public.meus_clientes())
+   order by a.fim nulls last, a.numero;
+$$;
+
+-- O cliente baixou um arquivo: guarda quando e quantas vezes (o download do administrador não conta)
+create or replace function public.registrar_download(p_id uuid) returns void
+language sql security definer set search_path = '' as $$
+  update public.arquivos_cliente
+     set downloads = downloads + 1, baixado_em = now()
+   where id = p_id and public.arquivo_e_meu(email, cliente_id) and not public.pode('demandas');
+$$;
+
+-- Convite para o cliente criar a senha (e-mail "Invite user" do Supabase). Devolve: enviado, ja_tem_conta,
+-- sem_configuracao ou email_invalido. Chamado sozinho depois de cada pedido do site e pelos botões das demandas e clientes.
+create or replace function public.convidar_cliente(p_email text, p_nome text default null) returns text
+language plpgsql security definer set search_path = '' as $$
+declare
+  v_email text := lower(btrim(coalesce(p_email, '')));
+  v_url   text;
+  v_chave text;
+  v_site  text;
+begin
+  -- Pelo site (sem login) só o gatilho do formulário chama; logado, só quem tem o Controle de demandas ou de ART
+  if auth.uid() is not null and not (public.pode('demandas') or public.pode('art')) then
+    raise exception 'Sem permissão para convidar clientes.';
+  end if;
+  -- Sem login, só o gatilho do formulário do site convida (nunca uma chamada direta pela internet)
+  if auth.uid() is null and coalesce(auth.role(), '') = 'anon' and pg_trigger_depth() = 0 then
+    raise exception 'Sem permissão para convidar clientes.';
+  end if;
+  if v_email !~* '^[^@\s]+@[^@\s]+\.[^@\s]+$' then
+    return 'email_invalido';
+  end if;
+  if exists (select 1 from auth.users where lower(email) = v_email) then
+    return 'ja_tem_conta';
+  end if;
+  select decrypted_secret into v_url from vault.decrypted_secrets where name = 'supabase_url' limit 1;
+  select decrypted_secret into v_chave from vault.decrypted_secrets where name = 'service_role_key' limit 1;
+  select decrypted_secret into v_site from vault.decrypted_secrets where name = 'site_url' limit 1;
+  if coalesce(v_url, '') = '' or coalesce(v_chave, '') = '' then
+    return 'sem_configuracao';
+  end if;
+  v_site := rtrim(coalesce(nullif(v_site, ''), 'https://mvzanette.github.io'), '/');
+  perform net.http_post(
+    url := rtrim(v_url, '/') || '/auth/v1/invite',
+    body := jsonb_build_object('email', v_email,
+      'data', jsonb_strip_nulls(jsonb_build_object('nome', nullif(btrim(coalesce(p_nome, '')), ''), 'convite', 'cliente'))),
+    params := jsonb_build_object('redirect_to', v_site || '/area-restrita.html'),
+    -- A chave nova (sb_secret_…) vai só no apikey; a antiga (service_role, JWT) também no Authorization
+    headers := jsonb_build_object('apikey', v_chave, 'Content-Type', 'application/json')
+      || case when v_chave like 'sb\_%' then '{}'::jsonb else jsonb_build_object('Authorization', 'Bearer ' || v_chave) end,
+    timeout_milliseconds := 15000);
+  update public.demandas set convidado_em = now() where lower(email) = v_email;
+  return 'enviado';
+end $$;
+
+-- Quem da lista de e-mails já tem conta no site (para os botões de convite)
+create or replace function public.emails_com_conta(p_emails text[]) returns text[]
+language sql stable security definer set search_path = '' as $$
+  select coalesce(array_agg(lower(u.email)), '{}') from auth.users u
+   where (public.pode('demandas') or public.pode('art')) and lower(u.email) = any (p_emails);
+$$;
+
+revoke all on function public.convidar_cliente(text, text) from public, anon;
+revoke all on function public.meus_pedidos() from public, anon;
+revoke all on function public.minhas_arts() from public, anon;
+revoke all on function public.registrar_download(uuid) from public, anon;
+revoke all on function public.emails_com_conta(text[]) from public, anon;
+grant execute on function public.convidar_cliente(text, text), public.meus_pedidos(), public.minhas_arts(),
+  public.registrar_download(uuid), public.emails_com_conta(text[]) to authenticated, service_role;
+
+-- Cada pedido do site convida o cliente (depois de virar demanda: os gatilhos rodam em ordem alfabética, por isso o nome)
+create or replace function public.contato_convidar() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  perform public.convidar_cliente(new.email, new.nome);
+  return new;
+exception when others then
+  raise warning 'Contato guardado, mas o convite não saiu: %', sqlerrm;
+  return new;
+end $$;
+revoke all on function public.contato_convidar() from public, anon, authenticated;
+
+drop trigger if exists contatos_por_ultimo_convite on public.contatos;
+create trigger contatos_por_ultimo_convite after insert on public.contatos
+  for each row execute function public.contato_convidar();
+
+-- ================================================================ veículos pessoais
+-- Controle dos veículos de cada pessoa (carro, moto, trator, barco, gerador...): marcadores (leituras de km e horas),
+-- manutenção preventiva (por tempo, km ou horas, o que vencer primeiro), serviços e troca de peças, despesas e as notas
+-- fiscais anexadas. Os avisos aparecem no site (início, tarefas pendentes e no próprio módulo) e por e-mail
+-- (.github/workflows/alertas-veiculos.yml, todo dia às 7h30). As contas ficam em area/veiculos-regras.js.
+-- Veículos. medidor: km, horas (trator, barco, gerador, máquina) ou os dois
+create table if not exists public.veiculos (
+  id            uuid primary key default gen_random_uuid(),
+  perfil_id     uuid not null references public.perfis (id) on delete cascade,
+  nome          text not null check (char_length(nome) between 1 and 80),
+  tipo          text not null default 'carro' check (tipo in ('carro', 'moto', 'caminhonete', 'caminhao', 'trator', 'barco', 'gerador', 'maquina', 'outro')),
+  marca         text check (char_length(marca) <= 60),
+  modelo        text check (char_length(modelo) <= 80),
+  ano           text check (char_length(ano) <= 20),
+  placa         text check (char_length(placa) <= 20),
+  chassi        text check (char_length(chassi) <= 40),
+  renavam       text check (char_length(renavam) <= 30),
+  combustivel   text check (char_length(combustivel) <= 30),
+  medidor       text not null default 'km' check (medidor in ('km', 'horas', 'ambos')),
+  aquisicao     date,
+  observacao    text check (char_length(observacao) <= 2000),
+  ativo         boolean not null default true,
+  criado_em     timestamptz not null default now(),
+  atualizado_em timestamptz not null default now()
+);
+create index if not exists veiculos_perfil_idx on public.veiculos (perfil_id);
+
+-- Marcadores: leitura do hodômetro (km) e/ou do horímetro (horas) numa data. Pelo menos uma leitura a cada 3 meses.
+create table if not exists public.veiculos_marcadores (
+  id         uuid primary key default gen_random_uuid(),
+  perfil_id  uuid not null references public.perfis (id) on delete cascade,
+  veiculo_id uuid not null references public.veiculos (id) on delete cascade,
+  data       date not null,
+  km         numeric(12, 1) check (km >= 0),
+  horas      numeric(12, 1) check (horas >= 0),
+  observacao text check (char_length(observacao) <= 300),
+  criado_em  timestamptz not null default now(),
+  check (km is not null or horas is not null)
+);
+create index if not exists veiculos_marcadores_veiculo_idx on public.veiculos_marcadores (veiculo_id, data);
+
+-- Preventivas: o que fazer e a cada quanto (meses, km e/ou horas; vale o que vencer primeiro), com a antecedência do
+-- aviso. ultima_*: a última vez feita antes de usar o site (depois, vale o último serviço ligado a esta preventiva).
+create table if not exists public.veiculos_planos (
+  id              uuid primary key default gen_random_uuid(),
+  perfil_id       uuid not null references public.perfis (id) on delete cascade,
+  veiculo_id      uuid not null references public.veiculos (id) on delete cascade,
+  nome            text not null check (char_length(nome) between 1 and 120),
+  intervalo_meses numeric(6, 1) check (intervalo_meses > 0),
+  intervalo_km    numeric(12, 1) check (intervalo_km > 0),
+  intervalo_horas numeric(12, 1) check (intervalo_horas > 0),
+  aviso_dias      integer check (aviso_dias >= 0),
+  aviso_km        numeric(12, 1) check (aviso_km >= 0),
+  aviso_horas     numeric(12, 1) check (aviso_horas >= 0),
+  ultima_data     date,
+  ultima_km       numeric(12, 1) check (ultima_km >= 0),
+  ultima_horas    numeric(12, 1) check (ultima_horas >= 0),
+  observacao      text check (char_length(observacao) <= 1000),
+  ativo           boolean not null default true,
+  criado_em       timestamptz not null default now(),
+  atualizado_em   timestamptz not null default now(),
+  check (intervalo_meses is not null or intervalo_km is not null or intervalo_horas is not null)
+);
+create index if not exists veiculos_planos_veiculo_idx on public.veiculos_planos (veiculo_id);
+
+-- Serviços, troca de peças e despesas. tipo: preventiva · corretiva · peca (troca de peça) · despesa (combustível, IPVA,
+-- seguro...). planos: as preventivas que este serviço cumpriu (reiniciam a contagem). itens: [{ "descricao", "qtd", "valor" }]
+create table if not exists public.veiculos_servicos (
+  id          uuid primary key default gen_random_uuid(),
+  perfil_id   uuid not null references public.perfis (id) on delete cascade,
+  veiculo_id  uuid not null references public.veiculos (id) on delete cascade,
+  data        date not null,
+  tipo        text not null default 'preventiva' check (tipo in ('preventiva', 'corretiva', 'peca', 'despesa')),
+  categoria   text check (char_length(categoria) <= 60),
+  descricao   text not null check (char_length(descricao) between 1 and 200),
+  km          numeric(12, 1) check (km >= 0),
+  horas       numeric(12, 1) check (horas >= 0),
+  valor       numeric(12, 2) check (valor >= 0),
+  fornecedor  text check (char_length(fornecedor) <= 120),
+  nota        text check (char_length(nota) <= 60),
+  planos      uuid[] not null default '{}',
+  itens       jsonb not null default '[]'::jsonb check (jsonb_typeof(itens) = 'array'),
+  observacao  text check (char_length(observacao) <= 2000),
+  criado_em   timestamptz not null default now(),
+  atualizado_em timestamptz not null default now()
+);
+create index if not exists veiculos_servicos_veiculo_idx on public.veiculos_servicos (veiculo_id, data);
+
+-- Notas fiscais, fotos e documentos (do serviço ou do veículo: CRLV, manual, apólice). O arquivo fica no espaço "veiculos".
+create table if not exists public.veiculos_anexos (
+  id         uuid primary key default gen_random_uuid(),
+  perfil_id  uuid not null references public.perfis (id) on delete cascade,
+  veiculo_id uuid not null references public.veiculos (id) on delete cascade,
+  servico_id uuid references public.veiculos_servicos (id) on delete cascade,
+  nome       text not null check (char_length(nome) between 1 and 200),
+  descricao  text check (char_length(descricao) <= 200),
+  caminho    text not null check (char_length(caminho) <= 400),
+  tamanho    bigint,
+  tipo       text check (char_length(tipo) <= 120),
+  criado_em  timestamptz not null default now()
+);
+create index if not exists veiculos_anexos_veiculo_idx on public.veiculos_anexos (veiculo_id);
+
+-- Compartilhado com (ids de perfis) e o gasto lançado nas Finanças pessoais a partir do serviço ou despesa
+alter table public.veiculos add column if not exists compartilhado_com uuid[] not null default '{}';
+alter table public.veiculos_servicos add column if not exists gasto_id uuid references public.financas_gastos (id) on delete set null;
+
+-- Quem vê: o dono (com o módulo "veiculos"), as pessoas com quem ele compartilhou o veículo (também com o módulo) e o
+-- administrador. Cadastrar, alterar e compartilhar o veículo: o dono e o administrador. Leituras, preventivas, serviços,
+-- despesas e notas: todos que veem o veículo.
+create or replace function public.veiculos_acesso(alvo uuid) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select public.eh_adm() or (public.pode('veiculos') and exists (
+    select 1 from public.perfis eu where eu.user_id = auth.uid() and eu.situacao = 'ativo' and eu.id = alvo));
+$$;
+
+create or replace function public.veiculo_visivel(p_veiculo uuid) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select public.eh_adm() or (public.pode('veiculos') and exists (
+    select 1 from public.veiculos v
+      join public.perfis eu on eu.user_id = auth.uid() and eu.situacao = 'ativo'
+     where v.id = p_veiculo and (v.perfil_id = eu.id or eu.id = any (v.compartilhado_com))));
+$$;
+
+-- O mesmo para a pasta das notas e fotos (o nome da pasta é o id do veículo)
+create or replace function public.veiculo_visivel_pasta(pasta text) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select case when pasta ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then public.veiculo_visivel(pasta::uuid) else false end;
+$$;
+
+-- Pessoas com quem dá para compartilhar um veículo: as que usam o módulo (só o primeiro nome)
+create or replace function public.pessoas_veiculos() returns table (id uuid, nome text)
+language sql stable security definer set search_path = '' as $$
+  select p.id, coalesce(nullif(split_part(p.nome, ' ', 1), ''), split_part(p.email, '@', 1))
+    from public.perfis p
+   where public.pode('veiculos') and p.situacao = 'ativo' and (p.papel = 'adm' or 'veiculos' = any (p.modulos))
+   order by 2;
+$$;
+
+revoke all on function public.veiculos_acesso(uuid), public.veiculo_visivel(uuid), public.veiculo_visivel_pasta(text),
+  public.pessoas_veiculos() from public, anon;
+grant execute on function public.veiculos_acesso(uuid), public.veiculo_visivel(uuid), public.veiculo_visivel_pasta(text),
+  public.pessoas_veiculos() to authenticated, service_role;
+
+-- Avisos já mandados por e-mail, por pessoa (a rotina diária não repete o mesmo aviso). Só o service_role grava.
+create table if not exists public.veiculos_avisos (
+  chave      text primary key check (char_length(chave) <= 300),
+  perfil_id  uuid references public.perfis (id) on delete cascade,
+  enviado_em timestamptz not null default now()
+);
+
+drop trigger if exists veiculos_atualizado_em on public.veiculos;
+create trigger veiculos_atualizado_em before update on public.veiculos
+  for each row execute function public.tocar_atualizado_em();
+drop trigger if exists veiculos_planos_atualizado_em on public.veiculos_planos;
+create trigger veiculos_planos_atualizado_em before update on public.veiculos_planos
+  for each row execute function public.tocar_atualizado_em();
+drop trigger if exists veiculos_servicos_atualizado_em on public.veiculos_servicos;
+create trigger veiculos_servicos_atualizado_em before update on public.veiculos_servicos
+  for each row execute function public.tocar_atualizado_em();
+
+-- O registro filho tem sempre o mesmo dono do veículo (ninguém pendura um registro no veículo de outra pessoa)
+create or replace function public.veiculos_mesmo_dono() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  select v.perfil_id into new.perfil_id from public.veiculos v where v.id = new.veiculo_id;
+  if new.perfil_id is null then raise exception 'Veículo não encontrado.'; end if;
+  return new;
+end $$;
+revoke all on function public.veiculos_mesmo_dono() from public, anon, authenticated;
+drop trigger if exists veiculos_marcadores_dono on public.veiculos_marcadores;
+create trigger veiculos_marcadores_dono before insert or update on public.veiculos_marcadores
+  for each row execute function public.veiculos_mesmo_dono();
+drop trigger if exists veiculos_planos_dono on public.veiculos_planos;
+create trigger veiculos_planos_dono before insert or update on public.veiculos_planos
+  for each row execute function public.veiculos_mesmo_dono();
+drop trigger if exists veiculos_servicos_dono on public.veiculos_servicos;
+create trigger veiculos_servicos_dono before insert or update on public.veiculos_servicos
+  for each row execute function public.veiculos_mesmo_dono();
+drop trigger if exists veiculos_anexos_dono on public.veiculos_anexos;
+create trigger veiculos_anexos_dono before insert or update on public.veiculos_anexos
+  for each row execute function public.veiculos_mesmo_dono();
+
+alter table public.veiculos enable row level security;
+alter table public.veiculos_marcadores enable row level security;
+alter table public.veiculos_planos enable row level security;
+alter table public.veiculos_servicos enable row level security;
+alter table public.veiculos_anexos enable row level security;
+alter table public.veiculos_avisos enable row level security;
+revoke all on public.veiculos, public.veiculos_marcadores, public.veiculos_planos, public.veiculos_servicos,
+  public.veiculos_anexos, public.veiculos_avisos from anon;
+grant select, insert, update, delete on public.veiculos, public.veiculos_marcadores, public.veiculos_planos,
+  public.veiculos_servicos, public.veiculos_anexos to authenticated, service_role;
+grant select, insert, update, delete on public.veiculos_avisos to service_role;
+revoke truncate, trigger, references on public.veiculos, public.veiculos_marcadores, public.veiculos_planos,
+  public.veiculos_servicos, public.veiculos_anexos, public.veiculos_avisos from authenticated;
+
+drop policy if exists "veiculos do proprio perfil" on public.veiculos;
+drop policy if exists "veiculos - ver" on public.veiculos;
+create policy "veiculos - ver" on public.veiculos
+  for select to authenticated using (public.veiculos_acesso(perfil_id) or public.veiculo_visivel(id));
+drop policy if exists "veiculos - cadastrar" on public.veiculos;
+create policy "veiculos - cadastrar" on public.veiculos
+  for insert to authenticated with check (public.veiculos_acesso(perfil_id));
+drop policy if exists "veiculos - alterar" on public.veiculos;
+create policy "veiculos - alterar" on public.veiculos
+  for update to authenticated using (public.veiculos_acesso(perfil_id)) with check (public.veiculos_acesso(perfil_id));
+drop policy if exists "veiculos - excluir" on public.veiculos;
+create policy "veiculos - excluir" on public.veiculos
+  for delete to authenticated using (public.veiculos_acesso(perfil_id));
+drop policy if exists "marcadores do proprio perfil" on public.veiculos_marcadores;
+drop policy if exists "marcadores de quem ve o veiculo" on public.veiculos_marcadores;
+create policy "marcadores de quem ve o veiculo" on public.veiculos_marcadores
+  for all to authenticated using (public.veiculo_visivel(veiculo_id)) with check (public.veiculo_visivel(veiculo_id));
+drop policy if exists "preventivas do proprio perfil" on public.veiculos_planos;
+drop policy if exists "preventivas de quem ve o veiculo" on public.veiculos_planos;
+create policy "preventivas de quem ve o veiculo" on public.veiculos_planos
+  for all to authenticated using (public.veiculo_visivel(veiculo_id)) with check (public.veiculo_visivel(veiculo_id));
+drop policy if exists "servicos do proprio perfil" on public.veiculos_servicos;
+drop policy if exists "servicos de quem ve o veiculo" on public.veiculos_servicos;
+create policy "servicos de quem ve o veiculo" on public.veiculos_servicos
+  for all to authenticated using (public.veiculo_visivel(veiculo_id)) with check (public.veiculo_visivel(veiculo_id));
+drop policy if exists "anexos do proprio perfil" on public.veiculos_anexos;
+drop policy if exists "anexos de quem ve o veiculo" on public.veiculos_anexos;
+create policy "anexos de quem ve o veiculo" on public.veiculos_anexos
+  for all to authenticated using (public.veiculo_visivel(veiculo_id)) with check (public.veiculo_visivel(veiculo_id));
+
+-- Notas fiscais e fotos: PDF, imagem ou XML da NF-e, até 20 MB, uma pasta por veículo (nome da pasta = id do veículo)
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('veiculos', 'veiculos', false, 20971520,
+        '{application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif,application/xml,text/xml}')
+on conflict (id) do update
+  set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "notas dos veiculos - ler" on storage.objects;
+create policy "notas dos veiculos - ler" on storage.objects
+  for select to authenticated
+  using (bucket_id = 'veiculos' and public.veiculo_visivel_pasta((storage.foldername(name))[1]));
+drop policy if exists "notas dos veiculos - enviar" on storage.objects;
+create policy "notas dos veiculos - enviar" on storage.objects
+  for insert to authenticated
+  with check (bucket_id = 'veiculos' and public.veiculo_visivel_pasta((storage.foldername(name))[1]));
+drop policy if exists "notas dos veiculos - apagar" on storage.objects;
+create policy "notas dos veiculos - apagar" on storage.objects
+  for delete to authenticated
+  using (bucket_id = 'veiculos' and public.veiculo_visivel_pasta((storage.foldername(name))[1]));
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- Bancos conectados (Open Finance pelo Meu Pluggy, uso pessoal e gratuito). A pessoa conecta os bancos no Meu Pluggy,
