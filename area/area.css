@@ -2508,3 +2508,19 @@ tr.marcada td { background: var(--c-fffbea); }
   .linha-tempo li.feito { border-left-color: var(--ok); }
   .linha-tempo li.atual { border-left-color: var(--yellow); }
 }
+
+/* ---------- Caixa: lembrete e resumo do acerto ---------- */
+.acerto-aviso { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 12px 16px; margin-bottom: 16px; background: var(--c-fff6d6); border-left: 4px solid var(--alerta); }
+.acerto-aviso[hidden] { display: none; }
+.acerto-texto { flex: 1 1 320px; display: grid; gap: 2px; }
+.acerto-texto span { font-size: 0.88rem; }
+.acerto-menu select { width: auto; min-width: 180px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.fech-tit { margin: 22px 0 8px; font-size: 0.85rem; letter-spacing: 0.08em; text-transform: uppercase; }
+.fech-tab input, .fech-tab select { min-width: 0; width: 100%; padding: 6px 8px; }
+.fech-tab td { vertical-align: middle; }
+.fech-tab td:nth-child(1) { min-width: 150px; }
+.fech-tab td:nth-child(2) { width: 140px; }
+.fech-tab input.num { text-align: right; max-width: 120px; }
+.fech-recalc { display: flex; align-items: end; }
+#fech-totais { margin-top: 20px; }

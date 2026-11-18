@@ -78,7 +78,7 @@ export const tipoAnexo = (arquivo) => {
 };
 
 // Configuração do caixa das empresas: quais empresas, saldo inicial e o saldo informado da conta do caixa
-const COLUNAS_CAIXA = ["empresas", "saldo_inicial", "data_inicial", "saldo_conta", "data_conta"];
+const COLUNAS_CAIXA = ["empresas", "saldo_inicial", "data_inicial", "saldo_conta", "data_conta", "acerto"];
 function limparConfigCaixa(c) {
   const n = (v) => (v === "" || v == null || !Number.isFinite(Number(v)) ? null : Math.round(Number(v) * 100) / 100);
   const data = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || "")) ? v : null);
@@ -87,6 +87,7 @@ function limparConfigCaixa(c) {
   if ("saldo_inicial" in linha) linha.saldo_inicial = n(linha.saldo_inicial) ?? 0;
   if ("saldo_conta" in linha) linha.saldo_conta = n(linha.saldo_conta);
   for (const k of ["data_inicial", "data_conta"]) if (k in linha) linha[k] = data(linha[k]);
+  if ("acerto" in linha) linha.acerto = linha.acerto && typeof linha.acerto === "object" ? linha.acerto : {};
   return linha;
 }
 const numerosCaixa = (c) => c && { ...c, saldo_inicial: Number(c.saldo_inicial) || 0, saldo_conta: c.saldo_conta == null ? null : Number(c.saldo_conta) };
