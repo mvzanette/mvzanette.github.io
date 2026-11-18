@@ -10,6 +10,7 @@ import { abrirPagina, paginaEmpresa } from "./sessao.js";
 import { dataBR, hojeISO } from "./regras.js";
 import * as G from "./regras-gestao.js";
 import { lerPlanilha } from "./planilha.js";
+import { lerResumo, conferir, ajustes } from "./caixa-conferencia.js";
 import { CLASSIFICACOES, TIPOS, lerDocumentos, nomeColaborador, resumoCaixa, rotuloMovimento, saldoApos, siglas, empresaNoTexto } from "./caixa-documentos.js";
 import { $, esc, moeda, avisar, opcoes, prepararDialogos, numeroDigitado } from "./ui.js";
 
@@ -215,6 +216,7 @@ function abrirMovimento(id, novo = {}) {
         <label class="c4" data-so="entrada">Empresa que mandou<select name="empresa">${opcoes(doCaixa().map((e) => [e.id, e.nome]), m.empresa_id || "")}</select></label>
         <label class="c2">Valor (R$)<input name="valor" inputmode="decimal" autocomplete="off" value="${m.valor == null ? "" : String(Number(m.valor).toFixed(2)).replace(".", ",")}" required></label>
         <label class="c2">Data<input type="date" name="data" value="${esc(m.data)}" required></label>
+        <p class="aviso-doc c6" id="aviso-data-mov" hidden></p>
         <label class="c4" data-so="despesa adiantamento devolucao"><span data-rotulo-colab>${m.tipo === "despesa" ? "Gasto por colaborador (prestação de contas)" : "Colaborador"}</span><input name="colaborador" list="lista-colab" maxlength="80" autocomplete="off" value="${esc(m.colaborador || "")}" placeholder="${m.tipo === "despesa" ? "em branco: gasto por você" : "nome"}"></label>
         <datalist id="lista-colab">${conhecidos().map((n) => `<option value="${esc(n)}">`).join("")}</datalist>
         <label class="c6">Descrição<input name="descricao" maxlength="200" autocomplete="off" value="${esc(m.descricao || "")}"></label>
@@ -242,7 +244,15 @@ function abrirMovimento(id, novo = {}) {
     form.elements.colaborador.placeholder = t === "despesa" ? "em branco: gasto por você" : "nome";
   };
   mostrar();
-  form.addEventListener("change", (e) => { if (e.target.name === "tipo") mostrar(); });
+  // Antes do saldo inicial o movimento não conta: avisa na hora, para não parecer que sumiu
+  const avisoData = () => {
+    const antes = config && config.data_inicial && form.elements.data.value && form.elements.data.value < config.data_inicial;
+    $("#aviso-data-mov", form).hidden = !antes;
+    $("#aviso-data-mov", form).textContent = antes ? `Data antes do saldo inicial (${dataBR(config.data_inicial)}): este movimento fica no caixa anterior e não conta no saldo. Se o dinheiro já estava com o colaborador nessa data, informe em Configurar → Já com colaboradores.` : "";
+  };
+  avisoData();
+  form.elements.data.addEventListener("input", avisoData);
+  form.addEventListener("change", (e) => { if (e.target.name === "tipo") mostrar(); if (e.target.name === "data") avisoData(); });
   $("#btn-tirar-doc", form)?.addEventListener("click", (e) => { tirarDoc = true; e.target.closest("p").remove(); });
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -440,26 +450,63 @@ async function confirmarImportar() {
 }
 
 // ---------------------------------------------------------------- configuração e saldo da conta
+// Adiantamentos que já estavam com os colaboradores na data do saldo inicial: movimentos de adiantamento nessa data,
+// marcados como "inicial" (saem do disponível e ficam com o colaborador, sem mudar o saldo das empresas)
+const iniciais = () => movimentos.filter((m) => m.tipo === "adiantamento" && m.detalhes && m.detalhes.inicial);
+
 function abrirConfig(foco = null) {
   const c = config || { empresas: [], saldo_inicial: 0, data_inicial: hoje, saldo_conta: null, data_conta: null };
   const dlg = $("#dlg-config");
   const valor = (v) => (v == null ? "" : String(Number(v).toFixed(2)).replace(".", ","));
+  const linhaColab = (nome = "", v = null) => `<div class="campos linha-colab">
+      <label class="c3">Colaborador<input name="colab_nome" list="lista-colab-cfg" maxlength="80" autocomplete="off" value="${esc(nome)}" placeholder="nome"></label>
+      <label class="c2">Com ele (R$)<input name="colab_valor" inputmode="decimal" autocomplete="off" value="${valor(v)}" placeholder="0,00"></label>
+      <div class="c1 tirar-colab"><button class="btn-link" type="button" data-tirar-colab>Tirar</button></div></div>`;
+  const atuais = iniciais();
   dlg.innerHTML = `<form id="form-config" novalidate>
     <div class="dlg-cab"><h2 id="titulo-config">Configurar o caixa</h2><button class="btn-link" data-fechar type="button">Fechar</button></div>
     <div class="dlg-corpo">
       <fieldset class="bloco"><legend>Empresas que mandam adiantamento para este caixa</legend>
         <div class="opcoes">${empresas.map((e) => `<label><input type="checkbox" name="empresa" value="${esc(e.id)}"${(c.empresas || []).includes(e.id) ? " checked" : ""}> ${esc(e.nome)}</label>`).join("") || '<span class="dica">Cadastre as empresas na página Finanças das empresas.</span>'}</div></fieldset>
       <div class="campos">
-        <label class="c3">Saldo inicial do caixa (R$)<input name="saldo_inicial" inputmode="decimal" autocomplete="off" value="${valor(c.saldo_inicial)}" placeholder="0,00"></label>
+        <label class="c3">Saldo inicial total das empresas (R$)<input name="saldo_inicial" inputmode="decimal" autocomplete="off" value="${valor(c.saldo_inicial)}" placeholder="0,00"></label>
         <label class="c3">Data do saldo inicial<input type="date" name="data_inicial" value="${esc(c.data_inicial || hoje)}"></label>
+      </div>
+      <fieldset class="bloco"><legend>Já com colaboradores na data (adiantado)</legend>
+        <p class="dica">O que estava adiantado (emprestado) a cada colaborador na data do saldo inicial. Faz parte do saldo total: sai do disponível na conta e fica com ele até prestar contas (RDV) ou devolver.</p>
+        <div id="cfg-colabs">${(atuais.length ? atuais.map((m) => linhaColab(m.colaborador, Number(m.valor))) : [linhaColab()]).join("")}</div>
+        <datalist id="lista-colab-cfg">${conhecidos().map((n) => `<option value="${esc(n)}">`).join("")}</datalist>
+        <button class="btn-link" type="button" id="btn-mais-colab">+ Outro colaborador</button>
+        <p class="total-cfg" id="cfg-total" role="status" aria-live="polite"></p>
+      </fieldset>
+      <div class="campos">
         <label class="c3">Saldo hoje na conta do caixa (R$)<input name="saldo_conta" inputmode="decimal" autocomplete="off" value="${valor(c.saldo_conta)}" placeholder="opcional"></label>
         <label class="c3">Data do saldo da conta<input type="date" name="data_conta" value="${esc(c.data_conta || hoje)}"></label>
       </div>
-      <p class="dica">O saldo inicial é o que as empresas tinham com você na data, já descontado o que foi gasto e com os adiantamentos a colaboradores lançados depois. Movimentos antes dessa data não contam. O saldo da conta é o que está de fato na conta separada do caixa: a diferença para o estimado é o que foi usado no pessoal.</p>
+      <p class="dica">O saldo inicial total é o que as empresas tinham com você na data: o que estava na conta mais o adiantado aos colaboradores, já descontado o que foi gasto. Movimentos antes dessa data não contam. O saldo da conta é o que está de fato na conta separada do caixa (o extrato do banco): a diferença para o disponível é o que foi usado no pessoal.</p>
       <p class="erro" id="erro-config" role="alert" hidden></p>
     </div>
     <div class="dlg-rodape"><button class="btn btn-claro" type="button" data-fechar>Cancelar</button><button class="btn btn-primary" type="submit">Salvar</button></div></form>`;
   const form = $("#form-config", dlg);
+  const linhas = () => [...form.querySelectorAll(".linha-colab")].map((l) => ({ nome: l.querySelector("[name=colab_nome]").value.trim(), texto: l.querySelector("[name=colab_valor]").value.trim() }))
+    .map((x) => ({ ...x, valor: x.texto ? numeroDigitado(x.texto) : null }));
+  const mostrarTotal = () => {
+    const total = numeroDigitado(form.elements.saldo_inicial.value) || 0;
+    const adiantado = linhas().reduce((t, x) => t + (x.valor > 0 ? x.valor : 0), 0);
+    $("#cfg-total", form).textContent = adiantado > 0
+      ? `Saldo das empresas ${moeda(total)} = ${moeda(Math.round((total - adiantado) * 100) / 100)} disponível na conta + ${moeda(adiantado)} com colaboradores.`
+      : "Nada adiantado na data: todo o saldo inicial é disponível na conta.";
+  };
+  mostrarTotal();
+  form.addEventListener("input", mostrarTotal);
+  $("#btn-mais-colab", form).addEventListener("click", () => { $("#cfg-colabs", form).insertAdjacentHTML("beforeend", linhaColab()); form.querySelector(".linha-colab:last-child [name=colab_nome]").focus(); });
+  $("#cfg-colabs", form).addEventListener("click", (e) => {
+    if (!e.target.closest("[data-tirar-colab]")) return;
+    const l = e.target.closest(".linha-colab");
+    if (form.querySelectorAll(".linha-colab").length > 1) l.remove();
+    else l.querySelectorAll("input").forEach((i) => { i.value = ""; });
+    mostrarTotal();
+  });
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const erro = (t) => { $("#erro-config", form).textContent = t; $("#erro-config", form).hidden = false; };
@@ -469,18 +516,144 @@ function abrirConfig(foco = null) {
     if (inicial == null) return erro("Informe o saldo inicial (pode ser 0).");
     const conta = form.elements.saldo_conta.value.trim() ? numeroDigitado(form.elements.saldo_conta.value) : null;
     if (form.elements.saldo_conta.value.trim() && conta == null) return erro("O saldo da conta não é um número.");
+    const colabs = [];
+    for (const x of linhas()) {
+      if (!x.nome && !x.texto) continue;
+      if (!x.nome) return erro("Informe o nome do colaborador.");
+      if (!(x.valor > 0)) return erro(`Informe o valor com ${x.nome} (ex.: 250,00).`);
+      const nome = nomeColaborador(x.nome, [...colabs.map((y) => y.nome), ...conhecidos()]);
+      if (colabs.some((y) => y.nome === nome)) return erro(`${nome} aparece duas vezes.`);
+      colabs.push({ nome, valor: Math.round(x.valor * 100) / 100 });
+    }
+    const dataInicial = form.elements.data_inicial.value || hoje;
+    const botao = form.querySelector("[type=submit]");
+    botao.disabled = true;
     try {
-      config = await armazem.caixa.salvarConfig({ empresas: marcadas, saldo_inicial: inicial, data_inicial: form.elements.data_inicial.value || hoje,
+      config = await armazem.caixa.salvarConfig({ empresas: marcadas, saldo_inicial: inicial, data_inicial: dataInicial,
         saldo_conta: conta, data_conta: conta == null ? null : form.elements.data_conta.value || hoje });
+      // Os adiantamentos da data do saldo inicial: cria, acerta ou tira os movimentos marcados como iniciais
+      const existentes = iniciais();
+      for (const x of colabs) {
+        const m = existentes.find((y) => nomeColaborador(y.colaborador, [x.nome]) === x.nome);
+        if (m && Number(m.valor) === x.valor && m.data === dataInicial && m.colaborador === x.nome) continue;
+        await colecao.salvar({ ...(m || { tipo: "adiantamento", aprovado: true, classificacao: null, empresa_id: null }), colaborador: x.nome, valor: x.valor, data: dataInicial,
+          descricao: "Já estava com o colaborador na data do saldo inicial", detalhes: { ...((m && m.detalhes) || {}), inicial: true } });
+      }
+      for (const m of existentes.filter((y) => !colabs.some((x) => nomeColaborador(y.colaborador, [x.nome]) === x.nome))) await colecao.remover(m.id);
       dlg.close();
       avisar("Caixa configurado.");
       await recarregar();
     } catch (err) {
       erro("Não foi possível salvar: " + err.message);
+    } finally {
+      botao.disabled = false;
     }
   });
   dlg.showModal();
   (foco ? form.elements[foco] : form.querySelector("input")).focus();
+}
+
+// ---------------------------------------------------------------- conferência com a planilha de controle paralelo
+let conf = null; // { arquivo, resumo, c }
+
+function abrirConferir() {
+  conf = null;
+  const dlg = $("#dlg-conferir");
+  dlg.innerHTML = `<div class="dlg-cab"><h2 id="titulo-conferir">Conferir com a planilha</h2><button class="btn-link" data-fechar type="button">Fechar</button></div>
+    <div class="dlg-corpo">
+      <p class="dica">Escolha a planilha do fluxo de caixa (.xlsx). O site lê o último bloco da aba mais recente (INICIAL, DESPESAS e SALDO ATUAL), compara com o caixa daqui e mostra as diferenças. Você escolhe o que lançar para os empréstimos e o disponível ficarem iguais aos da planilha; a planilha fica anexada aos lançamentos.</p>
+      <input type="file" id="arquivo-conferir" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+      <div id="conferir-status" class="dica" role="status" aria-live="polite"></div>
+      <div id="conferir-corpo"></div>
+      <p class="erro" id="erro-conferir" role="alert" hidden></p>
+    </div>
+    <div class="dlg-rodape">
+      <button class="btn btn-claro" type="button" data-fechar>Fechar</button>
+      <button class="btn btn-primary" type="button" id="btn-aplicar-conferir" disabled>Atualizar o caixa</button>
+    </div>`;
+  $("#arquivo-conferir", dlg).addEventListener("change", (e) => lerConferencia(e.target.files[0]));
+  $("#conferir-corpo", dlg).addEventListener("change", previaConferencia);
+  $("#btn-aplicar-conferir", dlg).addEventListener("click", aplicarConferencia);
+  dlg.showModal();
+}
+
+async function lerConferencia(arquivo) {
+  const status = $("#conferir-status"), corpo = $("#conferir-corpo");
+  corpo.innerHTML = "";
+  $("#erro-conferir").hidden = true;
+  conf = null;
+  $("#btn-aplicar-conferir").disabled = true;
+  if (!arquivo) return;
+  if (arquivo.size > 20 * 1024 * 1024) { status.textContent = "O arquivo passa de 20 MB."; return; }
+  status.textContent = `Lendo ${arquivo.name}…`;
+  try {
+    const resumo = lerResumo(await lerPlanilha(await arquivo.arrayBuffer()), { conhecidos: conhecidos() });
+    conf = { arquivo, resumo, c: conferir(resumo, { config, movimentos, sig }) };
+  } catch (err) {
+    status.textContent = err.message;
+    return;
+  }
+  const { resumo, c } = conf;
+  status.textContent = `Aba “${resumo.aba}”, último bloco: saldo inicial ${moeda(resumo.inicial)}, ${plural(resumo.itens.length, "lançamento", "lançamentos")} (${moeda(resumo.total)}).`;
+  const difCls = (v) => (Math.abs(v) < 0.005 ? "" : " class=\"num negativo\"");
+  const dif = (v) => (Math.abs(v) < 0.005 ? '<span class="dica">igual</span>' : `${v > 0 ? "+" : "−"}${moeda(Math.abs(v))}`);
+  const rotDesp = (d) => `${esc(d.tipoTexto || "Despesa")}${d.nota ? ` · ${esc(d.nota)}` : ""}`;
+  corpo.innerHTML = `${resumo.avisos.map((a) => `<p class="aviso-doc">${esc(a)}</p>`).join("")}
+    <div class="tabela-wrap"><table class="tabela compacta"><thead><tr><th></th><th class="num">Planilha</th><th class="num">Site</th><th class="num">Diferença</th></tr></thead><tbody>
+      ${c.colaboradores.map((p) => `<tr><td>Empréstimo ${esc(p.nome)}</td><td class="num">${moeda(p.planilha)}</td><td class="num">${moeda(p.site)}</td><td${difCls(p.diferenca) || ' class="num"'}>${dif(p.diferenca)}</td></tr>`).join("")}
+      <tr><th>Total emprestado</th><th class="num">${moeda(resumo.totalEmprestimos)}</th><th class="num">${moeda(c.resumoSite.comColaboradores - c.resumoSite.aReembolsar)}</th><th></th></tr>
+      <tr><th>Disponível para uso (na conta)</th><th class="num">${moeda(c.disponivel.planilha)}</th><th class="num">${moeda(c.disponivel.site)}</th><th${difCls(c.disponivel.diferenca) || ' class="num"'}>${dif(c.disponivel.diferenca)}</th></tr>
+    </tbody></table></div>
+    ${c.faltando.length ? `<fieldset class="doc-importar"><legend>Na planilha e não no site</legend>
+      <p class="dica">Marque as que devem ser lançadas aqui (entram aprovadas, com a data de hoje).</p>
+      ${c.faltando.map((d, i) => `<label class="opcao-linha aprovar-linha"><input type="checkbox" data-conf-desp="${i}" checked> ${rotDesp(d)}: ${moeda(d.valor)}${d.classificacao === "outro" ? ' <small class="dica">sem RDV/FC: entra como outra despesa</small>' : ""}</label>`).join("")}</fieldset>` : ""}
+    ${c.soNoSite.length ? `<fieldset class="doc-importar"><legend>No site e não na planilha</legend>
+      <p class="dica">Só para conferir: estas despesas do caixa atual não foram achadas na planilha (mesmo valor e tipo).</p>
+      <ul class="lista-conf">${c.soNoSite.map((m) => `<li>${dataBR(m.data)} · ${esc(rotuloMovimento(m, sig))} ${esc(m.descricao || "")}: ${moeda(Number(m.valor))}${m.aprovado ? "" : " (a aprovar)"}</li>`).join("")}</ul></fieldset>` : ""}
+    <fieldset class="doc-importar"><legend>Atualizar o caixa pela planilha</legend>
+      <label class="opcao-linha aprovar-linha"><input type="checkbox" data-conf="colaboradores"${c.colaboradores.some((p) => Math.abs(p.diferenca) > 0.005) ? " checked" : " disabled"}> Deixar o empréstimo de cada colaborador igual ao da planilha</label>
+      <label class="opcao-linha aprovar-linha"><input type="checkbox" data-conf="disponivel" checked> Ajustar o disponível para ${moeda(c.disponivel.planilha)}, como na planilha</label>
+      <div id="conferir-previa"></div></fieldset>`;
+  previaConferencia();
+}
+
+function novosDaConferencia() {
+  if (!conf) return [];
+  const marcado = (k) => { const x = document.querySelector(`#conferir-corpo [data-conf="${k}"]`); return !!(x && x.checked && !x.disabled); };
+  const despesas = [...document.querySelectorAll("#conferir-corpo [data-conf-desp]:checked")].map((x) => conf.c.faltando[Number(x.dataset.confDesp)]);
+  return ajustes(conf.resumo, conf.c, { config, movimentos, despesas, colaboradores: marcado("colaboradores"), disponivel: marcado("disponivel"), hoje, descricao: `Conferência de ${dataBR(hoje)}` });
+}
+
+function previaConferencia() {
+  const novos = novosDaConferencia();
+  const box = $("#conferir-previa");
+  if (box) {
+    box.innerHTML = novos.length
+      ? `<p class="dica">Vai lançar, com a data de hoje:</p><ul class="lista-conf">${novos.map((n) => `<li><span class="etiqueta-caixa tipo-${esc(n.tipo)}">${esc(rotuloMovimento(n, sig))}</span> ${esc(n.descricao)}${n.colaborador ? ` · ${esc(n.colaborador)}` : ""}: ${moeda(n.valor)}</li>`).join("")}</ul>`
+      : '<p class="dica">Nada a lançar: com o que está marcado, o site já bate com a planilha.</p>';
+  }
+  const b = $("#btn-aplicar-conferir");
+  if (b) { b.disabled = !novos.length; b.textContent = novos.length > 1 ? `Lançar ${novos.length} acertos` : "Atualizar o caixa"; }
+}
+
+async function aplicarConferencia() {
+  const novos = novosDaConferencia();
+  if (!novos.length) return;
+  const b = $("#btn-aplicar-conferir");
+  b.disabled = true;
+  $("#erro-conferir").hidden = true;
+  try {
+    const caminho = await armazem.caixa.enviarDocumento(conf.arquivo);
+    for (const n of novos) await colecao.salvar({ ...n, documento: caminho, documento_nome: conf.arquivo.name.slice(0, 200) });
+    $("#dlg-conferir").close();
+    await recarregar();
+    const r = resumoCaixa(config, movimentos);
+    avisar(`Caixa atualizado pela planilha: disponível ${moeda(r.emCaixa)}, com colaboradores ${moeda(r.comColaboradores)}.`);
+  } catch (err) {
+    $("#erro-conferir").textContent = "Não foi possível lançar: " + err.message;
+    $("#erro-conferir").hidden = false;
+    b.disabled = false;
+  }
 }
 
 // ---------------------------------------------------------------- eventos
@@ -489,6 +662,7 @@ function prepararEventos() {
   $("#btn-configurar-novo").addEventListener("click", () => abrirConfig());
   $("#btn-configurar").addEventListener("click", () => abrirConfig());
   $("#btn-importar").addEventListener("click", abrirImportar);
+  $("#btn-conferir").addEventListener("click", abrirConferir);
   $("#btn-despesa").addEventListener("click", () => abrirMovimento(null, { tipo: "despesa" }));
   $("#btn-entrada").addEventListener("click", () => abrirMovimento(null, { tipo: "entrada", empresa_id: (doCaixa()[0] || {}).id || null }));
   $("#btn-adiantar").addEventListener("click", () => abrirMovimento(null, { tipo: "adiantamento", descricao: "Adiantamento" }));
