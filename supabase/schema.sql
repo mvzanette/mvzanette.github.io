@@ -846,6 +846,11 @@ create table if not exists public.caixa_config (
   atualizado_em timestamptz not null default now()
 );
 
+-- Acerto com o financeiro das empresas (lembrete dos dias 17 a 20 e resumo do período):
+-- { "ultimo_acerto": "2026-11-20", "meses": { "2026-11": { "estado": "realizado" | "descartado", "adiar_ate": "2026-11-21" } },
+--   "historico": [{ "inicio", "fim", "total", "em" }] }
+alter table public.caixa_config add column if not exists acerto jsonb not null default '{}'::jsonb;
+
 create table if not exists public.caixa_movimentos (
   id             uuid primary key default gen_random_uuid(),
   data           date not null,
@@ -1087,6 +1092,12 @@ begin
   return req;
 end $$;
 
+-- Valor em reais no formato do Brasil (R$ 1.234,56), para os e-mails
+create or replace function public.texto_brl(v numeric) returns text
+language sql immutable set search_path = '' as $$
+  select case when v < 0 then '−' else '' end || 'R$ ' || translate(to_char(abs(coalesce(v, 0)), 'FM999G999G990D00'), ',.', '.,')
+$$;
+
 create or replace function public.texto_dias(n int) returns text
 language sql immutable set search_path = '' as $$
   select n || case when abs(n) = 1 then ' dia' else ' dias' end;
@@ -1107,6 +1118,8 @@ declare
   na int; na_sem int; na_venc int; na_30 int; art_txt text; art_html text; alertas_txt text; alertas_html text;
   q_rec int; q_prop int; q_aprov int; q_exec int;
   assunto text; texto text; html text;
+  -- acerto de caixa (dias 17 a 20, enquanto não for marcado realizado ou descartado no caixa)
+  cx public.caixa_config; cx_mes jsonb; cx_inicio date; cx_nomes text; cx_txt text; cx_html text;
   td text := 'padding:8px 10px;border-bottom:1px solid #e6e6e6;vertical-align:top;font-size:13px;line-height:1.4';
   th text := 'padding:7px 10px;background:#111214;color:#ffffff;font-size:11px;letter-spacing:1px;text-transform:uppercase;text-align:left';
   cinza text := 'color:#6b6e73;font-size:12px';
@@ -1203,17 +1216,62 @@ begin
     into na, na_sem, na_venc, na_30, art_txt, art_html, alertas_txt
     from o;
 
-  if nd = 0 and na = 0 then
-    return 'Nenhuma demanda em andamento e nenhuma ART pedindo ação: o informativo não foi enviado.';
+  -- ---------------- lembrete do acerto de caixa com o financeiro das empresas (até o dia 20)
+  select * into cx from public.caixa_config where id = 1;
+  cx_mes := coalesce(cx.acerto -> 'meses' -> to_char(hoje, 'YYYY-MM'), '{}'::jsonb);
+  if extract(day from hoje) between 17 and 20 and coalesce(array_length(cx.empresas, 1), 0) > 0
+     and coalesce(cx_mes ->> 'estado', '') not in ('realizado', 'descartado')
+     and coalesce((cx_mes ->> 'adiar_ate')::date, hoje) <= hoje then
+    cx_inicio := greatest(coalesce(cx.data_inicial, hoje), coalesce((cx.acerto ->> 'ultimo_acerto')::date + 1, cx.data_inicial, hoje));
+    select string_agg(e.nome, ' e ' order by e.ordem, e.nome) into cx_nomes from public.empresas e where e.id = any(cx.empresas);
+    with emp as (
+      select e.id, e.nome, e.ordem,
+        coalesce(sum(m.valor) filter (where m.classificacao = 'rdv'), 0) as rdv,
+        coalesce(sum(m.valor) filter (where m.classificacao = 'fc'), 0) as fc,
+        coalesce(sum(m.valor) filter (where coalesce(m.classificacao, 'outro') = 'outro'), 0) as outro
+      from public.empresas e
+      left join public.caixa_movimentos m on m.empresa_id = e.id and m.tipo = 'despesa' and m.aprovado and m.data between cx_inicio and hoje
+      where e.id = any(cx.empresas) group by e.id, e.nome, e.ordem
+    ), col as (
+      select colaborador as nome, sum(case when tipo = 'adiantamento' then valor else -valor end) as saldo
+      from public.caixa_movimentos
+      where colaborador is not null and data >= coalesce(cx.data_inicial, '1900-01-01') and (tipo <> 'despesa' or aprovado)
+      group by colaborador having sum(case when tipo = 'adiantamento' then valor else -valor end) > 0.005
+    )
+    select
+      'Período: ' || to_char(cx_inicio, 'DD/MM') || ' a ' || to_char(hoje, 'DD/MM/YYYY') || E'\n'
+        || (select string_agg(nome || ': RDV ' || public.texto_brl(rdv) || ' · Ficha de custo ' || public.texto_brl(fc)
+              || case when outro > 0 then ' · outras ' || public.texto_brl(outro) else '' end, E'\n' order by ordem, nome) from emp)
+        || coalesce(E'\nPendente de acerto (com colaboradores): ' || (select string_agg(nome || ' ' || public.texto_brl(saldo), ' · ' order by nome) from col), '')
+        || E'\nPara gerar o resumo (com as opções lembrar amanhã, acerto realizado ou descartar): ' || site || '/area/caixa.html#fechamento',
+      '<tr><td style="padding:14px 22px 6px"><div style="background:#fff6d6;border-left:5px solid #f5b800;padding:12px 14px">'
+        || '<div style="font-size:17px;font-weight:bold;margin-bottom:4px">Acerto de caixa – financeiro ' || public.html_esc(cx_nomes) || '</div>'
+        || '<div style="' || cinza || ';margin-bottom:8px">' || case when extract(day from hoje) = 20 then 'Hoje é o dia do acerto' else 'Até o dia 20' end
+        || ' · período de ' || to_char(cx_inicio, 'DD/MM') || ' a ' || to_char(hoje, 'DD/MM') || '</div>'
+        || '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">'
+        || '<tr><th style="' || th || '">Empresa</th><th style="' || th || ';text-align:right">RDV</th><th style="' || th || ';text-align:right">Ficha de custo</th></tr>'
+        || (select string_agg('<tr><td style="' || td || '"><b>' || public.html_esc(nome) || '</b></td><td style="' || td || ';text-align:right">' || public.texto_brl(rdv)
+              || '</td><td style="' || td || ';text-align:right">' || public.texto_brl(fc) || '</td></tr>', '' order by ordem, nome) from emp)
+        || '</table>'
+        || coalesce('<div style="font-size:13px;margin-top:8px"><b>Pendente de acerto:</b> ' || (select string_agg(public.html_esc(nome) || ' ' || public.texto_brl(saldo), ' · ' order by nome) from col) || '</div>', '')
+        || '<a href="' || site || '/area/caixa.html#fechamento" style="display:inline-block;margin-top:10px;background:#111214;color:#ffffff;text-decoration:none;font-weight:bold;padding:9px 14px">Gerar o resumo do acerto</a>'
+        || '</div></td></tr>'
+    into cx_txt, cx_html;
+  end if;
+
+  if nd = 0 and na = 0 and cx_txt is null then
+    return 'Nenhuma demanda em andamento, nenhuma ART pedindo ação e nenhum acerto de caixa a lembrar: o informativo não foi enviado.';
   end if;
   select string_agg('<li style="margin-bottom:4px">' || public.html_esc(l) || '</li>', '') into alertas_html
     from unnest(string_to_array(alertas_txt, E'\n')) as l;
 
-  assunto := 'INFORMATIVO DIÁRIO (' || to_char(hoje, 'DD/MM') || ') – '
+  assunto := case when cx_txt is not null then 'ACERTO DE CAIXA – financeiro ' || cx_nomes || ' · ' else '' end
+    || 'INFORMATIVO DIÁRIO (' || to_char(hoje, 'DD/MM') || ') – '
     || case nd when 0 then 'nenhuma demanda em andamento' when 1 then '1 demanda em andamento' else nd || ' demandas em andamento' end
     || ' · ' || case na when 0 then 'nenhuma ART pede ação' when 1 then '1 ART pede ação' else na || ' ARTs pedem ação' end;
 
   texto := 'INFORMATIVO DIÁRIO – ' || to_char(hoje, 'DD/MM/YYYY') || E'\n' || 'Marcos Zanette · Engenharia Mecânica' || E'\n\n'
+    || coalesce('ACERTO DE CAIXA – FINANCEIRO ' || upper(cx_nomes) || E'\n' || cx_txt || E'\n\n', '')
     || 'DEMANDAS EM ANDAMENTO (' || nd || ')' || E'\n'
     || case when nd = 0 then 'Nenhuma demanda em andamento.'
             else dem_cont || case when nd_venc > 0 then E'\nCom prazo vencido: ' || nd_venc else '' end || E'\n\n' || dem_txt end || E'\n\n'
@@ -1224,7 +1282,7 @@ begin
               || E'\n\n' || art_txt end || E'\n\n'
     || 'Demandas: ' || site || '/area/demandas.html#acompanhamento' || E'\n'
     || 'Controle de ART: ' || site || '/area/art.html' || E'\n'
-    || 'Informativo automático da área restrita, todo dia às 7h, enquanto houver demanda em andamento ou ART pedindo ação.';
+    || 'Informativo automático da área restrita, todo dia às 7h, enquanto houver demanda em andamento, ART pedindo ação ou acerto de caixa a lembrar (dias 17 a 20).';
 
   html := '<div style="background:#f3f4f5;padding:16px 0"><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0" '
     || 'style="width:600px;max-width:100%;background:#ffffff;font-family:Arial,Helvetica,sans-serif;color:#1b1d21;border-collapse:collapse">'
@@ -1232,6 +1290,7 @@ begin
     || '<tr><td style="padding:16px 22px 4px;font-size:13px;color:#6b6e73">' || to_char(hoje, 'DD/MM/YYYY') || ' · '
     || case nd when 1 then '1 demanda em andamento' else nd || ' demandas em andamento' end || ' · '
     || case na when 1 then '1 ART pedindo ação' else na || ' ARTs pedindo ação' end || '</td></tr>'
+    || coalesce(cx_html, '')
     -- demandas
     || '<tr><td style="padding:14px 22px 6px"><h2 style="margin:0;font-size:18px;border-left:5px solid #f5b800;padding-left:10px">Demandas em andamento</h2></td></tr>'
     || '<tr><td style="padding:6px 22px"><table role="presentation" width="100%" cellpadding="0" cellspacing="6" style="border-collapse:separate"><tr>'
@@ -1263,7 +1322,7 @@ begin
     || '<a href="' || site || '/area/demandas.html#acompanhamento" style="display:inline-block;background:#f5b800;color:#111214;text-decoration:none;font-weight:bold;padding:10px 16px;margin:0 8px 8px 0">Abrir as demandas</a>'
     || '<a href="' || site || '/area/art.html" style="display:inline-block;background:#111214;color:#ffffff;text-decoration:none;font-weight:bold;padding:10px 16px;margin:0 8px 8px 0">Abrir o Controle de ART</a>'
     || '</td></tr>'
-    || '<tr><td style="padding:12px 22px 18px;border-top:1px solid #e6e6e6;font-size:11px;color:#8a8d92">Informativo automático da área restrita, todo dia às 7h, enquanto houver demanda em andamento ou ART pedindo ação. O banner do dia vai também em anexo.</td></tr>'
+    || '<tr><td style="padding:12px 22px 18px;border-top:1px solid #e6e6e6;font-size:11px;color:#8a8d92">Informativo automático da área restrita, todo dia às 7h, enquanto houver demanda em andamento, ART pedindo ação ou acerto de caixa a lembrar (dias 17 a 20). O banner do dia vai também em anexo.</td></tr>'
     || '</table></div>';
 
   if p_enviar then

@@ -28,6 +28,14 @@ export const tarefaCaixa = (n, total, href = "caixa.html#caixa-pendentes") => ({
   texto: `RDV e fichas de custo que somam ${Number(total || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} e só entram no saldo do caixa depois de aprovados.`,
 });
 
+// Acerto do caixa com o financeiro das empresas (a partir do dia 20, até marcar realizado ou descartar). Vai para quem
+// recebe a tarefa do caixa.
+export const tarefaAcerto = (empresas, atrasado, href = "caixa.html#fechamento") => ({
+  id: "caixa", n: 1, href, botao: "Gerar o resumo", resumo: `acerto de caixa ${empresas ? `com ${empresas} ` : ""}${atrasado ? "atrasado" : "até hoje"}`,
+  titulo: `Acerto de caixa – financeiro ${empresas}`,
+  texto: `${atrasado ? "Já passou do dia 20. " : "Hoje é o dia 20. "}Gere o resumo do período (RDV e fichas de custo de cada empresa e o pendente com colaboradores), confira e envie com as notinhas. No caixa, o lembrete tem as opções lembrar amanhã, acerto realizado ou descartar.`,
+});
+
 export const tarefaDemandas = (n, vencidas, href = "demandas.html") => ({
   id: "demandas", n, href, botao: "Ver as demandas",
   resumo: plural(n, "demanda em andamento", "demandas em andamento") + (vencidas ? ` (${vencidas} com prazo vencido)` : ""),

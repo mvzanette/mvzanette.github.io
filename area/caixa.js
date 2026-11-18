@@ -11,6 +11,7 @@ import { dataBR, hojeISO } from "./regras.js";
 import * as G from "./regras-gestao.js";
 import { lerPlanilha } from "./planilha.js";
 import { lerResumo, conferir, ajustes } from "./caixa-conferencia.js";
+import { CSS_RELATORIO, DIA_ACERTO, lembreteAcerto, marcarAcerto, montarResumo, periodoAcerto, relatorioHtml, relatorioPng, totaisResumo, brl } from "./caixa-fechamento.js";
 import { CLASSIFICACOES, TIPOS, lerDocumentos, nomeColaborador, resumoCaixa, rotuloMovimento, saldoApos, siglas, empresaNoTexto } from "./caixa-documentos.js";
 import { $, esc, moeda, avisar, opcoes, prepararDialogos, numeroDigitado } from "./ui.js";
 
@@ -59,6 +60,7 @@ function renderizar() {
   $("#trilha-caixa").textContent = nomeCaixa();
   $("#caixa-abas").innerHTML = `<a class="pilula" href="caixa.html" aria-current="page">Caixa</a>${doCaixa().map((e) => `<a class="pilula" href="${paginaEmpresa(e)}">Finanças ${esc(e.nome)}</a>`).join("")}`;
   const r = resumoCaixa(config, movimentos, intervalo());
+  renderAcerto();
   renderKpis(r);
   renderGastos(r);
   renderColaboradores(r);
@@ -656,6 +658,161 @@ async function aplicarConferencia() {
   }
 }
 
+// ---------------------------------------------------------------- acerto de caixa: lembrete e resumo para o financeiro
+const nomesEmpresas = () => juntarNomes(doCaixa().map((e) => e.nome));
+
+function renderAcerto() {
+  const l = lembreteAcerto(config, hoje, { desdeDia: 17 });
+  const box = $("#caixa-acerto");
+  box.hidden = !l.ativo;
+  if (!l.ativo) return;
+  const quando = l.dia < DIA_ACERTO ? `até o dia ${DIA_ACERTO}` : l.dia === DIA_ACERTO ? "hoje é o dia" : `passou do dia ${DIA_ACERTO}`;
+  box.innerHTML = `<div class="acerto-texto"><b>Acerto de caixa – financeiro ${esc(nomesEmpresas())}</b><span>${quando}: gere o resumo do período, confira e envie junto com as notinhas e os comprovantes.</span></div>
+    <button class="btn btn-primary" type="button" data-acerto-resumo>Gerar o resumo</button>
+    <label class="acerto-menu"><span class="sr">Lembrete</span><select data-acerto-escolha aria-label="Lembrete do acerto">
+      <option value="">Lembrete…</option><option value="amanha">Lembrar amanhã</option><option value="realizado">Acerto realizado</option><option value="descartar">Descartar lembrete</option></select></label>`;
+}
+
+async function escolherAcerto(escolha, fechamento = null) {
+  if (!escolha) return;
+  try {
+    config = await armazem.caixa.salvarConfig({ acerto: marcarAcerto(config, hoje, escolha, { fechamento }) });
+    avisar(escolha === "amanha" ? "Combinado: o lembrete volta amanhã." : escolha === "realizado" ? "Acerto registrado. O próximo resumo começa depois desta data." : "Lembrete deste mês descartado.");
+  } catch (err) {
+    avisar("Não foi possível salvar: " + err.message);
+  }
+  renderizar();
+}
+
+let fech = null; // { r: resumo editável, ver: mostrando o relatório }
+
+function abrirFechamento() {
+  fech = { r: montarResumo(config, movimentos, doCaixa(), periodoAcerto(config, hoje)), ver: false };
+  $("#dlg-fechamento").showModal();
+  desenharFechamento();
+}
+
+const v2 = (v) => (v == null || v === "" ? "" : String(Number(v).toFixed(2)).replace(".", ","));
+
+function desenharFechamento() {
+  const dlg = $("#dlg-fechamento");
+  const r = fech.r;
+  if (fech.ver) {
+    dlg.innerHTML = `<div class="dlg-cab"><h2 id="titulo-fechamento">Resumo do acerto</h2><button class="btn-link" data-fechar type="button">Fechar</button></div>
+      <div class="dlg-corpo"><style>${CSS_RELATORIO}</style>${relatorioHtml(r, doCaixa(), sig, { titulo: `Acerto de caixa – ${nomesEmpresas()}`, nomes: perfil.nome || "" })}</div>
+      <div class="dlg-rodape">
+        <button class="btn btn-claro esquerda" type="button" data-fech="voltar">Alterar valores</button>
+        <button class="btn btn-claro" type="button" data-fech="png">Baixar imagem</button>
+        <button class="btn btn-claro" type="button" data-fech="imprimir">Imprimir ou PDF</button>
+        <button class="btn btn-primary" type="button" data-fech="realizado">Acerto realizado</button>
+      </div>`;
+    return;
+  }
+  const empresaOpcoes = (id) => opcoes([["", "sem empresa"], ...doCaixa().map((e) => [e.id, e.nome])], id || "");
+  dlg.innerHTML = `<div class="dlg-cab"><h2 id="titulo-fechamento">Resumo do acerto: conferir e alterar</h2><button class="btn-link" data-fechar type="button">Fechar</button></div>
+    <div class="dlg-corpo fech">
+      <p class="dica">Montado com o que está no sistema. Confira e altere o que precisar (qualquer valor): o relatório sai do que estiver aqui, e nada no caixa muda. Despesas a aprovar ficam de fora.</p>
+      <div class="campos">
+        <label class="c2">De<input type="date" data-f="inicio" value="${esc(r.inicio)}"></label>
+        <label class="c2">Até<input type="date" data-f="fim" value="${esc(r.fim)}"></label>
+        <div class="c2 fech-recalc"><button class="btn btn-claro" type="button" data-fech="recalcular">Montar de novo do sistema</button></div>
+        <label class="c2">Saldo inicial (R$)<input data-f="saldoInicial" inputmode="decimal" value="${v2(r.saldoInicial)}"></label>
+        <label class="c2">Entradas no período (R$)<input data-f="entradas" inputmode="decimal" value="${v2(r.entradas)}"></label>
+        <label class="c2">Saldo na conta (R$)<input data-f="conta" inputmode="decimal" value="${v2(r.conta)}" placeholder="opcional"></label>
+      </div>
+      <h3 class="fech-tit">Despesas (RDV e fichas de custo)</h3>
+      <div class="tabela-wrap"><table class="tabela compacta fech-tab"><thead><tr><th>Tipo</th><th>Data</th><th>Descrição</th><th class="num">Valor (R$)</th><th></th></tr></thead><tbody>
+        ${r.linhas.map((l, i) => `<tr data-linha="${i}"><td><select data-l="tipo" aria-label="Tipo">${opcoes(OPCOES_DESPESA(), `${l.classificacao || "outro"}|${l.empresa_id || ""}`)}</select></td>
+          <td><input type="date" data-l="data" value="${esc(l.data || "")}" aria-label="Data"></td>
+          <td><input data-l="descricao" maxlength="200" value="${esc(l.descricao)}" aria-label="Descrição"></td>
+          <td><input data-l="valor" inputmode="decimal" class="num" value="${v2(l.valor)}" aria-label="Valor"></td>
+          <td><button class="btn-link" type="button" data-tirar-linha="${i}">Tirar</button></td></tr>`).join("") || '<tr><td colspan="5" class="dica">Nenhuma despesa aprovada no período.</td></tr>'}
+      </tbody></table></div>
+      <button class="btn-link" type="button" data-fech="mais-linha">+ Despesa</button>
+      <h3 class="fech-tit">Pendente de acerto (com colaboradores)</h3>
+      <div class="tabela-wrap"><table class="tabela compacta fech-tab"><thead><tr><th>Colaborador</th><th>Empresa</th><th class="num">Valor (R$)</th><th></th></tr></thead><tbody>
+        ${r.pendentes.map((p, i) => `<tr data-pend="${i}"><td><input data-p="nome" maxlength="80" value="${esc(p.nome)}" aria-label="Colaborador"></td>
+          <td><select data-p="empresa_id" aria-label="Empresa">${empresaOpcoes(p.empresa_id)}</select></td>
+          <td><input data-p="valor" inputmode="decimal" class="num" value="${v2(p.valor)}" aria-label="Valor"></td>
+          <td><button class="btn-link" type="button" data-tirar-pend="${i}">Tirar</button></td></tr>`).join("") || '<tr><td colspan="4" class="dica">Nada com colaboradores.</td></tr>'}
+      </tbody></table></div>
+      <button class="btn-link" type="button" data-fech="mais-pend">+ Pendente</button>
+      <div id="fech-totais"></div>
+    </div>
+    <div class="dlg-rodape"><button class="btn btn-claro" type="button" data-fechar>Cancelar</button><button class="btn btn-primary" type="button" data-fech="ver">Ver o relatório</button></div>`;
+  totaisFechamento();
+}
+
+function totaisFechamento() {
+  const t = totaisResumo(fech.r, doCaixa());
+  const box = $("#fech-totais");
+  if (!box) return;
+  box.innerHTML = `<div class="tabela-wrap"><table class="tabela compacta"><thead><tr><th>Empresa</th><th class="num">RDV</th><th class="num">Ficha de custo</th><th class="num">Pendente de acerto</th><th class="num">Total</th></tr></thead><tbody>
+    ${t.porEmpresa.map((x) => `<tr><td>${esc(x.nome)}${x.outro ? ` <small class="dica">+ outras ${moeda(x.outro)}</small>` : ""}</td><td class="num">${moeda(x.rdv)}</td><td class="num">${moeda(x.fc)}</td><td class="num">${moeda(x.pendente)}</td><td class="num"><b>${moeda(x.total)}</b></td></tr>`).join("")}
+    </tbody><tfoot><tr><th>Total do acerto</th><th></th><th></th><th class="num">${moeda(t.comColaboradores)}</th><th class="num">${moeda(t.total)}</th></tr>
+    <tr><th>Saldo atual (inicial + entradas − despesas)</th><th></th><th></th><th></th><th class="num">${moeda(t.saldoAtual)}</th></tr>
+    <tr><th>Disponível na conta (saldo atual − pendente)</th><th></th><th></th><th></th><th class="num">${moeda(t.disponivel)}</th></tr></tfoot></table></div>
+    ${t.avisos.map((a) => `<p class="aviso-doc">${esc(a)}</p>`).join("")}`;
+}
+
+function aoEditarFechamento(e) {
+  const el = e.target;
+  const r = fech.r;
+  const num = (v) => { const n = numeroDigitado(v); return n == null ? 0 : n; };
+  if (el.dataset.f) {
+    const k = el.dataset.f;
+    if (k === "inicio" || k === "fim") { r[k] = el.value; return; }
+    r[k] = k === "conta" && !el.value.trim() ? null : num(el.value);
+  } else if (el.dataset.l) {
+    const l = r.linhas[Number(el.closest("tr").dataset.linha)];
+    if (el.dataset.l === "tipo") { const [cl, emp] = el.value.split("|"); l.classificacao = cl; l.empresa_id = emp || null; }
+    else if (el.dataset.l === "valor") l.valor = num(el.value);
+    else l[el.dataset.l] = el.value;
+  } else if (el.dataset.p) {
+    const p = r.pendentes[Number(el.closest("tr").dataset.pend)];
+    p[el.dataset.p] = el.dataset.p === "valor" ? num(el.value) : el.value || (el.dataset.p === "empresa_id" ? null : "");
+  } else return;
+  totaisFechamento();
+}
+
+async function aoClicarFechamento(e) {
+  const b = e.target.closest("button");
+  if (!b) return;
+  const r = fech.r;
+  if (b.dataset.tirarLinha) { r.linhas.splice(Number(b.dataset.tirarLinha), 1); desenharFechamento(); return; }
+  if (b.dataset.tirarPend) { r.pendentes.splice(Number(b.dataset.tirarPend), 1); desenharFechamento(); return; }
+  const acao = b.dataset.fech;
+  if (acao === "mais-linha") { r.linhas.push({ classificacao: "rdv", empresa_id: (doCaixa()[0] || {}).id || null, data: r.fim, descricao: "", valor: 0 }); desenharFechamento(); }
+  if (acao === "mais-pend") { r.pendentes.push({ nome: "", empresa_id: (doCaixa().at(-1) || {}).id || null, valor: 0 }); desenharFechamento(); }
+  if (acao === "recalcular") {
+    if (!r.inicio || !r.fim || r.inicio > r.fim) { avisar("Confira as datas do período."); return; }
+    fech.r = montarResumo(config, movimentos, doCaixa(), { inicio: r.inicio, fim: r.fim });
+    desenharFechamento();
+  }
+  if (acao === "ver") { fech.ver = true; desenharFechamento(); }
+  if (acao === "voltar") { fech.ver = false; desenharFechamento(); }
+  const opcoesRel = { titulo: `Acerto de caixa – ${nomesEmpresas()}`, nomes: perfil.nome || "" };
+  if (acao === "png") {
+    relatorioPng(r, doCaixa(), sig, opcoesRel).toBlob((blob) => {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `acerto-caixa-${r.fim}.png`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    }, "image/png");
+  }
+  if (acao === "imprimir") {
+    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Acerto de caixa ${dataBR(r.fim)}</title><style>body{margin:24px;background:#fff}${CSS_RELATORIO}</style></head><body>${relatorioHtml(r, doCaixa(), sig, opcoesRel)}<script>onload=()=>print()<\/script></body></html>`;
+    const w = window.open(URL.createObjectURL(new Blob([html], { type: "text/html" })), "_blank");
+    if (!w) avisar("O navegador bloqueou a janela de impressão: libere as janelas deste site.");
+  }
+  if (acao === "realizado") {
+    if (!confirm(`Registrar o acerto de ${dataBR(r.inicio)} a ${dataBR(r.fim)}? O lembrete deste mês para, e o próximo resumo começa em ${dataBR(r.fim)} + 1 dia.`)) return;
+    $("#dlg-fechamento").close();
+    await escolherAcerto("realizado", { inicio: r.inicio, fim: r.fim, total: totaisResumo(r, doCaixa()).total });
+  }
+}
+
 // ---------------------------------------------------------------- eventos
 function prepararEventos() {
   prepararDialogos();
@@ -663,6 +820,17 @@ function prepararEventos() {
   $("#btn-configurar").addEventListener("click", () => abrirConfig());
   $("#btn-importar").addEventListener("click", abrirImportar);
   $("#btn-conferir").addEventListener("click", abrirConferir);
+  $("#btn-fechamento").addEventListener("click", abrirFechamento);
+  $("#dlg-fechamento").addEventListener("input", aoEditarFechamento);
+  $("#dlg-fechamento").addEventListener("change", aoEditarFechamento);
+  $("#dlg-fechamento").addEventListener("click", aoClicarFechamento);
+  $("#caixa-acerto").addEventListener("click", (e) => { if (e.target.closest("[data-acerto-resumo]")) abrirFechamento(); });
+  $("#caixa-acerto").addEventListener("change", (e) => {
+    const s = e.target.closest("[data-acerto-escolha]");
+    if (!s || !s.value) return;
+    if (s.value === "realizado" && !confirm("Marcar o acerto deste mês como realizado? O próximo resumo começa a partir de amanhã.")) { s.value = ""; return; }
+    escolherAcerto(s.value);
+  });
   $("#btn-despesa").addEventListener("click", () => abrirMovimento(null, { tipo: "despesa" }));
   $("#btn-entrada").addEventListener("click", () => abrirMovimento(null, { tipo: "entrada", empresa_id: (doCaixa()[0] || {}).id || null }));
   $("#btn-adiantar").addEventListener("click", () => abrirMovimento(null, { tipo: "adiantamento", descricao: "Adiantamento" }));
@@ -712,6 +880,7 @@ async function iniciar() {
     await recarregar();
     // Vindo das tarefas pendentes (caixa.html#caixa-pendentes): direto para os documentos a aprovar
     if (location.hash === "#caixa-pendentes" && !$("#caixa-pendentes").hidden) $("#caixa-pendentes").scrollIntoView({ block: "start" });
+    if (location.hash === "#fechamento" && config && (config.empresas || []).length) abrirFechamento();
   } catch (err) {
     $("main").insertAdjacentHTML("afterbegin", `<p class="cartao erro-geral" role="alert">${esc(err.message)}</p>`);
   }

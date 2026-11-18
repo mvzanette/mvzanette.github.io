@@ -6,7 +6,8 @@ import * as R from "./regras.js";
 import * as G from "./regras-gestao.js";
 import { resumoCaixa } from "./caixa-documentos.js";
 import { $, esc, moeda, moedaCurta } from "./ui.js";
-import { contarPendenciasFinancas, faixaTarefas, mostrarTarefas, tarefaAPagar, tarefaArts, tarefaCaixa, tarefaClassificar, tarefaDemandas, tarefaVeiculos } from "./tarefas.js";
+import { lembreteAcerto } from "./caixa-fechamento.js";
+import { contarPendenciasFinancas, faixaTarefas, mostrarTarefas, tarefaAPagar, tarefaAcerto, tarefaArts, tarefaCaixa, tarefaClassificar, tarefaDemandas, tarefaVeiculos } from "./tarefas.js";
 import { carregarAlertasVeiculos } from "./veiculos-regras.js";
 
 const hoje = R.hojeISO();
@@ -53,6 +54,11 @@ async function resumos(armazem, perfil, empresas) {
     if (c.diferenca != null && c.diferenca < -0.005) partes.push(`${moeda(-c.diferenca)} de uso pessoal a repor na conta`);
     r.caixa = { empresas: caixaConfig.empresas, texto: partes.join(" · "), alerta: c.aAprovar.n > 0 || (c.diferenca != null && c.diferenca < -0.005) };
     r.tarefas.push(tarefaCaixa(c.aAprovar.n, c.aAprovar.total));
+    const acerto = lembreteAcerto(caixaConfig, hoje);
+    if (acerto.ativo) {
+      const ns = empresas.filter((e) => caixaConfig.empresas.includes(e.id)).map((e) => e.nome);
+      r.tarefas.push(tarefaAcerto(ns.length < 2 ? ns.join("") : `${ns.slice(0, -1).join(", ")} e ${ns.at(-1)}`, acerto.atrasado));
+    }
   }
   // Controle financeiro e painel: só a engenharia; os lançamentos com empresa ficam nos cards das empresas
   const lancamentos = todosLanc && tem("financeiro") ? todosLanc.filter((l) => !l.empresa_id) : null;
