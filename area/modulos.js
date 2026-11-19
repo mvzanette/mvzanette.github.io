@@ -15,7 +15,7 @@ export const GRUPOS = [
 ];
 
 // Módulos profissionais (dados da engenharia e das empresas): nunca ficam abertos para clientes
-export const ENGENHARIA = ["art", "financeiro", "demandas", "empresas"];
+export const ENGENHARIA = ["art", "financeiro", "demandas", "empresas", "projetos"];
 // Módulos que aparecem no painel gerencial
 const DO_PAINEL = ["art", "financeiro", "demandas"];
 
@@ -70,6 +70,15 @@ export const MODULOS = [
     descricao: "Cadastro dos clientes, com os e-mails de acesso ao portal, as solicitações, as ARTs acompanhadas e os arquivos.",
     pagina: "clientes.html",
     icone: svg('<path d="M3 21V5a2 2 0 0 1 2-2h8l6 6v12"/><circle cx="11" cy="12" r="2.5"/><path d="M7 18a4 4 0 0 1 8 0"/>'),
+  },
+  {
+    // Material de projetos e treinamentos (Word, PDF, apresentações, fotos e links do Google Docs), por projeto
+    id: "projetos",
+    grupo: "profissional",
+    titulo: "Projetos e Arquivos",
+    descricao: "Documentos, PDFs, apresentações, fotos e links de cada projeto, organizados em pastas. Ex.: treinamento MAPS Caterpillar.",
+    pagina: "projetos.html",
+    icone: svg('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M8 13h8M8 16h5"/>'),
   },
   // Portal do cliente: o que é dele (as demandas com o e-mail dele, os arquivos e as ARTs que ele acompanha)
   {
@@ -132,6 +141,7 @@ export const PERMISSOES = [
   { id: "financeiro", titulo: "Controle financeiro", detalhe: "Todos os lançamentos de receitas e despesas da engenharia." },
   { id: "empresas", titulo: "Finanças das empresas", detalhe: "Lançamentos com as empresas cadastradas: reembolsos, ARTs pagas por elas e valores a receber." },
   { id: "demandas", titulo: "Controle de demandas", detalhe: "Todas as solicitações de clientes, propostas e prazos." },
+  { id: "projetos", titulo: "Projetos e Arquivos", detalhe: "Todos os projetos e os arquivos e links guardados neles (material de treinamentos, apresentações, fotos)." },
   { id: "financas", titulo: "Finanças pessoais", detalhe: "Gastos, cartão e investimentos: o painel do projeto Financeiro da própria pessoa." },
   { id: "veiculos", titulo: "Veículos pessoais", detalhe: "Os veículos da própria pessoa: preventivas, marcadores, serviços, despesas e notas, com avisos por e-mail." },
   { id: "pedidos", titulo: "Meus pedidos (portal do cliente)", detalhe: "As demandas com o e-mail da pessoa ou do cliente dela na base: etapas e recado." },

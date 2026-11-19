@@ -171,7 +171,7 @@ alter table public.perfis add constraint perfis_casal_check check (casal_com is 
 -- Módulos que podem ser liberados (refeito a cada versão, para incluir os módulos novos)
 alter table public.perfis drop constraint if exists perfis_modulos_check;
 alter table public.perfis add constraint perfis_modulos_check
-  check (modulos <@ array['art', 'financeiro', 'demandas', 'financas', 'empresas', 'pedidos', 'arquivos', 'veiculos']::text[]);
+  check (modulos <@ array['art', 'financeiro', 'demandas', 'financas', 'empresas', 'pedidos', 'arquivos', 'veiculos', 'projetos']::text[]);
 
 -- Tarefas pendentes que a pessoa recebe (janela ao entrar e avisos que abrem sozinhos nas páginas), escolhidas em
 -- Usuários e permissões → Tarefas pendentes. Vazio (null): todas as dos módulos liberados.
@@ -468,7 +468,7 @@ language sql stable security definer set search_path = '' as $$
     where user_id = auth.uid() and situacao = 'ativo'
       and (papel = 'adm'
         or (p_modulo = any (modulos)
-          and not (papel = 'cliente' and p_modulo in ('art', 'financeiro', 'demandas', 'empresas'))))
+          and not (papel = 'cliente' and p_modulo in ('art', 'financeiro', 'demandas', 'empresas', 'projetos'))))
   );
 $$;
 
@@ -2111,3 +2111,96 @@ create policy "movimentos do proprio perfil" on public.bancos_movimentos
   for all to authenticated
   using (public.financas_acesso(perfil_id))
   with check (public.financas_acesso(perfil_id));
+
+
+-- =====================================================================================================================
+-- Projetos e Arquivos (area/projetos.html): projetos (ex.: treinamento MAPS da Caterpillar) e o material de cada um,
+-- em pastas: arquivos (Word, PDF, apresentações, planilhas, fotos, até 50 MB cada, no espaço privado "projetos") e
+-- links (Google Docs, Slides, Drive, YouTube...). Quem tem o módulo "projetos" vê e altera todos; clientes nunca.
+-- =====================================================================================================================
+create table if not exists public.projetos (
+  id            uuid primary key default gen_random_uuid(),
+  nome          text not null check (length(btrim(nome)) between 1 and 120),
+  cliente       text check (cliente is null or length(cliente) <= 120),
+  descricao     text check (descricao is null or length(descricao) <= 2000),
+  situacao      text not null default 'ativo' check (situacao in ('ativo', 'arquivado')),
+  criado_em     timestamptz not null default now(),
+  atualizado_em timestamptz not null default now()
+);
+
+create table if not exists public.projetos_arquivos (
+  id          uuid primary key default gen_random_uuid(),
+  projeto_id  uuid not null references public.projetos (id) on delete cascade,
+  pasta       text check (pasta is null or length(pasta) <= 80),
+  nome        text not null check (length(btrim(nome)) between 1 and 200),
+  descricao   text check (descricao is null or length(descricao) <= 500),
+  origem      text not null default 'arquivo' check (origem in ('arquivo', 'link')),
+  caminho     text unique,
+  url         text check (url is null or (url ~ '^https://\S+$' and length(url) <= 2000)),
+  tamanho     bigint,
+  tipo        text,
+  criado_em   timestamptz not null default now(),
+  check ((origem = 'arquivo' and caminho is not null) or (origem = 'link' and url is not null))
+);
+create index if not exists projetos_arquivos_projeto_idx on public.projetos_arquivos (projeto_id);
+
+create or replace function public.projetos_normalizar() returns trigger
+language plpgsql as $$
+begin
+  new.nome := btrim(new.nome);
+  new.cliente := nullif(btrim(new.cliente), '');
+  new.descricao := nullif(btrim(new.descricao), '');
+  new.atualizado_em := now();
+  return new;
+end $$;
+drop trigger if exists projetos_normalizar on public.projetos;
+create trigger projetos_normalizar before insert or update on public.projetos
+  for each row execute function public.projetos_normalizar();
+
+create or replace function public.projetos_arquivos_normalizar() returns trigger
+language plpgsql as $$
+begin
+  new.nome := btrim(new.nome);
+  new.pasta := nullif(btrim(new.pasta), '');
+  new.descricao := nullif(btrim(new.descricao), '');
+  new.url := nullif(btrim(new.url), '');
+  return new;
+end $$;
+drop trigger if exists projetos_arquivos_normalizar on public.projetos_arquivos;
+create trigger projetos_arquivos_normalizar before insert or update on public.projetos_arquivos
+  for each row execute function public.projetos_arquivos_normalizar();
+
+alter table public.projetos enable row level security;
+alter table public.projetos_arquivos enable row level security;
+revoke all on public.projetos, public.projetos_arquivos from anon;
+grant select, insert, update, delete on public.projetos, public.projetos_arquivos to authenticated, service_role;
+revoke truncate, trigger, references on public.projetos, public.projetos_arquivos from authenticated;
+
+drop policy if exists "projetos - quem tem o modulo" on public.projetos;
+create policy "projetos - quem tem o modulo" on public.projetos
+  for all to authenticated
+  using ((select public.pode('projetos')))
+  with check ((select public.pode('projetos')));
+
+drop policy if exists "arquivos dos projetos - quem tem o modulo" on public.projetos_arquivos;
+create policy "arquivos dos projetos - quem tem o modulo" on public.projetos_arquivos
+  for all to authenticated
+  using ((select public.pode('projetos')))
+  with check ((select public.pode('projetos')));
+
+-- Espaço privado dos arquivos (até 50 MB cada, qualquer tipo), uma pasta por projeto
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('projetos', 'projetos', false, 52428800)
+on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit;
+
+drop policy if exists "arquivos dos projetos - quem tem o modulo" on storage.objects;
+create policy "arquivos dos projetos - quem tem o modulo" on storage.objects
+  for all to authenticated
+  using (bucket_id = 'projetos' and (select public.pode('projetos')))
+  with check (bucket_id = 'projetos' and (select public.pode('projetos')));
+
+-- Primeiro projeto (só quando ainda não há nenhum: rodar o script de novo não recria um projeto apagado)
+insert into public.projetos (nome, cliente, descricao)
+select 'Treinamento MAPS – Caterpillar', 'Caterpillar',
+       'Material do treinamento MAPS da Caterpillar e o conteúdo derivado dele para treinamentos em empresas (venda ou instrução técnica).'
+ where not exists (select 1 from public.projetos);

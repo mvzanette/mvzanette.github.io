@@ -399,6 +399,24 @@ altera o cadastro.
 - Banco: tabelas `veiculos`, `veiculos_marcadores`, `veiculos_planos`, `veiculos_servicos`, `veiculos_anexos` e
   `veiculos_avisos` (no fim de `supabase/schema.sql`).
 
+## Projetos e Arquivos
+
+Página `area/projetos.html` (grupo Profissional; módulo `projetos`, liberado em Usuários e permissões; clientes nunca recebem).
+Junta o material de cada projeto num lugar só, em pastas. O primeiro projeto é o **Treinamento MAPS – Caterpillar**
+(criado pelo `supabase/schema.sql` quando ainda não há nenhum projeto), para montar o material de treinamento para empresas.
+
+- **Arquivos:** Word, PDF, PowerPoint, Excel, fotos e vídeos curtos, até 50 MB cada (o limite por arquivo do plano gratuito
+  do Supabase). Arraste vários de uma vez, escolha a pasta (ex.: Apostila, Apresentações, Exercícios, Fotos, Material de
+  venda) e eles ficam no espaço privado `projetos` do Supabase Storage, uma pasta por projeto. Abrir e baixar usam um link
+  temporário de 10 minutos, como os outros anexos da área.
+- **Links:** Google Docs, Slides, Planilhas, Drive, YouTube, OneDrive ou Canva. Use para o que é editado no Google e para
+  vídeos grandes. Quem abre precisa ter acesso ao arquivo no Google.
+- Filtro por tipo (documentos, PDF, apresentações, planilhas, fotos, vídeos, links) e busca pelo nome, descrição ou pasta.
+  Cada item pode mudar de nome, pasta, descrição ou projeto. Projetos terminados podem ser arquivados.
+- Espaço: o plano gratuito do Supabase guarda 1 GB no total (somando os PDFs das ARTs, do caixa e dos veículos).
+  Os arquivos entram na cópia de segurança diária da AWS como os demais.
+- Banco: tabelas `projetos` e `projetos_arquivos` e o espaço `projetos` (no fim de `supabase/schema.sql`).
+
 ## Finanças das empresas
 
 Uma página para cada empresa com que você tem movimento financeiro (onde trabalha, ou que paga as ARTs que você tira), com entrada própria no menu e card no início. Os **nomes das empresas ficam só no banco**: o código do site é público e não cita nenhuma empresa. Cadastre, renomeie ou remova pelo botão **Empresas** da página.
