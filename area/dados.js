@@ -77,6 +77,15 @@ export const tipoAnexo = (arquivo) => {
   return TIPOS_ANEXO[ext] || (Object.values(TIPOS_ANEXO).includes(arquivo.type) ? arquivo.type : arquivo.type === "text/xml" ? "application/xml" : null);
 };
 
+// Projetos e Arquivos (area/projetos.html): projetos (ex.: treinamento MAPS) e o material de cada um. Cada item é um
+// arquivo guardado no espaço privado "projetos" (caminho) ou um link (Google Docs, Drive, YouTube...), numa pasta.
+TABELAS.projetos = { colunas: ["id", "nome", "cliente", "descricao", "situacao"], numeros: [] };
+TABELAS.projetos_arquivos = {
+  colunas: ["id", "projeto_id", "pasta", "nome", "descricao", "origem", "caminho", "url", "tamanho", "tipo"],
+  numeros: ["tamanho"],
+};
+export const LIMITE_PROJETOS = 50 * 1024 * 1024; // o limite do espaço "projetos" no banco (o do plano gratuito do Supabase)
+
 // Configuração do caixa das empresas: quais empresas, saldo inicial e o saldo informado da conta do caixa
 const COLUNAS_CAIXA = ["empresas", "saldo_inicial", "data_inicial", "saldo_conta", "data_conta", "acerto"];
 function limparConfigCaixa(c) {
@@ -928,6 +937,21 @@ function armazemDemo() {
     colecao(nome) {
       return colecoes[nome];
     },
+    // Arquivos dos projetos: na demonstração, só durante a sessão
+    projetos: {
+      async enviar(projetoId, arquivo) {
+        if (arquivo.size > LIMITE_PROJETOS) throw new Error(`${arquivo.name}: arquivo grande demais (até 50 MB). Para vídeos e arquivos maiores, guarde no Google Drive e adicione o link.`);
+        const caminho = `${projetoId}/${caminhoDocumento(arquivo.name)}`;
+        docsCaixa.set(caminho, URL.createObjectURL(arquivo));
+        return caminho;
+      },
+      async url(caminho) {
+        return docsCaixa.get(caminho) || null;
+      },
+      async apagar(caminho) {
+        docsCaixa.delete(caminho);
+      },
+    },
     // Notas fiscais e fotos dos veículos: na demonstração, só durante a sessão
     veiculos: {
       async pessoas() {
@@ -1433,6 +1457,26 @@ async function armazemSupabase(url, chave) {
         return data || [];
       },
     },
+    // Arquivos dos projetos: uma pasta por projeto no espaço privado "projetos" (o banco confere quem tem o módulo)
+    projetos: {
+      async enviar(projetoId, arquivo) {
+        if (arquivo.size > LIMITE_PROJETOS) throw new Error(`${arquivo.name}: arquivo grande demais (até 50 MB). Para vídeos e arquivos maiores, guarde no Google Drive e adicione o link.`);
+        const caminho = `${projetoId}/${caminhoDocumento(arquivo.name)}`;
+        const { error } = await sb.storage.from("projetos").upload(caminho, arquivo, { upsert: false, contentType: arquivo.type || "application/octet-stream" });
+        if (error) throw new Error(/bucket/i.test(error.message) ? BANCO_DESATUALIZADO : /size|large/i.test(error.message) ? `${arquivo.name}: arquivo grande demais (até 50 MB).` : error.message);
+        return caminho;
+      },
+      // Link temporário (10 minutos); com o nome, o navegador baixa em vez de abrir
+      async url(caminho, nome) {
+        const { data, error } = await sb.storage.from("projetos").createSignedUrl(caminho, 600, nome ? { download: nome } : undefined);
+        falhou(error);
+        return data.signedUrl;
+      },
+      async apagar(caminho) {
+        const { error } = await sb.storage.from("projetos").remove([caminho]);
+        falhou(error);
+      },
+    },
     // Veículos: pessoas para compartilhar e as notas fiscais e fotos (pasta com o id do veículo; o banco confere quem pode)
     veiculos: {
       async pessoas() {
@@ -1463,7 +1507,7 @@ async function armazemSupabase(url, chave) {
       return {
         async listar() {
           const { data, error } = await sb.from(nome).select("*");
-          if (error && nome.startsWith("veiculos") && (error.code === "42P01" || error.code === "PGRST205")) throw new Error(BANCO_DESATUALIZADO);
+          if (error && (nome.startsWith("veiculos") || nome.startsWith("projetos")) && (error.code === "42P01" || error.code === "PGRST205")) throw new Error(BANCO_DESATUALIZADO);
           falhou(error);
           return (data || []).map((x) => numeros(nome, x));
         },

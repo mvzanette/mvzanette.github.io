@@ -111,6 +111,15 @@ async function resumos(armazem, perfil, empresas) {
         : { texto: `${plural(veic.quadros.length, "veículo em dia", "veículos em dia")}` };
     }
   }
+  if (tem("projetos")) {
+    const [projs, arqs] = await Promise.all([armazem.colecao("projetos").listar(), armazem.colecao("projetos_arquivos").listar()]
+      .map((p) => p.catch(() => null)));
+    if (projs) {
+      const ativos = projs.filter((p) => p.situacao !== "arquivado").length;
+      r.projetos = !projs.length ? { texto: "Crie o primeiro projeto", alerta: true }
+        : { texto: `${plural(ativos, "projeto ativo", "projetos ativos")}${arqs ? ` · ${plural(arqs.length, "item", "itens")}` : ""}` };
+    }
+  }
   if (usuarios) {
     const pendentes = usuarios.filter((u) => u.situacao === "pendente").length;
     const ativos = usuarios.filter((u) => situacaoDe(u) === "ativo").length;
