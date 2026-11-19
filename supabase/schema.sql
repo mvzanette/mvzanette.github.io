@@ -2199,8 +2199,20 @@ create policy "arquivos dos projetos - quem tem o modulo" on storage.objects
   using (bucket_id = 'projetos' and (select public.pode('projetos')))
   with check (bucket_id = 'projetos' and (select public.pode('projetos')));
 
--- Primeiro projeto (só quando ainda não há nenhum: rodar o script de novo não recria um projeto apagado)
-insert into public.projetos (nome, cliente, descricao)
-select 'Treinamento MAPS – Caterpillar', 'Caterpillar',
-       'Material do treinamento MAPS da Caterpillar e o conteúdo derivado dele para treinamentos em empresas (venda ou instrução técnica).'
- where not exists (select 1 from public.projetos);
+-- Primeiro projeto, já com o caderno de anotações do curso (Google Docs). Só quando ainda não há nenhum projeto:
+-- rodar o script de novo não recria um projeto ou um link apagado.
+do $$
+declare
+  v_id uuid;
+begin
+  if not exists (select 1 from public.projetos) then
+    insert into public.projetos (nome, cliente, descricao)
+    values ('Treinamento MAPS – Caterpillar', 'Caterpillar',
+            'Material do treinamento MAPS da Caterpillar e o conteúdo derivado dele para treinamentos em empresas (venda ou instrução técnica).')
+    returning id into v_id;
+    insert into public.projetos_arquivos (projeto_id, pasta, nome, descricao, origem, url)
+    values (v_id, 'Caderno do treinamento', 'Caderno de anotações – MAPS (23 a 27/11/2026)',
+            'Programação do MAPS – Machine Application & Performance Seminar, dia a dia, com espaço para anotações e comentários. Google Docs "CATERPILLAR - MAPS".',
+            'link', 'https://docs.google.com/document/d/1q-MNGN43A0zFJ-61hEkWbidsxwvZowYwz3h30Brh2_M/edit?usp=sharing');
+  end if;
+end $$;

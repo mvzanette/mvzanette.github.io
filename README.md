@@ -403,7 +403,8 @@ altera o cadastro.
 
 Página `area/projetos.html` (grupo Profissional; módulo `projetos`, liberado em Usuários e permissões; clientes nunca recebem).
 Junta o material de cada projeto num lugar só, em pastas. O primeiro projeto é o **Treinamento MAPS – Caterpillar**
-(criado pelo `supabase/schema.sql` quando ainda não há nenhum projeto), para montar o material de treinamento para empresas.
+(criado pelo `supabase/schema.sql` quando ainda não há nenhum projeto, já com o link do caderno de anotações do curso no
+Google Docs, na pasta "Caderno do treinamento"), para montar o material de treinamento para empresas.
 
 - **Arquivos:** Word, PDF, PowerPoint, Excel, fotos e vídeos curtos, até 50 MB cada (o limite por arquivo do plano gratuito
   do Supabase). Arraste vários de uma vez, escolha a pasta (ex.: Apostila, Apresentações, Exercícios, Fotos, Material de

@@ -21,8 +21,17 @@ const CATEGORIAS = [
 ];
 const categoriaPorId = (id) => CATEGORIAS.find((c) => c.id === id);
 
+// Caderno de anotações do MAPS (Google Docs): entra junto com o projeto MAPS (o mesmo do supabase/schema.sql)
+const CADERNO_MAPS = {
+  origem: "link",
+  pasta: "Caderno do treinamento",
+  nome: "Caderno de anotações – MAPS (23 a 27/11/2026)",
+  descricao: "Programação do MAPS – Machine Application & Performance Seminar, dia a dia, com espaço para anotações e comentários. Google Docs \"CATERPILLAR - MAPS\".",
+  url: "https://docs.google.com/document/d/1q-MNGN43A0zFJ-61hEkWbidsxwvZowYwz3h30Brh2_M/edit?usp=sharing",
+};
+
 // Pastas sugeridas (as que já existem no projeto aparecem também)
-const PASTAS_SUGERIDAS = ["Apostila e material do aluno", "Apresentações", "Exercícios e avaliações", "Fotos", "Referências técnicas", "Material de venda", "Certificados e listas de presença"];
+const PASTAS_SUGERIDAS = ["Caderno do treinamento", "Apostila e material do aluno", "Apresentações", "Exercícios e avaliações", "Fotos", "Referências técnicas", "Material de venda", "Certificados e listas de presença"];
 const SEM_PASTA = "Sem pasta";
 
 const extensao = (nome) => (/\.([a-z0-9]{1,8})$/i.exec(String(nome || "")) || [])[1]?.toLowerCase() || "";
@@ -208,7 +217,7 @@ async function abrir(item, baixar = false) {
 // ---------------------------------------------------------------------------------------------------------------------
 // Projeto: criar, editar, arquivar e excluir
 
-function abrirProjeto(id, sugestao = {}) {
+function abrirProjeto(id, sugestao = {}, itensIniciais = []) {
   const p = projetos.find((x) => x.id === id) || { situacao: "ativo", ...sugestao };
   const existente = !!p.id;
   const dlg = $("#dlg-projeto");
@@ -236,6 +245,9 @@ function abrirProjeto(id, sugestao = {}) {
       const salvo = await armazem.colecao("projetos").salvar({ ...(existente ? { id: p.id } : {}), ...dados });
       projetos = projetos.filter((x) => x.id !== salvo.id).concat(salvo);
       atual = salvo.id;
+      for (const item of existente ? [] : itensIniciais) {
+        itens.push(await armazem.colecao("projetos_arquivos").salvar({ ...item, projeto_id: salvo.id }));
+      }
       dlg.close();
       render();
       avisar(existente ? "Projeto salvo." : "Projeto criado. Agora é só enviar os arquivos.");
@@ -414,7 +426,7 @@ function ligarEventos() {
     nome: "Treinamento MAPS – Caterpillar",
     cliente: "Caterpillar",
     descricao: "Material do treinamento MAPS da Caterpillar e o conteúdo derivado dele para treinamentos em empresas (venda ou instrução técnica).",
-  }));
+  }, [CADERNO_MAPS]));
 
   $("#proj-abas").addEventListener("click", (e) => {
     const a = e.target.closest("[data-projeto]");
